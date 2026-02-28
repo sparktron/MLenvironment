@@ -1,0 +1,39 @@
+experiment_name: organisms_fight_arena
+seed: 11
+
+environment:
+  type: organism_arena_parallel
+  seed: 11
+  sim:
+    arena_half_extent: 1.2
+  morphology:
+    base_size: 1.0
+    episode_growth_scale: 0.0
+    health: 1.2
+    energy: 1.0
+  battle_rules:
+    damage: 0.06
+    attack_range: 0.2
+    cooldown_steps: 3
+    max_steps: 400
+    win_health_threshold: 0.0
+
+training:
+  policy: MlpPolicy
+  total_timesteps: 30000
+  learning_rate: 0.0003
+  n_steps: 1024
+  batch_size: 256
+  checkpoint_every: 5000
+  normalize_observations: true
+
+evaluation:
+  max_steps: 400
+
+output:
+  base_dir: outputs
+
+sweep:
+  parameters:
+    environment.battle_rules.attack_range: [0.15, 0.2, 0.25]
+    environment.battle_rules.cooldown_steps: [2, 3, 4]

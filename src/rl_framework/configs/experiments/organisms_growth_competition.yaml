@@ -1,0 +1,39 @@
+experiment_name: organisms_growth_competition
+seed: 7
+
+environment:
+  type: organism_arena_parallel
+  seed: 7
+  sim:
+    arena_half_extent: 1.0
+  morphology:
+    base_size: 1.0
+    episode_growth_scale: 0.002
+    health: 1.0
+    energy: 1.0
+  battle_rules:
+    damage: 0.04
+    attack_range: 0.25
+    cooldown_steps: 2
+    max_steps: 300
+    win_health_threshold: 0.0
+
+training:
+  policy: MlpPolicy
+  total_timesteps: 25000
+  learning_rate: 0.0003
+  n_steps: 1024
+  batch_size: 256
+  checkpoint_every: 5000
+  normalize_observations: true
+
+evaluation:
+  max_steps: 300
+
+output:
+  base_dir: outputs
+
+sweep:
+  parameters:
+    environment.morphology.base_size: [0.8, 1.0, 1.2]
+    environment.battle_rules.damage: [0.03, 0.04, 0.05]
