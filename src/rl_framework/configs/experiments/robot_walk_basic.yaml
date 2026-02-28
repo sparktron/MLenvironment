@@ -1,0 +1,48 @@
+experiment_name: robot_walk_basic
+seed: 42
+
+environment:
+  type: walker_bullet
+  seed: 42
+  sim:
+    gravity: -9.81
+    mass: 3.0
+    friction: 0.9
+    max_force: 35.0
+    body_half_extents: [0.2, 0.1, 0.08]
+  reward:
+    alive_bonus: 1.0
+    forward_velocity_weight: 2.0
+    target_velocity: 1.0
+    orientation_penalty_weight: 1.0
+    torque_penalty_weight: 0.01
+  termination:
+    min_height: 0.12
+    max_tilt_radians: 0.8
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  policy: MlpPolicy
+  total_timesteps: 20000
+  learning_rate: 0.0003
+  n_steps: 1024
+  batch_size: 256
+  checkpoint_every: 5000
+  normalize_observations: true
+
+evaluation:
+  episodes: 5
+
+output:
+  base_dir: outputs
+
+sweep:
+  parameters:
+    environment.reward.target_velocity: [0.5, 1.0, 1.5]
+    environment.reward.torque_penalty_weight: [0.005, 0.01]
