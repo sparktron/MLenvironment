@@ -42,8 +42,8 @@ class OrganismArenaParallelEnv(ParallelEnv):
 
     def _spawn_agent(self, name: str, sign: float) -> dict[str, Any]:
         base_size = float(self.morphology.get("base_size", 1.0))
-        growth = float(self.morphology.get("episode_growth_scale", 0.0)) * self.step_count
-        size = np.clip(base_size + growth, 0.5, 2.0)
+        # step_count is 0 at spawn — store base_size and compute current size dynamically.
+        size = np.clip(base_size, 0.5, 2.0)
         health = float(self.morphology.get("health", 1.0)) * size
         energy = float(self.morphology.get("energy", 1.0))
         return {
@@ -53,6 +53,12 @@ class OrganismArenaParallelEnv(ParallelEnv):
             "cooldown": 0,
             "size": size,
         }
+
+    def _current_size(self, agent: str) -> float:
+        """Compute agent's current size including episode growth."""
+        base_size = float(self.morphology.get("base_size", 1.0))
+        growth = float(self.morphology.get("episode_growth_scale", 0.0)) * self.step_count
+        return float(np.clip(base_size + growth, 0.5, 2.0))
 
     def reset(self, seed: int | None = None, options: dict[str, Any] | None = None):
         if seed is not None:
@@ -78,9 +84,11 @@ class OrganismArenaParallelEnv(ParallelEnv):
 
     def step(self, actions: dict[str, np.ndarray]):
         self.step_count += 1
-        rewards = {agent: 0.0 for agent in self.agents}
-        terminations = {agent: False for agent in self.agents}
-        truncations = {agent: self.step_count >= self.rules.max_steps for agent in self.agents}
+        # Capture the active agent set at step entry; all returned dicts must share these keys.
+        active_agents = list(self.agents)
+        rewards = {agent: 0.0 for agent in active_agents}
+        terminations = {agent: False for agent in active_agents}
+        truncations = {agent: self.step_count >= self.rules.max_steps for agent in active_agents}
 
         for agent, action in actions.items():
             if agent not in self.state:
@@ -88,6 +96,8 @@ class OrganismArenaParallelEnv(ParallelEnv):
             move = np.asarray(action[:2], dtype=np.float32) * 0.05
             self.state[agent]["pos"] = np.clip(self.state[agent]["pos"] + move, -self.bounds, self.bounds)
             self.state[agent]["cooldown"] = max(0, int(self.state[agent]["cooldown"]) - 1)
+            # Apply growth: update size each step so episode_growth_scale takes effect.
+            self.state[agent]["size"] = self._current_size(agent)
 
         for attacker in list(self.agents):
             defender = "agent_1" if attacker == "agent_0" else "agent_0"
@@ -104,16 +114,18 @@ class OrganismArenaParallelEnv(ParallelEnv):
                 rewards[defender] -= damage
                 self.state[attacker]["cooldown"] = self.rules.cooldown_steps
 
-        for agent in self.agents:
+        for agent in active_agents:
             if self.state[agent]["health"] <= self.rules.win_health_threshold:
                 terminations[agent] = True
                 winner = "agent_1" if agent == "agent_0" else "agent_0"
-                rewards[winner] += 1.0
+                if winner in rewards:
+                    rewards[winner] += 1.0
                 rewards[agent] -= 1.0
 
         if any(terminations.values()) or all(truncations.values()):
             self.agents = []
 
-        observations = {agent: self._obs(agent) for agent in self.possible_agents if agent in self.state}
-        infos = {agent: {"step": self.step_count} for agent in self.possible_agents}
+        # All five dicts must have identical keys (active_agents) per PettingZoo Parallel API.
+        observations = {agent: self._obs(agent) for agent in active_agents}
+        infos = {agent: {"step": self.step_count} for agent in active_agents}
         return observations, rewards, terminations, truncations, infos

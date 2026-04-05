@@ -11,6 +11,8 @@ def _set_nested(d: dict[str, Any], key: str, value: Any) -> None:
     keys = key.split(".")
     cur = d
     for k in keys[:-1]:
+        if not isinstance(cur, dict) or k not in cur:
+            raise KeyError(f"Sweep parameter '{key}': intermediate key '{k}' not found in config")
         cur = cur[k]
     cur[keys[-1]] = value
 
