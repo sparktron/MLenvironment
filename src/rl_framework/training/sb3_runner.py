@@ -9,6 +9,7 @@ from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from rl_framework.envs.registry import make_env
+from rl_framework.training.curriculum_callback import CurriculumCallback
 from rl_framework.utils.logging_utils import create_experiment_paths
 
 
@@ -46,7 +47,14 @@ def train(cfg: dict[str, Any]) -> Path:
         save_path=str(paths.checkpoints_dir),
         name_prefix="ppo_model",
     )
-    model.learn(total_timesteps=cfg["training"]["total_timesteps"], callback=checkpoint_cb)
+    callbacks = [checkpoint_cb]
+
+    # Curriculum learning: bump env difficulty when performance exceeds threshold.
+    curriculum_cfg = cfg.get("curriculum", {})
+    if curriculum_cfg.get("enabled", False):
+        callbacks.append(CurriculumCallback(curriculum_cfg, env_cfg, verbose=1))
+
+    model.learn(total_timesteps=cfg["training"]["total_timesteps"], callback=callbacks)
     final_path = paths.checkpoints_dir / "final_model"
     model.save(str(final_path))
     if isinstance(vec_env, VecNormalize):
