@@ -21,7 +21,7 @@ A modular reinforcement learning framework supporting single-agent locomotion (P
 
 ```text
 src/rl_framework/
-  cli/main.py                          # train / eval / sweep / render-replay commands
+  cli/main.py                          # train / eval / sweep / multi-seed / render-replay
   configs/experiments/
     robot_walk_basic.yaml
     robot_push_recovery.yaml
@@ -34,14 +34,17 @@ src/rl_framework/
       dynamics.py                      # Force/torque application
       rewards.py                       # Composite reward function
       terminations.py                  # Episode termination conditions
-      walker_bullet.py                 # Gymnasium walker (PyBullet)
+      walker_bullet.py                 # Gymnasium walker (PyBullet) + sensor noise + action latency
     organisms/
-      arena_parallel.py                # PettingZoo Parallel two-agent arena
+      arena_parallel.py                # PettingZoo Parallel two-agent arena + dynamic growth
   evolution/simple_search.py           # RandomMorphologySearch mutation hook
   training/
-    sb3_runner.py                      # PPO training wrapper
-    eval_runner.py                     # Evaluation + CSV metrics
+    sb3_runner.py                      # PPO training wrapper (DummyVecEnv / SubprocVecEnv)
+    eval_runner.py                     # Evaluation + CSV metrics (single + multi-agent)
     sweep.py                           # Cartesian-product hyperparameter sweep
+    multi_seed_runner.py               # Train+eval across N seeds, aggregate mean +/- std
+    curriculum_callback.py             # SB3 callback: progressive difficulty via level_params
+    self_play_callback.py              # SB3 callback: frozen-policy opponent league
   utils/
     config.py                          # OmegaConf YAML loader
     logging_utils.py                   # Directory creation + CSV append
@@ -69,8 +72,12 @@ python -m rl_framework.cli.main eval \
   --config-name robot_walk_basic \
   --model-path outputs/robot_walk_basic/seed_42/checkpoints/final_model.zip
 
-# Hyperparameter sweep (Cartesian product over configs/experiments/<name>.yaml sweep block)
+# Hyperparameter sweep
 python -m rl_framework.cli.main sweep --config-name robot_walk_basic
+
+# Multi-seed run (train + eval across 5 seeds, aggregate results)
+python -m rl_framework.cli.main multi-seed \
+  --config-name robot_walk_basic --seeds 0,1,2,3,4
 
 # Render trained policy to video
 python -m rl_framework.cli.main render-replay \
@@ -92,6 +99,89 @@ docker run --rm rl-framework train --config-name robot_walk_basic
 
 ---
 
+## Features
+
+### Sensor noise (`domain_randomization.sensor_noise_std`)
+
+Adds Gaussian noise to observations in `_get_obs()`, preventing policies from overfitting
+to perfect state information.  Critical for sim-to-real transfer.  Controlled by the
+`sensor_noise_std` key under `domain_randomization` in any locomotion YAML config.
+Defaults to `0.0` (disabled).
+
+### Action latency (`domain_randomization.action_latency_steps`)
+
+FIFO buffer in `step()` delays action application by N physics steps, testing policy
+resilience to real-world communication delay.  Controlled by `action_latency_steps`
+under `domain_randomization`.  Defaults to `0` (disabled).
+
+### Curriculum learning (`curriculum` config block)
+
+SB3 `CurriculumCallback` monitors `rollout/ep_rew_mean` and bumps `curriculum.level`
+when performance exceeds `level_up_threshold`.  Each level applies dotted-key parameter
+overrides to the live environment config (e.g. increasing `target_velocity`, tightening
+`max_tilt_radians`).
+
+```yaml
+curriculum:
+  enabled: true
+  level_up_threshold: 150.0
+  max_level: 3
+  level_params:
+    1:
+      reward.target_velocity: 1.0
+      termination.max_tilt_radians: 0.9
+    2:
+      reward.target_velocity: 1.5
+      termination.max_tilt_radians: 0.7
+    3:
+      reward.target_velocity: 2.0
+      termination.max_tilt_radians: 0.5
+```
+
+### Parallel CPU rollouts (`training.num_envs`)
+
+When `training.num_envs > 1`, the training runner uses `SubprocVecEnv` instead of
+`DummyVecEnv`, running each environment instance in a separate process for near-linear
+speedup in data collection.  Defaults to `1` (single-process).
+
+```yaml
+training:
+  num_envs: 4    # spawn 4 parallel environment workers
+```
+
+### Multi-seed runner (`multi-seed` CLI command)
+
+Trains and evaluates the same config across N seeds, computes mean +/- std of returns,
+and writes a summary CSV to `outputs/<experiment>/multi_seed_summary/aggregate.csv`.
+
+```bash
+python -m rl_framework.cli.main multi-seed \
+  --config-name robot_walk_basic --seeds 0,1,2,3,4
+```
+
+Seeds can also be specified in the YAML:
+
+```yaml
+multi_seed:
+  seeds: [0, 1, 2, 3, 4]
+```
+
+### Self-play league (`self_play` config block)
+
+SB3 `SelfPlayCallback` periodically freezes snapshots of the current policy into a
+league directory.  `sample_opponent()` returns a randomly selected frozen past policy,
+enabling training against a distribution of past selves rather than the current live
+policy.  Only activates for `organism_arena_parallel` environments.
+
+```yaml
+self_play:
+  enabled: true
+  snapshot_freq: 5000       # save every 5k timesteps
+  max_league_size: 10       # prune oldest beyond 10
+```
+
+---
+
 ## 30-minute extension guide
 
 ### Add a new environment
@@ -109,16 +199,20 @@ docker run --rm rl-framework train --config-name robot_walk_basic
 
 ---
 
-## Curriculum + domain randomisation hooks
+## Domain randomisation hooks
 
-- **Curriculum**: adjust env config by training stage before each reset. `CurriculumConfig` dataclass in `base.py` is the integration point.
-- **Domain randomisation**: mass/friction variation lives in `_apply_domain_randomization()` in `walker_bullet.py`. `DomainRandomizationConfig` in `base.py` also defines `sensor_noise_std` and `action_latency_steps` (see roadmap below).
+| Hook | Where | Config key |
+|---|---|---|
+| Mass scaling | `walker_bullet.py → _apply_domain_randomization()` | `domain_randomization.mass_scale_range` |
+| Friction scaling | `walker_bullet.py → _apply_domain_randomization()` | `domain_randomization.friction_range` |
+| Sensor noise | `walker_bullet.py → _get_obs()` | `domain_randomization.sensor_noise_std` |
+| Action latency | `walker_bullet.py → step()` | `domain_randomization.action_latency_steps` |
 
 ---
 
 ## Performance notes
 
-- Switch `DummyVecEnv` → `SubprocVecEnv` for multi-process CPU rollouts (see roadmap).
+- Set `training.num_envs > 1` for multi-process CPU rollouts via `SubprocVecEnv`.
 - Enable GPU: install the CUDA build of PyTorch used by SB3.
 - For high-throughput experimentation, consider Brax (JAX) + RLlib distributed workers.
 
@@ -134,86 +228,21 @@ docker run --rm rl-framework train --config-name robot_walk_basic
 
 ## Bug fixes (applied)
 
-The following bugs were identified and fixed:
-
 ### 1. `eval_runner.py` — multi-agent evaluation ignored the trained model
-**Symptom**: The `organism_arena_parallel` evaluation branch used random actions regardless of
-the `--model-path` argument, making all multi-agent eval results meaningless.
-**Fix**: Wrap the environment with SuperSuit (matching the training path), load the PPO
-checkpoint, and run deterministic rollouts with `model.predict()`.
-**File**: `src/rl_framework/training/eval_runner.py`
+The `organism_arena_parallel` evaluation branch used random actions regardless of the
+`--model-path` argument.  Fixed: wraps env with SuperSuit and loads the PPO checkpoint.
 
 ### 2. `arena_parallel.py` — episode growth mechanic was always zero
-**Symptom**: `_spawn_agent()` computed `growth = episode_growth_scale * self.step_count`, but
-`step_count` is reset to 0 before `_spawn_agent` is called. Agents never grew during an episode,
-making `organisms_growth_competition.yaml` ineffective.
-**Fix**: Remove the growth computation from `_spawn_agent`. Add a `_current_size(agent)` method
-that computes live size from `base_size + episode_growth_scale * self.step_count`. Call it each
-step inside the movement loop to update `state[agent]["size"]`.
-**File**: `src/rl_framework/envs/organisms/arena_parallel.py`
+`_spawn_agent()` computed `growth = episode_growth_scale * self.step_count`, but step_count
+was 0 at spawn.  Fixed: added `_current_size()` method that computes live size each step.
 
-### 3. `arena_parallel.py` — `observations` and `infos` keys violated PettingZoo Parallel API
-**Symptom**: After episode end (`self.agents = []`), `observations` used `possible_agents` as
-keys while `rewards`/`terminations`/`truncations` used the agents active at step start. The API
-requires all five return dicts to share identical keys.
-**Fix**: Capture `active_agents = list(self.agents)` at step entry and use it as the key source
-for all five dicts. Also guards the winner reward assignment so it only fires if the winner agent
-is still in the active set (handles simultaneous-death draw correctly).
-**File**: `src/rl_framework/envs/organisms/arena_parallel.py`
+### 3. `arena_parallel.py` — return dicts violated PettingZoo Parallel API
+`observations` and `infos` used `possible_agents` as keys while `rewards`/`terminations`/
+`truncations` used step-start agents.  Fixed: all five dicts now use `active_agents`.
 
-### 4. `sweep.py` — `_set_nested` raised an opaque `KeyError` on bad config paths
-**Symptom**: A misspelled sweep parameter key (e.g. `"training.learing_rate"`) produced an
-unhelpful `KeyError: 'learing_rate'` with no context about which sweep parameter caused it.
-**Fix**: Check for the missing intermediate key explicitly and raise a descriptive `KeyError`
-naming the full sweep parameter path and the missing segment.
-**File**: `src/rl_framework/training/sweep.py`
-
----
-
-## Proposed enhancements
-
-The following features are ready to implement and build on the existing architecture:
-
-### 1. Apply sensor noise from `DomainRandomizationConfig`
-`DomainRandomizationConfig.sensor_noise_std` is defined in `base.py` and exposed in YAML configs
-but is never applied. Adding Gaussian noise to the observation in `_get_obs()` (controlled by
-`domain_randomization.sensor_noise_std`) would make locomotion policies robust to real-world
-sensor imprecision without any API changes.
-**Where**: `walker_bullet.py → _get_obs()`, read from `cfg["domain_randomization"]`.
-
-### 2. Action latency simulation
-`DomainRandomizationConfig.action_latency_steps` is similarly wired but unused. Implementing a
-small FIFO action buffer in `walker_bullet.py` that delays action application by N physics steps
-tests whether learned policies degrade gracefully under communication delay — a key sim-to-real
-robustness check.
-**Where**: `walker_bullet.py → step()`, add `self._action_buffer: deque`.
-
-### 3. Wire `CurriculumConfig` into the training loop
-`CurriculumConfig` (level, metrics) exists in `base.py` but is never read. Adding a
-`CurriculumCallback` (SB3 `BaseCallback`) that reads rollout metrics (mean reward, episode
-length) and bumps `curriculum.level` — which in turn adjusts env parameters like `target_velocity`
-or `max_tilt_radians` — enables progressive difficulty without changing any environment code.
-**Where**: new `training/curriculum_callback.py`; hook into `sb3_runner.py → model.learn()`.
-
-### 4. `SubprocVecEnv` support for parallel CPU rollouts
-`sb3_runner.py` always uses `DummyVecEnv` (single process). Adding a `num_envs` config key and
-swapping to `SubprocVecEnv` when `num_envs > 1` gives a near-linear speedup in data collection
-on multi-core machines with no algorithm changes.
-**Where**: `sb3_runner.py → train()`, check `cfg["training"].get("num_envs", 1)`.
-
-### 5. Multi-seed aggregate runner
-Currently each run uses a single seed. Adding a `run_multi_seed(cfg, seeds)` function that
-launches `train()` for each seed in a list and then aggregates eval metrics (mean ± std across
-seeds) enables statistically sound comparisons between sweep configurations.
-**Where**: new `training/multi_seed_runner.py`; expose via a `multi-seed` CLI command.
-
-### 6. Self-play league for organism arena
-The current multi-agent setup trains both agents with the same, continuously-updated shared
-policy. Adding an SB3 `BaseCallback` that periodically freezes a snapshot of the current policy
-and sets it as the fixed opponent for one agent implements a basic self-play league, pushing the
-learning agent against a distribution of past selves rather than the current policy.
-**Where**: new `training/self_play_callback.py`; requires asymmetric env wrapper for organism
-arena where one agent's policy can be frozen independently.
+### 4. `sweep.py` — opaque `KeyError` on bad config paths
+`_set_nested` threw bare `KeyError` with no context.  Fixed: descriptive error message
+naming the full parameter path and the missing segment.
 
 ---
 
@@ -225,4 +254,4 @@ arena where one agent's policy can be frozen independently.
 
 ### Organism arena
 1. **Now**: PettingZoo Parallel + SuperSuit + SB3 shared-policy PPO — low code overhead.
-2. **Next**: PettingZoo + RLlib multi-agent policies + self-play league — multi-policy, distributed training.
+2. **Next**: PettingZoo + RLlib multi-agent policies + full self-play league — multi-policy, distributed training.
