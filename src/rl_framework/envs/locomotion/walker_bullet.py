@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from typing import Any
 
 import gymnasium as gym
@@ -32,6 +33,14 @@ class WalkerBulletEnv(gym.Env):
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(13,), dtype=np.float32)
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
 
+        # Domain randomisation: sensor noise
+        rand_cfg = cfg.get("domain_randomization", {})
+        self._sensor_noise_std = float(rand_cfg.get("sensor_noise_std", 0.0))
+
+        # Domain randomisation: action latency
+        self._action_latency_steps = int(rand_cfg.get("action_latency_steps", 0))
+        self._action_buffer: deque[np.ndarray] = deque()
+
         self.step_count = 0
         self.robot_id = -1
 
@@ -51,7 +60,10 @@ class WalkerBulletEnv(gym.Env):
     def _get_obs(self) -> np.ndarray:
         pos, quat = p.getBasePositionAndOrientation(self.robot_id)
         lin_vel, ang_vel = p.getBaseVelocity(self.robot_id)
-        return np.array([*pos, *quat, *lin_vel, *ang_vel], dtype=np.float32)
+        obs = np.array([*pos, *quat, *lin_vel, *ang_vel], dtype=np.float32)
+        if self._sensor_noise_std > 0.0:
+            obs = obs + self._rng.normal(0.0, self._sensor_noise_std, size=obs.shape).astype(np.float32)
+        return obs
 
     def _apply_domain_randomization(self) -> None:
         rand_cfg = self.cfg.get("domain_randomization", {})
@@ -70,6 +82,12 @@ class WalkerBulletEnv(gym.Env):
         self._build_world()
         self._apply_domain_randomization()
         self.step_count = 0
+        # Reset action latency buffer: pre-fill with zero actions so the first
+        # _action_latency_steps steps apply no-op while the buffer warms up.
+        self._action_buffer.clear()
+        noop = np.zeros(self.action_space.shape, dtype=np.float32)
+        for _ in range(self._action_latency_steps):
+            self._action_buffer.append(noop)
 
         reset_cfg = self.cfg.get("reset_randomization", {})
         pos_noise = reset_cfg.get("position_xy_noise", 0.02)
@@ -84,6 +102,10 @@ class WalkerBulletEnv(gym.Env):
 
     def step(self, action: np.ndarray):
         action = np.asarray(action, dtype=np.float32)
+        # Action latency: buffer the current action and apply the delayed one.
+        if self._action_latency_steps > 0:
+            self._action_buffer.append(action)
+            action = self._action_buffer.popleft()
         self.dynamics.apply_action(self.robot_id, action)
         p.stepSimulation()
         self.step_count += 1
