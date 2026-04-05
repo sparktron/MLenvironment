@@ -10,6 +10,7 @@ from stable_baselines3 import PPO
 
 from rl_framework.envs.registry import make_env
 from rl_framework.training.eval_runner import evaluate
+from rl_framework.training.multi_seed_runner import run_multi_seed
 from rl_framework.training.sb3_runner import train
 from rl_framework.training.sweep import run_sweep
 from rl_framework.utils.config import load_config, to_container
@@ -17,10 +18,11 @@ from rl_framework.utils.config import load_config, to_container
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="RL experiment framework CLI")
-    parser.add_argument("command", choices=["train", "eval", "sweep", "render-replay"])
+    parser.add_argument("command", choices=["train", "eval", "sweep", "multi-seed", "render-replay"])
     parser.add_argument("--config-name", required=True, help="YAML file name without extension")
     parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
     parser.add_argument("--model-path", default="")
+    parser.add_argument("--seeds", default="", help="Comma-separated seeds for multi-seed runs (e.g. 0,1,2,3,4)")
     return parser.parse_args()
 
 
@@ -57,6 +59,10 @@ def main() -> None:
         print(OmegaConf.to_yaml(evaluate(cfg_dict, args.model_path)))
     elif args.command == "sweep":
         run_sweep(cfg_dict)
+    elif args.command == "multi-seed":
+        seeds = [int(s) for s in args.seeds.split(",")] if args.seeds else None
+        agg = run_multi_seed(cfg_dict, seeds=seeds)
+        print(f"mean={agg['mean_return_mean']:.4f}  std={agg['mean_return_std']:.4f}")
     elif args.command == "render-replay":
         if not args.model_path:
             raise ValueError("--model-path is required for render-replay")
