@@ -6,7 +6,7 @@ from typing import Any
 import supersuit as ss
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
 
 from rl_framework.envs.registry import make_env
 from rl_framework.training.curriculum_callback import CurriculumCallback
@@ -21,12 +21,20 @@ def train(cfg: dict[str, Any]) -> Path:
     paths = create_experiment_paths(cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"])
     env_cfg = cfg["environment"]
 
+    num_envs = int(cfg["training"].get("num_envs", 1))
+
     if env_cfg["type"] == "organism_arena_parallel":
         par_env = make_env(env_cfg["type"], env_cfg)
         vec_env = ss.pettingzoo_env_to_vec_env_v1(par_env)
-        vec_env = ss.concat_vec_envs_v1(vec_env, 1, num_cpus=1, base_class="stable_baselines3")
+        vec_env = ss.concat_vec_envs_v1(
+            vec_env, max(num_envs, 1), num_cpus=max(num_envs, 1), base_class="stable_baselines3",
+        )
     else:
-        vec_env = DummyVecEnv([_build_single_env(env_cfg)])
+        env_fns = [_build_single_env(env_cfg) for _ in range(max(num_envs, 1))]
+        if num_envs > 1:
+            vec_env = SubprocVecEnv(env_fns)
+        else:
+            vec_env = DummyVecEnv(env_fns)
 
     if cfg["training"].get("normalize_observations", True):
         vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=False)
