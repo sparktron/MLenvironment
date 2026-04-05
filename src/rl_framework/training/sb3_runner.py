@@ -10,6 +10,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNorm
 
 from rl_framework.envs.registry import make_env
 from rl_framework.training.curriculum_callback import CurriculumCallback
+from rl_framework.training.self_play_callback import SelfPlayCallback
 from rl_framework.utils.logging_utils import create_experiment_paths
 
 
@@ -61,6 +62,16 @@ def train(cfg: dict[str, Any]) -> Path:
     curriculum_cfg = cfg.get("curriculum", {})
     if curriculum_cfg.get("enabled", False):
         callbacks.append(CurriculumCallback(curriculum_cfg, env_cfg, verbose=1))
+
+    # Self-play league: periodically freeze policy snapshots as past opponents.
+    self_play_cfg = cfg.get("self_play", {})
+    if self_play_cfg.get("enabled", False) and env_cfg["type"] == "organism_arena_parallel":
+        callbacks.append(SelfPlayCallback(
+            snapshot_dir=paths.checkpoints_dir / "league",
+            snapshot_freq=int(self_play_cfg.get("snapshot_freq", 5000)),
+            max_league_size=int(self_play_cfg.get("max_league_size", 10)),
+            verbose=1,
+        ))
 
     model.learn(total_timesteps=cfg["training"]["total_timesteps"], callback=callbacks)
     final_path = paths.checkpoints_dir / "final_model"
