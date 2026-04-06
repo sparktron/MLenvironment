@@ -37,45 +37,50 @@ def train(cfg: dict[str, Any]) -> Path:
         else:
             vec_env = DummyVecEnv(env_fns)
 
-    if cfg["training"].get("normalize_observations", True):
-        vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=False)
+    try:
+        if cfg["training"].get("normalize_observations", True):
+            vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=False)
 
-    model = PPO(
-        policy=cfg["training"].get("policy", "MlpPolicy"),
-        env=vec_env,
-        learning_rate=cfg["training"].get("learning_rate", 3e-4),
-        n_steps=cfg["training"].get("n_steps", 1024),
-        batch_size=cfg["training"].get("batch_size", 256),
-        tensorboard_log=str(paths.logs_dir),
-        seed=cfg["seed"],
-        verbose=1,
-    )
-
-    checkpoint_cb = CheckpointCallback(
-        save_freq=cfg["training"].get("checkpoint_every", 10000),
-        save_path=str(paths.checkpoints_dir),
-        name_prefix="ppo_model",
-    )
-    callbacks = [checkpoint_cb]
-
-    # Curriculum learning: bump env difficulty when performance exceeds threshold.
-    curriculum_cfg = cfg.get("curriculum", {})
-    if curriculum_cfg.get("enabled", False):
-        callbacks.append(CurriculumCallback(curriculum_cfg, env_cfg, verbose=1))
-
-    # Self-play league: periodically freeze policy snapshots as past opponents.
-    self_play_cfg = cfg.get("self_play", {})
-    if self_play_cfg.get("enabled", False) and env_cfg["type"] == "organism_arena_parallel":
-        callbacks.append(SelfPlayCallback(
-            snapshot_dir=paths.checkpoints_dir / "league",
-            snapshot_freq=int(self_play_cfg.get("snapshot_freq", 5000)),
-            max_league_size=int(self_play_cfg.get("max_league_size", 10)),
+        model = PPO(
+            policy=cfg["training"].get("policy", "MlpPolicy"),
+            env=vec_env,
+            learning_rate=cfg["training"].get("learning_rate", 3e-4),
+            n_steps=cfg["training"].get("n_steps", 1024),
+            batch_size=cfg["training"].get("batch_size", 256),
+            tensorboard_log=str(paths.logs_dir),
+            seed=cfg["seed"],
             verbose=1,
-        ))
+        )
 
-    model.learn(total_timesteps=cfg["training"]["total_timesteps"], callback=callbacks)
-    final_path = paths.checkpoints_dir / "final_model"
-    model.save(str(final_path))
-    if isinstance(vec_env, VecNormalize):
-        vec_env.save(str(paths.checkpoints_dir / "vecnormalize.pkl"))
-    return final_path
+        checkpoint_cb = CheckpointCallback(
+            save_freq=cfg["training"].get("checkpoint_every", 10000),
+            save_path=str(paths.checkpoints_dir),
+            name_prefix="ppo_model",
+        )
+        callbacks = [checkpoint_cb]
+
+        # Curriculum learning: bump env difficulty when performance exceeds threshold.
+        curriculum_cfg = cfg.get("curriculum", {})
+        if curriculum_cfg.get("enabled", False):
+            callbacks.append(CurriculumCallback(curriculum_cfg, env_cfg, verbose=1))
+
+        # Self-play league: periodically freeze policy snapshots as past opponents.
+        self_play_cfg = cfg.get("self_play", {})
+        if self_play_cfg.get("enabled", False) and env_cfg["type"] == "organism_arena_parallel":
+            callbacks.append(SelfPlayCallback(
+                snapshot_dir=paths.checkpoints_dir / "league",
+                snapshot_freq=int(self_play_cfg.get("snapshot_freq", 5000)),
+                max_league_size=int(self_play_cfg.get("max_league_size", 10)),
+                sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
+                recent_bias_alpha=float(self_play_cfg.get("recent_bias_alpha", 1.0)),
+                verbose=1,
+            ))
+
+        model.learn(total_timesteps=cfg["training"]["total_timesteps"], callback=callbacks)
+        final_path = paths.checkpoints_dir / "final_model"
+        model.save(str(final_path))
+        if isinstance(vec_env, VecNormalize):
+            vec_env.save(str(paths.checkpoints_dir / "vecnormalize.pkl"))
+        return final_path
+    finally:
+        vec_env.close()

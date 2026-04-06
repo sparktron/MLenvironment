@@ -57,14 +57,27 @@ class SelfPlayCallback(BaseCallback):
         snapshot_dir: str | Path,
         snapshot_freq: int = 5000,
         max_league_size: int = 10,
+        sampling_mode: str = "uniform",
+        recent_bias_alpha: float = 1.0,
         verbose: int = 0,
     ):
         super().__init__(verbose)
+        if snapshot_freq <= 0:
+            raise ValueError(f"snapshot_freq must be > 0, got {snapshot_freq}")
+        if max_league_size <= 0:
+            raise ValueError(f"max_league_size must be > 0, got {max_league_size}")
+        if sampling_mode not in {"uniform", "recent_bias"}:
+            raise ValueError(f"sampling_mode must be 'uniform' or 'recent_bias', got {sampling_mode}")
+        if recent_bias_alpha <= 0:
+            raise ValueError(f"recent_bias_alpha must be > 0, got {recent_bias_alpha}")
         self._snapshot_dir = Path(snapshot_dir)
         self._snapshot_dir.mkdir(parents=True, exist_ok=True)
         self._snapshot_freq = snapshot_freq
         self._max_league_size = max_league_size
+        self._sampling_mode = sampling_mode
+        self._recent_bias_alpha = recent_bias_alpha
         self._league: list[Path] = []
+        self._model_cache: dict[Path, PPO] = {}
         self._rng = np.random.default_rng(42)
 
     # ------------------------------------------------------------------
@@ -87,6 +100,7 @@ class SelfPlayCallback(BaseCallback):
             old_zip = old.with_suffix(".zip")
             if old_zip.exists():
                 old_zip.unlink()
+            self._model_cache.pop(old, None)
 
     # ------------------------------------------------------------------
     # Public API
@@ -96,8 +110,17 @@ class SelfPlayCallback(BaseCallback):
         """Return a randomly sampled frozen opponent from the league, or None."""
         if not self._league:
             return None
-        path = self._rng.choice(self._league)
-        return PPO.load(str(path))
+        if self._sampling_mode == "recent_bias":
+            weights = np.arange(1, len(self._league) + 1, dtype=np.float64) ** self._recent_bias_alpha
+            probs = weights / weights.sum()
+            idx = int(self._rng.choice(len(self._league), p=probs))
+            path = self._league[idx]
+        else:
+            path = self._league[int(self._rng.integers(0, len(self._league)))]
+
+        if path not in self._model_cache:
+            self._model_cache[path] = PPO.load(str(path))
+        return self._model_cache[path]
 
     @property
     def league_size(self) -> int:
