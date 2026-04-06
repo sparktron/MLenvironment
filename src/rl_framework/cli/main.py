@@ -13,7 +13,7 @@ from rl_framework.training.eval_runner import evaluate
 from rl_framework.training.multi_seed_runner import run_multi_seed
 from rl_framework.training.sb3_runner import train
 from rl_framework.training.sweep import run_sweep
-from rl_framework.utils.config import load_config, to_container
+from rl_framework.utils.config import load_config, to_container, validate_experiment_config
 
 
 def _parse_args() -> argparse.Namespace:
@@ -23,6 +23,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
     parser.add_argument("--model-path", default="")
     parser.add_argument("--seeds", default="", help="Comma-separated seeds for multi-seed runs (e.g. 0,1,2,3,4)")
+    parser.add_argument("--dry-run", action="store_true", help="Plan runs without executing training (sweep only)")
     return parser.parse_args()
 
 
@@ -49,6 +50,7 @@ def main() -> None:
     args = _parse_args()
     cfg = load_config(args.config_name, args.config_dir)
     cfg_dict = to_container(cfg)
+    validate_experiment_config(cfg_dict)
 
     if args.command == "train":
         out = train(cfg_dict)
@@ -58,7 +60,8 @@ def main() -> None:
             raise ValueError("--model-path is required for eval")
         print(OmegaConf.to_yaml(evaluate(cfg_dict, args.model_path)))
     elif args.command == "sweep":
-        run_sweep(cfg_dict)
+        planned = run_sweep(cfg_dict, dry_run=args.dry_run)
+        print(f"planned_runs={len(planned)} dry_run={args.dry_run}")
     elif args.command == "multi-seed":
         seeds = [int(s) for s in args.seeds.split(",")] if args.seeds else None
         agg = run_multi_seed(cfg_dict, seeds=seeds)

@@ -12,6 +12,12 @@ from rl_framework.envs.registry import make_env
 from rl_framework.utils.logging_utils import append_metrics_csv, create_experiment_paths
 
 
+def _was_truncated(infos: Any) -> bool:
+    """Infer truncation from VecEnv infos payload for single-env evaluation."""
+    info0 = infos[0] if isinstance(infos, list) and infos else {}
+    return bool(info0.get("TimeLimit.truncated", False))
+
+
 def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
     env_cfg = cfg["environment"]
     paths = create_experiment_paths(cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"])
@@ -33,16 +39,34 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
         model = PPO.load(model_path)
         episodes = cfg["evaluation"].get("episodes", 5)
         returns = []
+        terminated_episodes = 0
+        truncated_episodes = 0
+        episode_lengths = []
         for _ in range(episodes):
             obs = vec_env.reset()
             done = False
             ep_ret = 0.0
+            ep_len = 0
             while not done:
                 action, _ = model.predict(obs, deterministic=True)
-                obs, reward, done, _ = vec_env.step(action)
+                obs, reward, dones, infos = vec_env.step(action)
                 ep_ret += float(np.mean(reward))
+                ep_len += 1
+                done = bool(np.any(dones))
+            was_truncated = _was_truncated(infos)
+            if was_truncated:
+                truncated_episodes += 1
+            else:
+                terminated_episodes += 1
+            episode_lengths.append(ep_len)
             returns.append(ep_ret)
-        metrics = {"mean_return": float(np.mean(returns)), "std_return": float(np.std(returns))}
+        metrics = {
+            "mean_return": float(np.mean(returns)),
+            "std_return": float(np.std(returns)),
+            "terminated_rate": float(terminated_episodes / episodes),
+            "truncated_rate": float(truncated_episodes / episodes),
+            "mean_episode_length": float(np.mean(episode_lengths)),
+        }
     finally:
         vec_env.close()
 
