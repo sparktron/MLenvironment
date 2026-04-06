@@ -60,6 +60,10 @@ class SelfPlayCallback(BaseCallback):
         verbose: int = 0,
     ):
         super().__init__(verbose)
+        if snapshot_freq <= 0:
+            raise ValueError(f"snapshot_freq must be > 0, got {snapshot_freq}")
+        if max_league_size <= 0:
+            raise ValueError(f"max_league_size must be > 0, got {max_league_size}")
         self._snapshot_dir = Path(snapshot_dir)
         self._snapshot_dir.mkdir(parents=True, exist_ok=True)
         self._snapshot_freq = snapshot_freq

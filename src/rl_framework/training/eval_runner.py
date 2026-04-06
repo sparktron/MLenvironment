@@ -21,7 +21,15 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
         par_env = make_env(env_cfg["type"], env_cfg)
         vec_env = ss.pettingzoo_env_to_vec_env_v1(par_env)
         vec_env = ss.concat_vec_envs_v1(vec_env, 1, num_cpus=1, base_class="stable_baselines3")
+    else:
+        vec_env = DummyVecEnv([lambda: make_env(env_cfg["type"], env_cfg)])
+        vn_path = Path(model_path).with_name("vecnormalize.pkl")
+        if vn_path.exists():
+            vec_env = VecNormalize.load(str(vn_path), vec_env)
+            vec_env.training = False
+            vec_env.norm_reward = False
 
+    try:
         model = PPO.load(model_path)
         episodes = cfg["evaluation"].get("episodes", 5)
         returns = []
@@ -35,27 +43,8 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
                 ep_ret += float(np.mean(reward))
             returns.append(ep_ret)
         metrics = {"mean_return": float(np.mean(returns)), "std_return": float(np.std(returns))}
-    else:
-        vec_env = DummyVecEnv([lambda: make_env(env_cfg["type"], env_cfg)])
-        vn_path = Path(model_path).with_name("vecnormalize.pkl")
-        if vn_path.exists():
-            vec_env = VecNormalize.load(str(vn_path), vec_env)
-            vec_env.training = False
-            vec_env.norm_reward = False
-
-        model = PPO.load(model_path)
-        episodes = cfg["evaluation"].get("episodes", 5)
-        returns = []
-        for _ in range(episodes):
-            obs = vec_env.reset()
-            done = False
-            ep_ret = 0.0
-            while not done:
-                action, _ = model.predict(obs, deterministic=True)
-                obs, reward, done, info = vec_env.step(action)
-                ep_ret += float(reward[0])
-            returns.append(ep_ret)
-        metrics = {"mean_return": float(np.mean(returns)), "std_return": float(np.std(returns))}
+    finally:
+        vec_env.close()
 
     append_metrics_csv(paths.logs_dir / "eval_metrics.csv", metrics)
     return metrics
