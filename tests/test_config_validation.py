@@ -30,3 +30,17 @@ def test_validate_experiment_config_rejects_invalid_ranges() -> None:
     cfg["training"]["num_envs"] = 0
     with pytest.raises(ValueError, match="training.num_envs"):
         validate_experiment_config(cfg)
+
+
+def test_validate_experiment_config_rejects_non_int_seed() -> None:
+    cfg = _base_cfg()
+    cfg["seed"] = "0"
+    with pytest.raises(TypeError, match="seed"):
+        validate_experiment_config(cfg)
+
+
+def test_validate_experiment_config_rejects_invalid_self_play_values() -> None:
+    cfg = _base_cfg()
+    cfg["self_play"] = {"enabled": True, "snapshot_freq": 0, "max_league_size": 2}
+    with pytest.raises(ValueError, match="self_play.snapshot_freq"):
+        validate_experiment_config(cfg)
