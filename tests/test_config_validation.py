@@ -39,6 +39,28 @@ def test_validate_experiment_config_rejects_non_int_seed() -> None:
         validate_experiment_config(cfg)
 
 
+@pytest.mark.parametrize("bad_name", [
+    "../escape",
+    "foo/../bar",
+    "/absolute/path",
+    "sub/dir",
+    "back\\slash",
+    "",
+])
+def test_validate_experiment_config_rejects_unsafe_experiment_name(bad_name: str) -> None:
+    cfg = _base_cfg()
+    cfg["experiment_name"] = bad_name
+    with pytest.raises(ValueError, match="experiment_name"):
+        validate_experiment_config(cfg)
+
+
+def test_validate_experiment_config_rejects_non_string_experiment_name() -> None:
+    cfg = _base_cfg()
+    cfg["experiment_name"] = 123
+    with pytest.raises(ValueError, match="experiment_name"):
+        validate_experiment_config(cfg)
+
+
 def test_validate_experiment_config_rejects_invalid_self_play_values() -> None:
     cfg = _base_cfg()
     cfg["self_play"] = {"enabled": True, "snapshot_freq": 0, "max_league_size": 2}

@@ -28,7 +28,7 @@ training:
   normalize_observations: true
 
 evaluation:
-  max_steps: 300
+  episodes: 5
 
 output:
   base_dir: outputs

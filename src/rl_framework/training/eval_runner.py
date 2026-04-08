@@ -35,10 +35,14 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
             vec_env.training = False
             vec_env.norm_reward = False
 
+    is_multiagent = env_cfg["type"] == "organism_arena_parallel"
+    num_agents = len(vec_env.observation_space) if is_multiagent else 1
+
     try:
         model = PPO.load(model_path)
         episodes = cfg["evaluation"].get("episodes", 5)
         returns = []
+        per_agent_returns: dict[int, list[float]] = {i: [] for i in range(num_agents)}
         terminated_episodes = 0
         truncated_episodes = 0
         episode_lengths = []
@@ -46,11 +50,14 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
             obs = vec_env.reset()
             done = False
             ep_ret = 0.0
+            ep_agent_ret = np.zeros(num_agents, dtype=np.float64)
             ep_len = 0
             while not done:
                 action, _ = model.predict(obs, deterministic=True)
                 obs, reward, dones, infos = vec_env.step(action)
-                ep_ret += float(np.mean(reward))
+                reward_arr = np.asarray(reward).flatten()
+                ep_ret += float(np.sum(reward_arr))
+                ep_agent_ret[:len(reward_arr)] += reward_arr.astype(np.float64)
                 ep_len += 1
                 done = bool(np.any(dones))
             was_truncated = _was_truncated(infos)
@@ -60,13 +67,21 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
                 terminated_episodes += 1
             episode_lengths.append(ep_len)
             returns.append(ep_ret)
-        metrics = {
+            for i in range(num_agents):
+                per_agent_returns[i].append(float(ep_agent_ret[i]))
+        metrics: dict[str, float] = {
             "mean_return": float(np.mean(returns)),
             "std_return": float(np.std(returns)),
             "terminated_rate": float(terminated_episodes / episodes),
             "truncated_rate": float(truncated_episodes / episodes),
             "mean_episode_length": float(np.mean(episode_lengths)),
         }
+        # For multi-agent envs, add per-agent return metrics so zero-sum
+        # cancellation doesn't hide individual agent performance.
+        if is_multiagent:
+            for i in range(num_agents):
+                metrics[f"agent_{i}_mean_return"] = float(np.mean(per_agent_returns[i]))
+                metrics[f"agent_{i}_std_return"] = float(np.std(per_agent_returns[i]))
     finally:
         vec_env.close()
 

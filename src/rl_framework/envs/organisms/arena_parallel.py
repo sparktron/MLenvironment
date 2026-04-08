@@ -109,7 +109,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
             dist = np.linalg.norm(self.state[attacker]["pos"] - self.state[defender]["pos"])
             if dist <= self.rules.attack_range:
                 damage = self.rules.damage * self.state[attacker]["size"]
-                self.state[defender]["health"] -= damage
+                self.state[defender]["health"] = max(0.0, self.state[defender]["health"] - damage)
                 rewards[attacker] += damage
                 rewards[defender] -= damage
                 self.state[attacker]["cooldown"] = self.rules.cooldown_steps

@@ -20,6 +20,7 @@ def to_container(cfg: DictConfig) -> dict[str, Any]:
 def validate_experiment_config(cfg: dict[str, Any]) -> None:
     """Validate required experiment config structure and safe value ranges."""
     _require_keys(cfg, ["experiment_name", "seed", "output", "environment", "training"])
+    _validate_experiment_name(cfg["experiment_name"])
     _require_keys(cfg["output"], ["base_dir"])
     _require_keys(cfg["environment"], ["type"])
     _require_keys(cfg["training"], ["total_timesteps"])
@@ -38,6 +39,22 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
     if self_play_cfg.get("enabled", False):
         _ensure_int(self_play_cfg.get("snapshot_freq", 5000), "self_play.snapshot_freq", min_value=1)
         _ensure_int(self_play_cfg.get("max_league_size", 10), "self_play.max_league_size", min_value=1)
+
+
+def _validate_experiment_name(name: Any) -> None:
+    """Reject experiment names that could escape the output directory."""
+    if not isinstance(name, str) or not name:
+        raise ValueError("experiment_name must be a non-empty string")
+    if ".." in name or name.startswith("/") or name.startswith("\\"):
+        raise ValueError(
+            f"experiment_name contains unsafe path components: {name!r}"
+        )
+    # Block any OS path separator to keep names as simple directory segments.
+    import re
+    if re.search(r'[/\\]', name):
+        raise ValueError(
+            f"experiment_name must not contain path separators: {name!r}"
+        )
 
 
 def _require_keys(d: dict[str, Any], keys: list[str]) -> None:

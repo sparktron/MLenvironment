@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -76,7 +77,7 @@ class SelfPlayCallback(BaseCallback):
         self._max_league_size = max_league_size
         self._sampling_mode = sampling_mode
         self._recent_bias_alpha = recent_bias_alpha
-        self._league: list[Path] = []
+        self._league: deque[Path] = deque()
         self._model_cache: dict[Path, PPO] = {}
         self._rng = np.random.default_rng(42)
 
@@ -96,7 +97,7 @@ class SelfPlayCallback(BaseCallback):
 
         # Prune oldest if league exceeds max size.
         while len(self._league) > self._max_league_size:
-            old = self._league.pop(0)
+            old = self._league.popleft()
             old_zip = old.with_suffix(".zip")
             if old_zip.exists():
                 old_zip.unlink()

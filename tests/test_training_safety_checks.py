@@ -1,3 +1,4 @@
+from collections import deque
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,7 @@ def test_self_play_callback_validates_positive_frequencies(tmp_path) -> None:
 
 def test_self_play_sample_opponent_uses_cache(monkeypatch, tmp_path) -> None:
     callback = SelfPlayCallback(snapshot_dir=tmp_path, snapshot_freq=1, max_league_size=3)
-    callback._league = [tmp_path / "a"]  # noqa: SLF001
+    callback._league = deque([tmp_path / "a"])  # noqa: SLF001
 
     calls = {"count": 0}
 
@@ -54,7 +55,7 @@ def test_self_play_recent_bias_sampling_prefers_latest_entry(monkeypatch, tmp_pa
         sampling_mode="recent_bias",
         recent_bias_alpha=2.0,
     )
-    callback._league = [tmp_path / "a", tmp_path / "b", tmp_path / "c"]  # noqa: SLF001
+    callback._league = deque([tmp_path / "a", tmp_path / "b", tmp_path / "c"])  # noqa: SLF001
 
     monkeypatch.setattr("rl_framework.training.self_play_callback.PPO.load", lambda path: str(path))
     samples = [callback.sample_opponent() for _ in range(300)]
@@ -66,7 +67,7 @@ def test_self_play_recent_bias_sampling_prefers_latest_entry(monkeypatch, tmp_pa
 def test_self_play_pruning_also_prunes_cache(tmp_path) -> None:
     callback = SelfPlayCallback(snapshot_dir=tmp_path, snapshot_freq=1, max_league_size=1)
     old = tmp_path / "selfplay_1"
-    callback._league = [old]  # noqa: SLF001
+    callback._league = deque([old])  # noqa: SLF001
     callback._model_cache = {old: object()}  # noqa: SLF001
 
     class _FakeModel:

@@ -45,21 +45,22 @@ class WalkerBulletEnv(gym.Env):
         self.robot_id = -1
 
     def _build_world(self) -> None:
-        p.resetSimulation()
+        cid = self._connection
+        p.resetSimulation(physicsClientId=cid)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        p.setGravity(0, 0, self.cfg.get("sim", {}).get("gravity", -9.81))
-        p.loadURDF("plane.urdf")
+        p.setGravity(0, 0, self.cfg.get("sim", {}).get("gravity", -9.81), physicsClientId=cid)
+        p.loadURDF("plane.urdf", physicsClientId=cid)
         size = self.cfg.get("sim", {}).get("body_half_extents", [0.2, 0.1, 0.08])
-        collision = p.createCollisionShape(p.GEOM_BOX, halfExtents=size)
-        visual = p.createVisualShape(p.GEOM_BOX, halfExtents=size, rgbaColor=[0.2, 0.6, 0.9, 1.0])
+        collision = p.createCollisionShape(p.GEOM_BOX, halfExtents=size, physicsClientId=cid)
+        visual = p.createVisualShape(p.GEOM_BOX, halfExtents=size, rgbaColor=[0.2, 0.6, 0.9, 1.0], physicsClientId=cid)
         mass = self.cfg.get("sim", {}).get("mass", 3.0)
-        self.robot_id = p.createMultiBody(baseMass=mass, baseCollisionShapeIndex=collision, baseVisualShapeIndex=visual)
+        self.robot_id = p.createMultiBody(baseMass=mass, baseCollisionShapeIndex=collision, baseVisualShapeIndex=visual, physicsClientId=cid)
         friction = self.cfg.get("sim", {}).get("friction", 0.8)
-        p.changeDynamics(self.robot_id, -1, lateralFriction=friction)
+        p.changeDynamics(self.robot_id, -1, lateralFriction=friction, physicsClientId=cid)
 
     def _get_obs(self) -> np.ndarray:
-        pos, quat = p.getBasePositionAndOrientation(self.robot_id)
-        lin_vel, ang_vel = p.getBaseVelocity(self.robot_id)
+        pos, quat = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self._connection)
+        lin_vel, ang_vel = p.getBaseVelocity(self.robot_id, physicsClientId=self._connection)
         obs = np.array([*pos, *quat, *lin_vel, *ang_vel], dtype=np.float32)
         if self._sensor_noise_std > 0.0:
             obs = obs + self._rng.normal(0.0, self._sensor_noise_std, size=obs.shape).astype(np.float32)
@@ -72,7 +73,7 @@ class WalkerBulletEnv(gym.Env):
         base_mass = self.cfg.get("sim", {}).get("mass", 3.0)
         mass = base_mass * float(self._rng.uniform(mass_rng[0], mass_rng[1]))
         friction = self.cfg.get("sim", {}).get("friction", 0.8) * float(self._rng.uniform(fric_rng[0], fric_rng[1]))
-        p.changeDynamics(self.robot_id, -1, mass=mass, lateralFriction=friction)
+        p.changeDynamics(self.robot_id, -1, mass=mass, lateralFriction=friction, physicsClientId=self._connection)
 
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
         super().reset(seed=seed)
@@ -95,7 +96,7 @@ class WalkerBulletEnv(gym.Env):
         start_pos = [float(self._rng.uniform(-pos_noise, pos_noise)), float(self._rng.uniform(-pos_noise, pos_noise)), 0.25]
         yaw = float(self._rng.uniform(-yaw_noise, yaw_noise))
         quat = p.getQuaternionFromEuler([0.0, 0.0, yaw])
-        p.resetBasePositionAndOrientation(self.robot_id, start_pos, quat)
+        p.resetBasePositionAndOrientation(self.robot_id, start_pos, quat, physicsClientId=self._connection)
 
         obs = self._get_obs()
         return obs, {}
@@ -106,14 +107,14 @@ class WalkerBulletEnv(gym.Env):
         if self._action_latency_steps > 0:
             self._action_buffer.append(action)
             action = self._action_buffer.popleft()
-        self.dynamics.apply_action(self.robot_id, action)
-        p.stepSimulation()
+        self.dynamics.apply_action(self.robot_id, action, physicsClientId=self._connection)
+        p.stepSimulation(physicsClientId=self._connection)
         self.step_count += 1
 
         obs = self._get_obs()
-        pos, quat = p.getBasePositionAndOrientation(self.robot_id)
+        pos, quat = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self._connection)
         roll, pitch, _ = p.getEulerFromQuaternion(quat)
-        lin_vel, _ = p.getBaseVelocity(self.robot_id)
+        lin_vel, _ = p.getBaseVelocity(self.robot_id, physicsClientId=self._connection)
 
         terminated, truncated = self.termination.check(pos[2], roll, pitch, self.step_count)
         reward = self.reward_fn.compute(lin_vel[0], abs(roll) + abs(pitch), action, not terminated)
@@ -122,8 +123,9 @@ class WalkerBulletEnv(gym.Env):
 
     def render(self):
         if self.render_mode == "rgb_array":
-            _, _, px, _, _ = p.getCameraImage(width=640, height=480)
-            return np.asarray(px, dtype=np.uint8)
+            _, _, px, _, _ = p.getCameraImage(width=640, height=480, physicsClientId=self._connection)
+            img = np.array(px, dtype=np.uint8).reshape(480, 640, 4)
+            return img[:, :, :3]  # RGBA -> RGB
         return None
 
     def close(self) -> None:
