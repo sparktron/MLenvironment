@@ -1,6 +1,39 @@
-# RL Experiment Framework
+# 🤖 RL Experiment Framework
 
-A modular reinforcement learning framework for single-agent locomotion and multi-agent competition, built on Gymnasium, PettingZoo, PyBullet, and Stable-Baselines3.  Every parameter is controlled by YAML configuration — no code changes needed to run new experiments.
+**A powerful, modular reinforcement learning framework for training and evaluating single-agent locomotion and multi-agent competitive agents.**
+
+Built on [Gymnasium](https://gymnasium.farama.org/), [PettingZoo](https://pettingzoo.farama.org/), [PyBullet](https://pybullet.org/), and [Stable-Baselines3](https://stable-baselines3.readthedocs.io/).
+
+✨ **Key features:** YAML-driven experiments • No code changes needed • GPU-ready • Multi-seed aggregation • Self-play league • Domain randomization • Curriculum learning
+
+---
+
+## 🚀 Quick Start
+
+```bash
+# 1. Install
+git clone https://github.com/sparktron/MLenvironment.git && cd MLenvironment
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+
+# 2. Train a robot walker
+python -m rl_framework.cli.main train --config-name robot_walk_basic
+
+# 3. Monitor with TensorBoard
+tensorboard --logdir outputs/
+
+# 4. Evaluate and render video
+python -m rl_framework.cli.main render-replay \
+  --config-name robot_walk_basic \
+  --model-path outputs/robot_walk_basic/seed_0/checkpoints/final_model.zip
+```
+
+**Or run in Docker:**
+
+```bash
+docker build -t rl-framework . && \
+docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-name robot_walk_basic
+```
 
 ---
 
@@ -44,11 +77,15 @@ A modular reinforcement learning framework for single-agent locomotion and multi
 
 ## Requirements
 
-- Python 3.10 or later
-- pip 21+ (for PEP 660 editable installs)
-- OS: Linux or macOS recommended (PyBullet GUI rendering requires an X display on Linux)
+| Requirement | Minimum |
+|---|---|
+| **Python** | 3.10+ |
+| **pip** | 21+ |
+| **OS** | Linux / macOS (Windows via WSL) |
 
-### Core dependencies (installed automatically)
+> 💡 PyBullet GUI rendering on Linux requires an X11 display
+
+### Dependencies (auto-installed)
 
 | Package | Version | Purpose |
 |---|---|---|
@@ -72,90 +109,72 @@ A modular reinforcement learning framework for single-agent locomotion and multi
 
 ---
 
-## Installation
+## 📦 Installation
 
-### Local (pip)
+### 💻 Local (pip)
 
 ```bash
-# Clone the repository
-git clone https://github.com/sparktron/MLenvironment.git
-cd MLenvironment
-
-# Create a virtual environment (recommended)
-python -m venv .venv
-source .venv/bin/activate    # Linux / macOS
-# .venv\Scripts\activate     # Windows
-
-# Install in editable mode (includes all core dependencies)
-pip install -e .
-
-# Install dev extras (pytest, ruff)
-pip install -e ".[dev]"
+git clone https://github.com/sparktron/MLenvironment.git && cd MLenvironment
+python -m venv .venv && source .venv/bin/activate
+pip install -e .                    # Core dependencies
+pip install -e ".[dev]"             # + dev tools (pytest, ruff)
 ```
 
-Verify the installation:
+**Verify:**
 
 ```bash
-python -c "from rl_framework.cli.main import main; print('OK')"
+python -c "from rl_framework.cli.main import main; print('✓ Ready')"
 ```
 
-### Docker
+### 🐳 Docker
 
 ```bash
-# Build the image
 docker build -t rl-framework .
-
-# Run any CLI command (train, eval, sweep, multi-seed, render-replay)
-docker run --rm rl-framework train --config-name robot_walk_basic
-
-# Mount a local directory to persist outputs
 docker run --rm -v "$(pwd)/outputs:/app/outputs" \
   rl-framework train --config-name robot_walk_basic
 ```
 
-The Docker image uses `python:3.11-slim` and runs `pip install -e .` inside the container.  The entrypoint is `python -m rl_framework.cli.main`, so all arguments after the image name are forwarded to the CLI.
+*Image: `python:3.11-slim` + editable install. All CLI args forwarded.*
 
 ---
 
-## CLI Reference
+## 🎮 CLI Commands
 
-All commands follow the pattern:
-
-```
-python -m rl_framework.cli.main <command> --config-name <name> [options]
-```
+**Syntax:** `python -m rl_framework.cli.main <command> --config-name <name> [options]`
 
 | Flag | Required | Default | Description |
 |---|---|---|---|
-| `command` | Yes | — | One of `train`, `eval`, `sweep`, `multi-seed`, `render-replay` |
-| `--config-name` | Yes | — | YAML file name without extension (looked up in `--config-dir`) |
-| `--config-dir` | No | `src/rl_framework/configs/experiments` | Directory containing YAML configs |
-| `--model-path` | For `eval` / `render-replay` | `""` | Path to a saved `.zip` model checkpoint |
-| `--seeds` | For `multi-seed` | `""` | Comma-separated seeds (e.g. `0,1,2,3,4`) |
+| `--config-name` | **Yes** | — | YAML config name (without extension) |
+| `--config-dir` | No | `src/rl_framework/configs/experiments` | Config directory |
+| `--model-path` | Eval/replay only | — | Path to trained model `.zip` |
+| `--seeds` | multi-seed only | — | Comma-separated: `0,1,2,3,4` |
 
-### train
-
-Train a PPO agent from scratch using the given experiment config.
+### 🏋️ `train` — Train a PPO agent
 
 ```bash
 python -m rl_framework.cli.main train --config-name robot_walk_basic
 ```
 
-**Output:**
-- Checkpoints in `outputs/<experiment_name>/seed_<N>/checkpoints/`
-- TensorBoard logs in `outputs/<experiment_name>/seed_<N>/logs/`
-- Final model saved as `final_model.zip`
-- VecNormalize stats saved as `vecnormalize.pkl` (if observation normalisation is enabled)
+**Output files:**
 
-**Monitor training with TensorBoard:**
+```
+outputs/
+├── <experiment_name>/
+│   └── seed_<N>/
+│       ├── checkpoints/final_model.zip          # Trained policy
+│       ├── checkpoints/vecnormalize.pkl         # Normalization stats
+│       └── logs/
+│           ├── events.out.tfevents.* (TensorBoard)
+│           └── eval_metrics.csv
+```
+
+**Monitor in real-time:**
 
 ```bash
 tensorboard --logdir outputs/
 ```
 
-### eval
-
-Evaluate a trained checkpoint and write metrics to CSV.
+### 📊 `eval` — Evaluate a trained policy
 
 ```bash
 python -m rl_framework.cli.main eval \
@@ -164,58 +183,58 @@ python -m rl_framework.cli.main eval \
 ```
 
 **Output:**
-- Prints `mean_return` and `std_return` to stdout
-- Appends a row to `outputs/<experiment>/seed_<N>/logs/eval_metrics.csv`
+- Stdout: `mean_return` and `std_return`
+- CSV append: `outputs/<experiment>/seed_<N>/logs/eval_metrics.csv`
 
-Works for both single-agent (locomotion) and multi-agent (organism arena) environments.  Multi-agent eval wraps the environment through SuperSuit and runs the shared PPO policy, matching the training pipeline exactly.
+Works for **locomotion** (Gymnasium) and **organism arena** (PettingZoo).
 
-### sweep
-
-Run a Cartesian-product hyperparameter sweep over the `sweep.parameters` block in the YAML config.
+### 🔍 `sweep` — Hyperparameter grid search
 
 ```bash
 python -m rl_framework.cli.main sweep --config-name robot_walk_basic
 ```
 
-For a config with:
+Runs a **Cartesian-product** sweep over `sweep.parameters` in your YAML:
 
 ```yaml
 sweep:
   parameters:
-    environment.reward.target_velocity: [0.5, 1.0, 1.5]
-    environment.reward.torque_penalty_weight: [0.005, 0.01]
+    environment.reward.target_velocity: [0.5, 1.0, 1.5]        # 3 values
+    environment.reward.torque_penalty_weight: [0.005, 0.01]   # 2 values
+    # Result: 3 × 2 = 6 independent training runs
 ```
 
-This launches 3 x 2 = 6 independent training runs, each with a unique experiment name suffix.
-
-### multi-seed
-
-Train and evaluate the same config across multiple seeds, then aggregate results.
+### 🎲 `multi-seed` — Train across multiple seeds (statistical significance)
 
 ```bash
-# Specify seeds on the command line
 python -m rl_framework.cli.main multi-seed \
   --config-name robot_walk_basic --seeds 0,1,2,3,4
-
-# Or omit --seeds to use the YAML default (or fallback [0,1,2,3,4])
-python -m rl_framework.cli.main multi-seed --config-name robot_walk_basic
 ```
 
-Seeds can also be set in the YAML:
-
-```yaml
-multi_seed:
-  seeds: [0, 1, 2, 3, 4]
-```
+Trains and evaluates **the same config** across multiple random seeds for statistical rigor.
 
 **Output:**
-- Per-seed training + eval outputs in separate directories
-- Aggregate CSV at `outputs/<experiment>/multi_seed_summary/aggregate.csv`
-- Prints `mean=X.XXXX  std=X.XXXX` to stdout
 
-### render-replay
+```
+outputs/
+├── <experiment>/
+│   ├── seed_0/, seed_1/, ...
+│   └── multi_seed_summary/
+│       └── aggregate.csv
+```
 
-Render a trained policy to video (MP4).
+**CSV format:**
+
+```csv
+seed,mean_return
+0,142.5
+1,138.2
+...
+aggregate_mean,145.98
+aggregate_std,5.76
+```
+
+### 🎬 `render-replay` — Generate videos of trained policies
 
 ```bash
 python -m rl_framework.cli.main render-replay \
@@ -223,17 +242,17 @@ python -m rl_framework.cli.main render-replay \
   --model-path outputs/robot_walk_basic/seed_42/checkpoints/final_model.zip
 ```
 
-**Output:** Video saved to `outputs/<experiment>/seed_<N>/videos/`
+**Output:** MP4 videos in `outputs/<experiment>/seed_<N>/videos/`
 
-> **Note:** Replay rendering currently supports Gymnasium environments only (locomotion).  Organism arena rendering is not yet supported.
+> ⚠️ Currently supports **Gymnasium environments only** (locomotion). Organism arena rendering coming soon.
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
-### YAML Structure
+Every experiment is defined by a **single YAML file** — no code changes needed. Below is the complete schema:
 
-Every experiment is defined by a single YAML file.  Here is the complete schema with all available keys:
+### Full YAML Schema
 
 ```yaml
 # ─── Identity ───────────────────────────────────────────────────
@@ -346,38 +365,42 @@ self_play:
   max_league_size: 10                # Maximum stored opponent snapshots
 ```
 
-### Included Experiments
+### 📋 Included Experiment Configs
 
-| Config file | Environment | Description |
+| Config | Environment | Description |
 |---|---|---|
-| `robot_walk_basic.yaml` | `walker_bullet` | Basic bipedal locomotion with mild domain randomisation. Sweeps target velocity and torque penalty. |
-| `robot_push_recovery.yaml` | `walker_bullet` | Aggressive domain randomisation (mass 0.8-1.2x, friction 0.7-1.3x) for push-recovery robustness. Sweeps domain randomisation and reset noise. |
-| `organisms_fight_arena.yaml` | `organism_arena_parallel` | Two-agent fighting arena, no growth. Sweeps attack range and cooldown. |
-| `organisms_growth_competition.yaml` | `organism_arena_parallel` | Two-agent arena with size growth during the episode (`episode_growth_scale: 0.002`). Sweeps base size and damage. |
+| **robot_walk_basic** | `walker_bullet` | Bipedal locomotion with domain randomization. Sweeps velocity & torque penalty. ✅ Good for getting started |
+| **robot_push_recovery** | `walker_bullet` | Aggressive randomization (mass 0.8-1.2×, friction 0.7-1.3×) for robustness. |
+| **organisms_fight_arena** | `organism_arena_parallel` | Two-agent zero-sum combat. Sweeps attack range & cooldown. |
+| **organisms_growth_competition** | `organism_arena_parallel` | Two-agent arena with in-episode growth. Sweeps base size & damage. |
 
-### Environment Types
+### 🎮 Environment Types
 
-#### `walker_bullet` (Gymnasium)
+#### `walker_bullet` — Single-agent locomotion (Gymnasium)
 
-A simple rigid-body walker simulated in PyBullet.  A box-shaped body applies forces (x, y) and torque (z) each step.  The goal is to maintain upright posture while tracking a target forward velocity.
+Rigid-body bipedal walker in PyBullet. Goal: maintain upright posture while tracking target velocity.
 
-- **Observation space:** `Box(13,)` — position (3), quaternion (4), linear velocity (3), angular velocity (3)
-- **Action space:** `Box(3,)` — normalised force-x, force-y, torque-z in [-1, 1]
-- **Reward:** alive bonus + velocity tracking - orientation penalty - torque penalty
+| Property | Value |
+|---|---|
+| **Observation** | `Box(13,)` — position (3) + quaternion (4) + linear vel (3) + angular vel (3) |
+| **Action** | `Box(3,)` — normalized force-x, force-y, torque-z ∈ [-1, 1] |
+| **Reward** | alive bonus + velocity tracking − orientation penalty − torque penalty |
 
-#### `organism_arena_parallel` (PettingZoo Parallel)
+#### `organism_arena_parallel` — Multi-agent competitive (PettingZoo)
 
-A 2D two-agent arena where agents move, attack, and optionally grow in size over the episode.
+2D two-agent arena with movement, attacks, and optional in-episode growth.
 
-- **Observation space:** `Box(8,)` per agent — own position/health/energy + relative opponent position/health + cooldown
-- **Action space:** `Box(3,)` per agent — move-x, move-y, attack trigger (fires when > 0.5)
-- **Reward:** damage dealt to opponent, minus damage received, plus/minus win/loss bonus
+| Property | Value |
+|---|---|
+| **Observation** | `Box(8,)` — own state (4) + opponent relative (3) + cooldown (1) |
+| **Action** | `Box(3,)` — move-x, move-y, attack trigger (> 0.5) |
+| **Reward** | damage dealt − damage received ± win/loss bonus |
 
 ---
 
-## Features
+## ⭐ Features
 
-### Domain Randomisation
+### 🔀 Domain Randomization
 
 Mass and friction are randomised at each episode reset, controlled by:
 
@@ -387,29 +410,27 @@ domain_randomization:
   friction_range: [0.7, 1.3]       # base_friction *= U(0.7, 1.3)
 ```
 
-### Sensor Noise
+### 🔊 Sensor Noise
 
-Adds zero-mean Gaussian noise to every element of the observation vector at each step.  Prevents the policy from overfitting to perfect simulator state — a key technique for sim-to-real transfer.
+Gaussian noise injection for **sim-to-real transfer**. Prevents overfitting to perfect simulator observations.
 
 ```yaml
 domain_randomization:
   sensor_noise_std: 0.01           # standard deviation (0 = disabled)
 ```
 
-### Action Latency
+### ⏱️ Action Latency
 
-Introduces a configurable FIFO delay between the agent choosing an action and the action being applied to the physics simulation.  Simulates real-world communication and actuator delays.
+FIFO delay between agent decisions and physics application — simulates real-world communication/actuator delays.
 
 ```yaml
 domain_randomization:
-  action_latency_steps: 2          # apply the action from 2 steps ago (0 = disabled)
+  action_latency_steps: 2          # 0 = off, N > 0 = apply action from N steps ago
 ```
 
-The buffer is pre-filled with zero actions at each `reset()`, so the first N steps apply no-ops while the buffer warms up.
+### 📚 Curriculum Learning
 
-### Curriculum Learning
-
-Progressively increases environment difficulty as the agent improves.  An SB3 callback monitors `rollout/ep_rew_mean` after each rollout and bumps the curriculum level when performance exceeds the threshold.
+Automatically increases difficulty as the agent improves. SB3 callback monitors `rollout/ep_rew_mean` and advances levels when threshold is exceeded.
 
 ```yaml
 curriculum:
@@ -427,56 +448,35 @@ curriculum:
 
 Level parameters use dotted-key notation to override any value in the environment config at runtime.
 
-### Parallel CPU Rollouts
+### ⚡ Parallel CPU Rollouts
 
-Run multiple environment instances across separate processes for near-linear data collection speedup.
+Run multiple envs across processes for **~3-4× speedup** on 4 cores.
 
 ```yaml
 training:
-  num_envs: 4                       # uses SubprocVecEnv when > 1
+  num_envs: 4                       # SubprocVecEnv (1 = DummyVecEnv, no overhead)
 ```
 
-When `num_envs` is 1 (the default), `DummyVecEnv` is used (single-process, no overhead).
+### 📈 Multi-Seed Aggregation
 
-### Multi-Seed Aggregation
+Train across multiple seeds for **statistically rigorous** results. See [`multi-seed` command](#-multi-seed--train-across-multiple-seeds-statistical-significance) above.
 
-Train and evaluate the same configuration across multiple seeds to produce statistically meaningful results.
+### 🏆 Self-Play League
 
-```bash
-python -m rl_framework.cli.main multi-seed \
-  --config-name robot_walk_basic --seeds 0,1,2,3,4
-```
-
-**Output format** (`aggregate.csv`):
-
-```
-seed,mean_return
-0,142.5
-1,138.2
-2,155.1
-3,149.8
-4,144.3
-
-aggregate_mean,145.98
-aggregate_std,5.76
-```
-
-### Self-Play League
-
-For multi-agent organism training, periodically freezes snapshots of the current policy into a league of past opponents.  This breaks the training cycle where two copies of the same live policy co-adapt without meaningful progress.
+Breaks co-adaptation by maintaining a league of frozen past opponents. The live policy trains against random league members, not copies of itself.
 
 ```yaml
 self_play:
   enabled: true
-  snapshot_freq: 5000               # freeze a snapshot every 5k steps
-  max_league_size: 10               # keep at most 10 past selves
+  snapshot_freq: 5000               # Freeze a snapshot every 5k steps
+  max_league_size: 10               # Keep ≤ 10 past versions
 ```
 
-The `SelfPlayCallback` exposes `sample_opponent()` which returns a randomly selected frozen PPO model from the league.  Snapshots are saved to `checkpoints/league/` and the oldest are pruned when the league exceeds `max_league_size`.
+Snapshots saved to `checkpoints/league/`. Oldest pruned automatically.
 
 ---
 
-## Project Structure
+## 📂 Project Structure
 
 ```text
 MLenvironment/
@@ -536,64 +536,53 @@ MLenvironment/
 
 ---
 
-## Testing
+## ✅ Testing
 
 ```bash
-# Run all tests
-pytest
-
-# Run a specific test
-pytest tests/test_env_api.py::test_walker_env_api -v
-
-# Run with ruff linting
-ruff check src/ tests/
+pytest                                    # Run all tests
+pytest tests/test_env_api.py -v          # Specific test
+ruff check src/ tests/                    # Lint & format check
 ```
 
-**Test coverage:**
-
-| Test file | What it verifies |
+| Test | Verifies |
 |---|---|
-| `test_env_api.py` | `reset()` and `step()` return correct shapes and types for both walker (Gymnasium) and organism (PettingZoo) environments |
-| `test_reproducibility.py` | Two walker envs with the same seed produce identical observations |
+| `test_env_api.py` | Gymnasium & PettingZoo API compliance (shapes, types, interfaces) |
+| `test_reproducibility.py` | Determinism: identical seeds → identical observations |
 
 ---
 
-## Extending the Framework
+## 🔧 Extending the Framework
 
-### Add a New Environment
+### ➕ Add a New Environment
 
-1. Create a module under `src/rl_framework/envs/locomotion/` (Gymnasium `gym.Env`) or `src/rl_framework/envs/organisms/` (PettingZoo `ParallelEnv`).
-2. Separate dynamics, reward, and termination into their own files/classes.
-3. Register the environment type in `src/rl_framework/envs/registry.py`:
-
+1. Create module in `src/rl_framework/envs/locomotion/` (Gymnasium) or `src/rl_framework/envs/organisms/` (PettingZoo)
+2. Separate **dynamics** → **rewards** → **terminations** into distinct files
+3. Register in `src/rl_framework/envs/registry.py`:
    ```python
    def make_env(env_type: str, cfg: dict[str, Any]) -> gym.Env | ParallelEnv:
-       if env_type == "my_new_env":
-           return MyNewEnv(cfg)
-       ...
+       if env_type == "my_env": return MyEnv(cfg)
    ```
+4. Add YAML config in `src/rl_framework/configs/experiments/`
+5. Write tests in `tests/` (API compliance + determinism)
 
-4. Create a YAML config in `src/rl_framework/configs/experiments/`.
-5. Add API compliance and seed-determinism tests in `tests/`.
+### 🦾 Add a New Morphology
 
-### Add a New Morphology
+1. Add keys to `morphology` block in YAML
+2. Parse in `arena_parallel.py` (`_spawn_agent()`, `_current_size()`)
+3. Add to `sweep.parameters` for grid search
+4. Optionally use `evolution/simple_search.py` for random mutation
 
-1. Add keys to the `morphology` block in your organism YAML config.
-2. Read them in `arena_parallel.py` inside `_spawn_agent()` and `_current_size()`.
-3. Add the new keys as sweep entries under `sweep.parameters`.
-4. Optionally use `evolution/simple_search.py` to mutate the new parameters via random search.
+### 🤖 Swap the RL Algorithm
 
-### Swap the RL Algorithm
+Change `sb3_runner.py` (currently uses `PPO`):
 
-`sb3_runner.py` currently uses `PPO`.  To switch to another Stable-Baselines3 algorithm (SAC, A2C, TD3, etc.):
-
-1. Change the import and constructor in `sb3_runner.py`.
-2. Update any algorithm-specific hyperparameters in the YAML `training` block.
-3. No changes needed to environments, evaluation, or sweep infrastructure.
+1. Swap import: `from stable_baselines3 import SAC`
+2. Update YAML `training` hyperparameters
+3. No changes to envs, eval, or sweep 🎉
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
@@ -644,49 +633,51 @@ ruff check src/ tests/
 
 ---
 
-## Performance Tuning
+## ⚡ Performance Tuning
 
-| Technique | How | Expected speedup |
+| Technique | Action | Expected Gain |
 |---|---|---|
-| Parallel rollouts | Set `training.num_envs: 4` (or more) | ~3-4x on 4 cores |
-| GPU training | Install CUDA PyTorch (`pip install torch --index-url https://download.pytorch.org/whl/cu121`) | Varies by network size |
-| Reduce logging | Set `verbose: 0` in sb3_runner | Minor |
-| Longer rollouts | Increase `training.n_steps` | Better sample efficiency |
+| **Parallel rollouts** | Set `training.num_envs: 4+` | ~3-4× on 4 cores |
+| **GPU training** | Install CUDA PyTorch | Varies (network-dependent) |
+| **Longer rollouts** | Increase `training.n_steps` | Better sample efficiency |
+| **Reduce logging** | Set `verbose: 0` | Minor |
 
-For maximum throughput beyond what this framework provides, consider migrating to Brax (JAX-based vectorised physics) or RLlib (distributed workers).
-
----
-
-## Known Limitations
-
-- **CPU-first**: GPU acceleration requires manually installing the CUDA build of PyTorch.
-- **Gymnasium replay only**: `render-replay` does not support PettingZoo organism environments.
-- **Shared policy only**: Multi-agent training uses parameter-sharing PPO.  For asymmetric roles, a full multi-policy setup (e.g. RLlib) is needed.
-- **Version sensitivity**: Cross-library version changes in Gymnasium / PettingZoo / SuperSuit / SB3 can affect wrapper behaviour.  Pin versions in `pyproject.toml` for production use.
-- **Sequential sweeps**: `sweep` runs training configurations sequentially.  For parallel sweeps, use an external orchestrator (e.g. `xargs`, `GNU parallel`, or a job scheduler).
+**For massive scale:** Consider [Brax](https://github.com/google/brax) (JAX vectorization) or [RLlib](https://www.ray.io/rllib) (distributed).
 
 ---
 
-## Changelog
+## ⚠️ Known Limitations
+
+| Limitation | Workaround |
+|---|---|
+| **CPU-first** | Manually install CUDA PyTorch for GPU acceleration |
+| **Gymnasium replay only** | `render-replay` doesn't support PettingZoo. Multi-agent rendering coming soon. |
+| **Shared policy only** | Multi-agent uses parameter-sharing PPO. Use [RLlib](https://www.ray.io/rllib) for multi-policy setups. |
+| **Version sensitivity** | Pin versions in `pyproject.toml` for production deployments |
+| **Sequential sweeps** | Use `xargs` / `GNU parallel` / job scheduler for parallel hyperparameter sweeps |
+
+---
+
+## 📝 Changelog
 
 ### v0.1.0
 
-**Bug fixes:**
-- `eval_runner.py`: Multi-agent evaluation now loads and uses the trained PPO model (was using random actions)
-- `arena_parallel.py`: Episode growth mechanic (`episode_growth_scale`) now updates agent size each step (was always zero at spawn)
-- `arena_parallel.py`: All five return dicts (`observations`, `rewards`, `terminations`, `truncations`, `infos`) now share identical keys per PettingZoo Parallel API
-- `sweep.py`: `_set_nested` raises descriptive errors when a sweep parameter path doesn't exist in the config
+**🐛 Bug Fixes:**
+- `eval_runner.py` — Multi-agent eval now loads trained model (was: random actions)
+- `arena_parallel.py` — In-episode growth now updates size each step (was: always zero)
+- `arena_parallel.py` — All five PettingZoo dicts now share consistent keys
+- `sweep.py` — Helpful error messages for invalid sweep parameter paths
 
-**New features:**
-- Sensor noise injection via `domain_randomization.sensor_noise_std`
-- Action latency simulation via `domain_randomization.action_latency_steps`
-- Curriculum learning callback with level-gated parameter overrides
-- `SubprocVecEnv` parallel rollouts via `training.num_envs`
-- Multi-seed aggregate runner (`multi-seed` CLI command)
-- Self-play league callback for organism arena training
+**✨ New Features:**
+- 🔊 Sensor noise injection (`domain_randomization.sensor_noise_std`)
+- ⏱️ Action latency simulation (`domain_randomization.action_latency_steps`)
+- 📚 Curriculum learning with level-gated overrides
+- ⚡ `SubprocVecEnv` parallel rollouts
+- 🎲 Multi-seed aggregation (`multi-seed` command)
+- 🏆 Self-play league callback (organisms)
 
 ---
 
-## License
+## 📜 License
 
-See repository for licence details.
+See [LICENSE](LICENSE) in repository.
