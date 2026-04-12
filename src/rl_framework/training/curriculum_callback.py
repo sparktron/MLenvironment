@@ -19,7 +19,12 @@ class CurriculumCallback(BaseCallback):
         The ``curriculum`` section of the experiment YAML, expected to contain::
 
             enabled: true
-            level_up_threshold: 150.0   # mean reward to advance
+            level_up_threshold: 150.0   # default threshold applied to all levels
+            # Optional per-level thresholds (take priority over the default):
+            level_up_thresholds:
+              0: 100.0   # threshold to leave level 0
+              1: 150.0
+              2: 200.0
             max_level: 3
             level_params:
               1:
@@ -44,7 +49,11 @@ class CurriculumCallback(BaseCallback):
         self._cur_cfg = curriculum_cfg
         self._env_cfg = env_cfg
         self._level = int(curriculum_cfg.get("level", 0))
-        self._threshold = float(curriculum_cfg.get("level_up_threshold", 150.0))
+        self._default_threshold = float(curriculum_cfg.get("level_up_threshold", 150.0))
+        self._per_level_thresholds: dict[int, float] = {
+            int(k): float(v)
+            for k, v in curriculum_cfg.get("level_up_thresholds", {}).items()
+        }
         self._max_level = int(curriculum_cfg.get("max_level", 3))
         self._level_params: dict[int, dict[str, Any]] = {
             int(k): v for k, v in curriculum_cfg.get("level_params", {}).items()
@@ -64,7 +73,8 @@ class CurriculumCallback(BaseCallback):
         if mean_reward is None:
             return
 
-        if mean_reward >= self._threshold:
+        threshold = self._per_level_thresholds.get(self._level, self._default_threshold)
+        if mean_reward >= threshold:
             self._level += 1
             self._cur_cfg["level"] = self._level
             self._apply_level_params(self._level)
