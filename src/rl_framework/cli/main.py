@@ -23,6 +23,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
     parser.add_argument("--model-path", default="")
     parser.add_argument("--seeds", default="", help="Comma-separated seeds for multi-seed runs (e.g. 0,1,2,3,4)")
+    parser.add_argument("--max-workers", type=int, default=None, help="Parallel worker processes for multi-seed runs (default: cpu_count)")
     parser.add_argument("--dry-run", action="store_true", help="Plan runs without executing training (sweep only)")
     parser.add_argument("--host", default="127.0.0.1", help="GUI server host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=5000, help="GUI server port (default: 5000)")
@@ -75,7 +76,7 @@ def main() -> None:
         print(f"planned_runs={len(planned)} dry_run={args.dry_run}")
     elif args.command == "multi-seed":
         seeds = [int(s) for s in args.seeds.split(",")] if args.seeds else None
-        agg = run_multi_seed(cfg_dict, seeds=seeds)
+        agg = run_multi_seed(cfg_dict, seeds=seeds, max_workers=args.max_workers)
         print(f"mean={agg['mean_return_mean']:.4f}  std={agg['mean_return_std']:.4f}")
     elif args.command == "render-replay":
         if not args.model_path:
