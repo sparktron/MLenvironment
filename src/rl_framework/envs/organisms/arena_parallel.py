@@ -33,8 +33,8 @@ class OrganismArenaParallelEnv(ParallelEnv):
         self.step_count = 0
 
     def observation_space(self, agent: str):
-        # self x,y,health,energy + opp relative x,y,health + cooldown
-        return spaces.Box(low=-np.inf, high=np.inf, shape=(8,), dtype=np.float32)
+        # self x,y,health + opp relative x,y,health + cooldown
+        return spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32)
 
     def action_space(self, agent: str):
         # move_x, move_y, attack_trigger
@@ -45,11 +45,9 @@ class OrganismArenaParallelEnv(ParallelEnv):
         # step_count is 0 at spawn — store base_size and compute current size dynamically.
         size = np.clip(base_size, 0.5, 2.0)
         health = float(self.morphology.get("health", 1.0)) * size
-        energy = float(self.morphology.get("energy", 1.0))
         return {
             "pos": np.array([0.6 * sign, 0.0], dtype=np.float32),
             "health": health,
-            "energy": energy,
             "cooldown": 0,
             "size": size,
         }
@@ -78,7 +76,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
         me, other = self.state[agent], self.state[opp]
         rel = other["pos"] - me["pos"]
         return np.array([
-            me["pos"][0], me["pos"][1], me["health"], me["energy"],
+            me["pos"][0], me["pos"][1], me["health"],
             rel[0], rel[1], other["health"], float(me["cooldown"])
         ], dtype=np.float32)
 

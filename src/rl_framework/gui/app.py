@@ -13,6 +13,11 @@ from rl_framework.gui.training_manager import TrainingManager
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs" / "experiments"
 
+
+def _is_safe_config_name(name: str) -> bool:
+    """Reject config names that could escape CONFIGS_DIR via path traversal."""
+    return bool(name) and ".." not in name and "/" not in name and "\\" not in name
+
 app = Flask(
     __name__,
     template_folder=str(Path(__file__).resolve().parent / "templates"),
@@ -55,6 +60,8 @@ def list_configs():
 @app.route("/api/configs/<name>", methods=["GET"])
 def get_config(name: str):
     """Return the full parsed YAML config."""
+    if not _is_safe_config_name(name):
+        return jsonify({"error": "Invalid config name"}), 400
     path = CONFIGS_DIR / f"{name}.yaml"
     if not path.exists():
         return jsonify({"error": f"Config not found: {name}"}), 404
@@ -66,6 +73,8 @@ def get_config(name: str):
 @app.route("/api/configs/<name>", methods=["PUT"])
 def save_config(name: str):
     """Save a modified config back to YAML."""
+    if not _is_safe_config_name(name):
+        return jsonify({"error": "Invalid config name"}), 400
     data = request.get_json(force=True)
     if not data:
         return jsonify({"error": "Empty payload"}), 400
@@ -147,7 +156,6 @@ def get_schema():
                     "base_size": {"value": 1.0, "type": "float", "desc": "Base organism size", "min": 0.1, "max": 5},
                     "episode_growth_scale": {"value": 0.0, "type": "float", "desc": "Size growth per step", "min": 0, "max": 0.1},
                     "health": {"value": 1.2, "type": "float", "desc": "Initial health (scaled by size)", "min": 0.1, "max": 10},
-                    "energy": {"value": 1.0, "type": "float", "desc": "Initial energy", "min": 0.1, "max": 10},
                 },
                 "battle_rules": {
                     "damage": {"value": 0.06, "type": "float", "desc": "Damage per hit", "min": 0.01, "max": 1},
