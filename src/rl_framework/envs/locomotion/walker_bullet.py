@@ -22,27 +22,31 @@ class WalkerBulletEnv(gym.Env):
         self.cfg = cfg
         self.render_mode = cfg.get("render_mode")
         self._connection = p.connect(p.GUI if self.render_mode == "human" else p.DIRECT)
-        self._rng = np.random.default_rng(cfg.get("seed", 0))
+        try:
+            self._rng = np.random.default_rng(cfg.get("seed", 0))
 
-        self.dynamics = WalkerDynamics(max_force=cfg.get("sim", {}).get("max_force", 40.0))
-        reward_cfg = cfg.get("reward", {})
-        self.reward_fn = WalkerReward(**{k: v for k, v in reward_cfg.items() if k in WalkerReward.__annotations__})
-        term_cfg = cfg.get("termination", {})
-        self.termination = WalkerTermination(**{k: v for k, v in term_cfg.items() if k in WalkerTermination.__annotations__})
+            self.dynamics = WalkerDynamics(max_force=cfg.get("sim", {}).get("max_force", 40.0))
+            reward_cfg = cfg.get("reward", {})
+            self.reward_fn = WalkerReward(**{k: v for k, v in reward_cfg.items() if k in WalkerReward.__annotations__})
+            term_cfg = cfg.get("termination", {})
+            self.termination = WalkerTermination(**{k: v for k, v in term_cfg.items() if k in WalkerTermination.__annotations__})
 
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(13,), dtype=np.float32)
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
+            self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(13,), dtype=np.float32)
+            self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
 
-        # Domain randomisation: sensor noise
-        rand_cfg = cfg.get("domain_randomization", {})
-        self._sensor_noise_std = float(rand_cfg.get("sensor_noise_std", 0.0))
+            # Domain randomisation: sensor noise
+            rand_cfg = cfg.get("domain_randomization", {})
+            self._sensor_noise_std = float(rand_cfg.get("sensor_noise_std", 0.0))
 
-        # Domain randomisation: action latency
-        self._action_latency_steps = int(rand_cfg.get("action_latency_steps", 0))
-        self._action_buffer: deque[np.ndarray] = deque()
+            # Domain randomisation: action latency
+            self._action_latency_steps = int(rand_cfg.get("action_latency_steps", 0))
+            self._action_buffer: deque[np.ndarray] = deque()
 
-        self.step_count = 0
-        self.robot_id = -1
+            self.step_count = 0
+            self.robot_id = -1
+        except Exception:
+            p.disconnect(self._connection)
+            raise
 
     def _build_world(self) -> None:
         cid = self._connection
