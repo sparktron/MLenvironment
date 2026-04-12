@@ -1,0 +1,50 @@
+experiment_name: my_walker
+seed: 42
+environment:
+  type: walker_bullet
+  seed: 42
+  domain_randomization:
+    action_latency_steps: 0
+    friction_range:
+    - 0.9
+    - 1.1
+    mass_scale_range:
+    - 0.95
+    - 1.05
+    sensor_noise_std: 0
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  reward:
+    alive_bonus: 1
+    forward_velocity_weight: 2
+    orientation_penalty_weight: 1
+    target_velocity: 1
+    torque_penalty_weight: 0.01
+  sim:
+    body_half_extents:
+    - 0.2
+    - 0.1
+    - 0.08
+    friction: 0.9
+    gravity: -9.81
+    mass: 3
+    max_force: 35
+  termination:
+    max_steps: 800
+    max_tilt_radians: 0.8
+    min_height: 0.12
+training:
+  batch_size: 256
+  checkpoint_every: 5000
+  learning_rate: 0.0003
+  n_steps: 1024
+  normalize_observations: true
+  device: auto
+  num_envs: 1
+  policy: MlpPolicy
+  total_timesteps: 20000
+evaluation:
+  episodes: 5
+output:
+  base_dir: outputs

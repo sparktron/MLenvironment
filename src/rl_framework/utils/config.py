@@ -31,6 +31,9 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
     num_envs = cfg["training"].get("num_envs", 1)
     _ensure_int(num_envs, "training.num_envs", min_value=1)
 
+    device = cfg["training"].get("device", "auto")
+    _validate_device(device)
+
     eval_cfg = cfg.get("evaluation", {})
     if "episodes" in eval_cfg:
         _ensure_int(eval_cfg["episodes"], "evaluation.episodes", min_value=1)
@@ -57,6 +60,17 @@ def _validate_experiment_name(name: Any) -> None:
         )
 
 
+def _validate_device(value: Any) -> None:
+    """Accept 'auto', 'cpu', 'cuda', or 'cuda:<int>'."""
+    import re
+    if not isinstance(value, str):
+        raise TypeError(f"training.device must be a string, got {type(value).__name__}")
+    if value not in ("auto", "cpu", "cuda") and not re.fullmatch(r"cuda:\d+", value):
+        raise ValueError(
+            f"training.device must be 'auto', 'cpu', 'cuda', or 'cuda:<N>', got {value!r}"
+        )
+
+
 def _require_keys(d: dict[str, Any], keys: list[str]) -> None:
     for key in keys:
         if key not in d:
@@ -64,7 +78,7 @@ def _require_keys(d: dict[str, Any], keys: list[str]) -> None:
 
 
 def _ensure_int(value: Any, key: str, min_value: int | None = None) -> None:
-    if not isinstance(value, int):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"Config key '{key}' must be int, got {type(value).__name__}")
     if min_value is not None and value < min_value:
         raise ValueError(f"Config key '{key}' must be >= {min_value}, got {value}")

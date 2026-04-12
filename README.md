@@ -4,7 +4,7 @@
 
 Built on [Gymnasium](https://gymnasium.farama.org/), [PettingZoo](https://pettingzoo.farama.org/), [PyBullet](https://pybullet.org/), and [Stable-Baselines3](https://stable-baselines3.readthedocs.io/).
 
-✨ **Key features:** YAML-driven experiments • No code changes needed • GPU-ready • Multi-seed aggregation • Self-play league • Domain randomization • Curriculum learning
+✨ **Key features:** YAML-driven experiments • No code changes needed • GPU-accelerated (auto-detected) • Multi-seed aggregation • Self-play league • Domain randomization • Curriculum learning
 
 ---
 
@@ -362,6 +362,7 @@ training:
   checkpoint_every: 5000             # Save a checkpoint every N steps
   normalize_observations: true       # Wrap env in VecNormalize
   num_envs: 1                        # >1 uses SubprocVecEnv for parallelism
+  device: auto                       # "auto" | "cpu" | "cuda" | "cuda:0" etc.
 
 # ─── Evaluation ─────────────────────────────────────────────────
 evaluation:
@@ -493,6 +494,22 @@ curriculum:
 ```
 
 Level parameters use dotted-key notation to override any value in the environment config at runtime. Per-level thresholds let you set different advancement bars at each difficulty stage.
+
+### 🖥️ GPU Acceleration
+
+The framework **automatically uses a GPU when one is available** — no configuration required. The training device is controlled by a single YAML key:
+
+```yaml
+training:
+  device: auto      # default — uses CUDA if available, CPU otherwise
+  # device: cuda    # force GPU (errors if CUDA is unavailable)
+  # device: cuda:1  # pin to a specific GPU
+  # device: cpu     # force CPU
+```
+
+Accepted values: `auto`, `cpu`, `cuda`, `cuda:<N>` (e.g. `cuda:0`). Any other value is rejected at config-validation time with a clear error message.
+
+> **Note:** PyBullet physics simulation is CPU-only. GPU acceleration applies to the PPO neural network (forward passes during rollout and the gradient update steps). For MLP policies the gain is modest; it becomes significant with larger networks or image-based (`CnnPolicy`) policies.
 
 ### ⚡ Parallel CPU Rollouts
 
@@ -699,7 +716,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 | Technique | Action | Expected Gain |
 |---|---|---|
 | **Parallel rollouts** | Set `training.num_envs: 4+` | ~3-4× on 4 cores |
-| **GPU training** | Install CUDA PyTorch | Varies (network-dependent) |
+| **GPU training** | `device: auto` (default) or `device: cuda` | Automatic; bigger gain with larger nets / CnnPolicy |
 | **Longer rollouts** | Increase `training.n_steps` | Better sample efficiency |
 | **Reduce logging** | Set `verbose: 0` | Minor |
 
@@ -711,7 +728,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 
 | Limitation | Workaround |
 |---|---|
-| **CPU-first** | Manually install CUDA PyTorch for GPU acceleration |
+| **CPU physics** | PyBullet simulation is CPU-only; GPU speeds up the neural network only |
 | **Gymnasium replay only** | `render-replay` doesn't support PettingZoo. Multi-agent rendering coming soon. |
 | **Shared policy only** | Multi-agent uses parameter-sharing PPO. Use [RLlib](https://www.ray.io/rllib) for multi-policy setups. |
 | **Version sensitivity** | Pin versions in `pyproject.toml` for production deployments |
@@ -720,6 +737,12 @@ Change `sb3_runner.py` (currently uses `PPO`):
 ---
 
 ## 📝 Changelog
+
+### v0.3.0
+
+**✨ New Features:**
+- 🖥️ **GPU acceleration** — `training.device` config key added (`auto` | `cpu` | `cuda` | `cuda:<N>`). Defaults to `"auto"`, which selects CUDA automatically when available and falls back to CPU. All five bundled experiment configs updated.
+- `config.py` — `_validate_device()` rejects invalid device strings at startup with a clear error message.
 
 ### v0.2.0
 

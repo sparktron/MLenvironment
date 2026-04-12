@@ -83,6 +83,7 @@ def train(
             batch_size=cfg["training"].get("batch_size", 256),
             tensorboard_log=str(paths.logs_dir),
             seed=cfg["seed"],
+            device=cfg["training"].get("device", "auto"),
             verbose=1,
         )
 
