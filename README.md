@@ -181,6 +181,7 @@ python -m rl_framework.cli.main gui --port 8080   # custom port
 | `--config-dir` | No | `src/rl_framework/configs/experiments` | Config directory |
 | `--model-path` | Eval/replay only | — | Path to trained model `.zip` |
 | `--seeds` | multi-seed only | — | Comma-separated: `0,1,2,3,4` |
+| `--max-workers` | multi-seed only | cpu count | Parallel worker processes (pass `1` for sequential) |
 
 ### 🏋️ `train` — Train a PPO agent
 
@@ -242,9 +243,17 @@ sweep:
 ```bash
 python -m rl_framework.cli.main multi-seed \
   --config-name robot_walk_basic --seeds 0,1,2,3,4
+
+# Run seeds in parallel (default: all CPUs):
+python -m rl_framework.cli.main multi-seed \
+  --config-name robot_walk_basic --seeds 0,1,2,3,4 --max-workers 4
+
+# Force sequential (useful when training already saturates CPUs via num_envs):
+python -m rl_framework.cli.main multi-seed \
+  --config-name robot_walk_basic --seeds 0,1,2 --max-workers 1
 ```
 
-Trains and evaluates **the same config** across multiple random seeds for statistical rigor.
+Trains and evaluates **the same config** across multiple random seeds for statistical rigor. Seeds run in **parallel by default** using separate processes.
 
 **Output:**
 
@@ -335,7 +344,6 @@ environment:
     base_size: 1.0                   # Agent body scale at episode start
     episode_growth_scale: 0.0        # Size increase per step (0 = no growth)
     health: 1.2                      # Base health (scaled by size)
-    energy: 1.0                      # Base energy
 
   battle_rules:
     damage: 0.06                     # Base damage per hit
@@ -468,7 +476,12 @@ Automatically increases difficulty as the agent improves. SB3 callback monitors 
 ```yaml
 curriculum:
   enabled: true
-  level_up_threshold: 150.0
+  level_up_threshold: 150.0   # default threshold for all levels
+  # Optional: per-level thresholds (override the default above)
+  level_up_thresholds:
+    0: 100.0    # threshold to leave level 0
+    1: 150.0
+    2: 200.0
   max_level: 3
   level_params:
     1:
@@ -479,7 +492,7 @@ curriculum:
       reward.target_velocity: 2.0
 ```
 
-Level parameters use dotted-key notation to override any value in the environment config at runtime.
+Level parameters use dotted-key notation to override any value in the environment config at runtime. Per-level thresholds let you set different advancement bars at each difficulty stage.
 
 ### ⚡ Parallel CPU Rollouts
 
@@ -492,7 +505,7 @@ training:
 
 ### 📈 Multi-Seed Aggregation
 
-Train across multiple seeds for **statistically rigorous** results. See [`multi-seed` command](#-multi-seed--train-across-multiple-seeds-statistical-significance) above.
+Train across multiple seeds for **statistically rigorous** results. Seeds run **in parallel by default** (one subprocess per seed, up to `cpu_count`). Pass `--max-workers 1` for sequential. See [`multi-seed` command](#-multi-seed--train-across-multiple-seeds-statistical-significance) above.
 
 ### 🏆 Self-Play League
 
@@ -707,6 +720,24 @@ Change `sb3_runner.py` (currently uses `PPO`):
 ---
 
 ## 📝 Changelog
+
+### v0.2.0
+
+**🐛 Bug Fixes:**
+- `eval_runner.py` — Multi-agent eval no longer crashes (`len(observation_space)` → `vec_env.num_envs`)
+- `config.py` — `_ensure_int` now correctly rejects booleans (Python `bool` is a subclass of `int`)
+- `app.py` — Path traversal fixed in `GET /api/configs/<name>` and `PUT /api/configs/<name>`
+
+**✨ Improvements:**
+- `arena_parallel.py` — Removed unused `energy` field (dead state that inflated obs from 7 → 8)
+- `app.py` — GUI auto-creates `configs/experiments/` directory on startup
+- `walker_bullet.py` — PyBullet client now disconnects if `__init__` fails partway through
+- `rewards.py` — Forward velocity error clamped to prevent unbounded negative rewards
+- `curriculum_callback.py` — Support per-level `level_up_thresholds` dict in addition to the global default
+- `training_manager.py` — `stop_run()` now actually halts training via a `_StopOnEvent` callback
+- `training/__init__.py` — Lazy imports so unit tests don't crash when torch is unavailable
+- `multi_seed_runner.py` — Seeds run in parallel by default (`ProcessPoolExecutor`); `--max-workers 1` for sequential
+- `tests/test_env_api.py` — Added edge-case tests for health depletion, max-step truncation, and agent-list clearing
 
 ### v0.1.0
 
