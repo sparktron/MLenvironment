@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
 import supersuit as ss
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
 
 from rl_framework.envs.registry import make_env
@@ -14,11 +15,44 @@ from rl_framework.training.self_play_callback import SelfPlayCallback
 from rl_framework.utils.logging_utils import create_experiment_paths
 
 
+class StopOnEvent(BaseCallback):
+    """SB3 callback that halts training when a :class:`threading.Event` is set.
+
+    Used by the GUI's ``stop_run()`` to interrupt ``model.learn()`` at the end
+    of the current rollout without killing the process.
+    """
+
+    def __init__(self, stop_event: threading.Event) -> None:
+        super().__init__(verbose=0)
+        self._stop_event = stop_event
+
+    def _on_step(self) -> bool:
+        return not self._stop_event.is_set()
+
+
 def _build_single_env(env_cfg: dict[str, Any]):
     return lambda: make_env(env_cfg["type"], env_cfg)
 
 
-def train(cfg: dict[str, Any]) -> Path:
+def train(
+    cfg: dict[str, Any],
+    extra_callbacks: list[BaseCallback] | None = None,
+    stop_event: threading.Event | None = None,
+) -> Path:
+    """Train a PPO agent from *cfg* and return the path to the saved model.
+
+    Parameters
+    ----------
+    cfg:
+        Experiment config dict.
+    extra_callbacks:
+        Additional SB3 callbacks inserted after the checkpoint callback and
+        before the built-in curriculum / self-play callbacks.  The GUI uses
+        this to inject :class:`~rl_framework.training.live_tuning_callback.LiveTuningCallback`.
+    stop_event:
+        When set, a :class:`StopOnEvent` callback is prepended so training
+        halts at the end of the current rollout.
+    """
     paths = create_experiment_paths(cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"])
     env_cfg = cfg["environment"]
 
@@ -57,7 +91,15 @@ def train(cfg: dict[str, Any]) -> Path:
             save_path=str(paths.checkpoints_dir),
             name_prefix="ppo_model",
         )
-        callbacks = [checkpoint_cb]
+        callbacks: list[BaseCallback] = [checkpoint_cb]
+
+        # Optional stop-on-request (e.g. from the GUI stop button).
+        if stop_event is not None:
+            callbacks.append(StopOnEvent(stop_event))
+
+        # Caller-supplied callbacks (e.g. LiveTuningCallback from the GUI).
+        if extra_callbacks:
+            callbacks.extend(extra_callbacks)
 
         # Curriculum learning: bump env difficulty when performance exceeds threshold.
         curriculum_cfg = cfg.get("curriculum", {})
