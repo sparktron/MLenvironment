@@ -13,6 +13,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from stable_baselines3.common.callbacks import BaseCallback
+
+
+class _StopOnEvent(BaseCallback):
+    """SB3 callback that stops training when a threading.Event is set."""
+
+    def __init__(self, stop_event: threading.Event) -> None:
+        super().__init__(verbose=0)
+        self._stop_event = stop_event
+
+    def _on_step(self) -> bool:
+        return not self._stop_event.is_set()
+
 from rl_framework.training.sb3_runner import train as _train_core
 from rl_framework.utils.config import validate_experiment_config
 
@@ -21,13 +34,14 @@ from rl_framework.utils.config import validate_experiment_config
 class _RunState:
     run_id: str
     cfg: dict[str, Any]
-    status: str = "pending"  # pending | running | completed | failed
+    status: str = "pending"  # pending | running | stopping | completed | failed
     error: str = ""
     started_at: float = 0.0
     finished_at: float = 0.0
     model_path: str = ""
     tuning_file: str = ""
     status_file: str = ""
+    stop_event: threading.Event = field(default_factory=threading.Event)
 
 
 class TrainingManager:
@@ -68,6 +82,7 @@ class TrainingManager:
             if state.status != "running":
                 return {"error": f"Run is not active (status={state.status})"}
             state.status = "stopping"
+            state.stop_event.set()
         return {"run_id": run_id, "status": "stopping"}
 
     def get_status(self, run_id: str) -> dict[str, Any]:
@@ -149,7 +164,7 @@ class TrainingManager:
                 "tuning_file": str(tuning_file),
                 "status_file": str(status_file),
             }
-            model_path = _train_with_live_tuning(cfg)
+            model_path = _train_with_live_tuning(cfg, state.stop_event)
             with self._lock:
                 state.status = "completed"
                 state.model_path = str(model_path)
@@ -161,7 +176,7 @@ class TrainingManager:
                 state.finished_at = time.time()
 
 
-def _train_with_live_tuning(cfg: dict[str, Any]) -> Path:
+def _train_with_live_tuning(cfg: dict[str, Any], stop_event: threading.Event | None = None) -> Path:
     """Extended train() that injects the LiveTuningCallback."""
     import supersuit as ss
     from stable_baselines3 import PPO
@@ -212,6 +227,10 @@ def _train_with_live_tuning(cfg: dict[str, Any]) -> Path:
             name_prefix="ppo_model",
         )
         callbacks = [checkpoint_cb]
+
+        # Stop-on-request callback (set by stop_run()).
+        if stop_event is not None:
+            callbacks.append(_StopOnEvent(stop_event))
 
         # Live tuning callback.
         live_cfg = cfg.get("_live_tuning", {})
