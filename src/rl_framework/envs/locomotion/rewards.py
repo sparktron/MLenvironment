@@ -17,7 +17,8 @@ class WalkerReward:
         reward = 0.0
         if alive:
             reward += self.alive_bonus
-        reward += self.forward_velocity_weight * (1.0 - abs(self.target_velocity - lin_vel_x))
+        vel_error = min(abs(self.target_velocity - lin_vel_x), 2.0)
+        reward += self.forward_velocity_weight * (1.0 - vel_error)
         reward -= self.orientation_penalty_weight * pitch_roll_penalty
         reward -= self.torque_penalty_weight * float(np.square(action).sum())
         return float(reward)
