@@ -12,6 +12,7 @@ from flask import Flask, jsonify, render_template, request
 from rl_framework.gui.training_manager import TrainingManager
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs" / "experiments"
+CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _is_safe_config_name(name: str) -> bool:
