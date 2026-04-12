@@ -18,12 +18,14 @@ from rl_framework.utils.config import load_config, to_container, validate_experi
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="RL experiment framework CLI")
-    parser.add_argument("command", choices=["train", "eval", "sweep", "multi-seed", "render-replay"])
-    parser.add_argument("--config-name", required=True, help="YAML file name without extension")
+    parser.add_argument("command", choices=["train", "eval", "sweep", "multi-seed", "render-replay", "gui"])
+    parser.add_argument("--config-name", default="", help="YAML file name without extension (required for all commands except gui)")
     parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
     parser.add_argument("--model-path", default="")
     parser.add_argument("--seeds", default="", help="Comma-separated seeds for multi-seed runs (e.g. 0,1,2,3,4)")
     parser.add_argument("--dry-run", action="store_true", help="Plan runs without executing training (sweep only)")
+    parser.add_argument("--host", default="127.0.0.1", help="GUI server host (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=5000, help="GUI server port (default: 5000)")
     return parser.parse_args()
 
 
@@ -48,6 +50,15 @@ def _render_replay(cfg: dict, model_path: str) -> None:
 
 def main() -> None:
     args = _parse_args()
+
+    if args.command == "gui":
+        from rl_framework.gui.app import run_gui
+        run_gui(host=args.host, port=args.port)
+        return
+
+    if not args.config_name:
+        raise SystemExit("--config-name is required for the '{}' command".format(args.command))
+
     cfg = load_config(args.config_name, args.config_dir)
     cfg_dict = to_container(cfg)
     validate_experiment_config(cfg_dict)

@@ -43,7 +43,8 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 - [Installation](#installation)
   - [Local (pip)](#local-pip)
   - [Docker](#docker)
-- [CLI Reference](#cli-reference)
+- [Web GUI](#-web-based-gui)
+- [CLI Reference](#-cli-commands)
   - [train](#train)
   - [eval](#eval)
   - [sweep](#sweep)
@@ -99,6 +100,7 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 | pandas | >= 2.1 | Data analysis |
 | tensorboard | >= 2.15 | Training visualisation |
 | PyYAML | >= 6.0 | YAML parsing |
+| flask | >= 3.0 | Web GUI server |
 
 ### Optional dev dependencies
 
@@ -135,6 +137,37 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" \
 ```
 
 *Image: `python:3.11-slim` + editable install. All CLI args forwarded.*
+
+---
+
+## 🌐 Web-Based GUI
+
+**New!** Launch the interactive web GUI to set up and monitor experiments without touching YAML or the terminal.
+
+```bash
+python -m rl_framework.cli.main gui              # http://127.0.0.1:5000
+python -m rl_framework.cli.main gui --port 8080   # custom port
+```
+
+### GUI Features
+
+| Feature | Description |
+|---|---|
+| **4-Step Experiment Wizard** | Choose environment → Configure parameters → Set training hyperparameters → Review & launch |
+| **Visual Parameter Editor** | All fields with descriptions, type hints, and min/max ranges — no YAML editing |
+| **Template Loading** | Start from any existing config (robot_walk_basic, organisms_fight_arena, etc.) |
+| **Real-Time Dashboard** | Live training metrics: reward, loss, entropy, learning rate, timesteps — updates every 2 seconds |
+| **Reward Chart** | Interactive canvas chart tracking episode reward over training time |
+| **Live Parameter Tuning** | Modify learning rate, reward weights, and termination thresholds **during training** — changes apply at the next rollout |
+| **Outputs Browser** | Browse and inspect completed experiments and their saved checkpoints |
+
+**Example flow:**
+1. Click "Walker (Locomotion)" environment card
+2. Fill in experiment name and environment parameters (GUI validates ranges)
+3. Set total_timesteps, learning_rate, batch_size
+4. Review YAML preview
+5. Click "Launch Training" — training runs in a background thread
+6. Switch to Dashboard tab to watch real-time metrics and apply live parameter tweaks
 
 ---
 
@@ -492,6 +525,16 @@ MLenvironment/
 │   │   ├── __init__.py
 │   │   └── main.py                     # CLI entry point and command dispatcher
 │   │
+│   ├── gui/
+│   │   ├── __init__.py
+│   │   ├── app.py                      # Flask web app + REST API
+│   │   ├── training_manager.py         # Background training orchestrator
+│   │   ├── templates/
+│   │   │   └── index.html              # Single-page wizard + dashboard
+│   │   └── static/
+│   │       ├── style.css               # Dark-themed responsive UI
+│   │       └── app.js                  # Frontend: wizard, polling, tuning
+│   │
 │   ├── configs/experiments/
 │   │   ├── robot_walk_basic.yaml
 │   │   ├── robot_push_recovery.yaml
@@ -519,7 +562,8 @@ MLenvironment/
 │   │   ├── sweep.py                    # Cartesian hyperparameter sweep
 │   │   ├── multi_seed_runner.py        # Multi-seed train+eval+aggregate
 │   │   ├── curriculum_callback.py      # SB3 callback for curriculum learning
-│   │   └── self_play_callback.py       # SB3 callback for self-play league
+│   │   ├── self_play_callback.py       # SB3 callback for self-play league
+│   │   └── live_tuning_callback.py     # SB3 callback for live parameter updates
 │   │
 │   ├── evolution/
 │   │   └── simple_search.py            # Random morphology mutation hook
@@ -585,39 +629,43 @@ Change `sb3_runner.py` (currently uses `PPO`):
 ## 🏗️ Architecture
 
 ```
-┌───────────────────────────────────────────────────────────────────┐
-│                           CLI (main.py)                           │
-│   train │ eval │ sweep │ multi-seed │ render-replay               │
-├─────────┴──────┴───────┴────────────┴─────────────────────────────┤
-│                                                                   │
-│   ┌─────────────┐  ┌──────────────┐  ┌──────────────────────┐    │
-│   │ sb3_runner   │  │ eval_runner  │  │ multi_seed_runner    │    │
-│   │   PPO.learn()│  │  PPO.predict │  │  train() × N seeds   │    │
-│   └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘    │
-│          │                 │                      │                │
-│   ┌──────┴─────────────────┴──────────────────────┘               │
-│   │   Callbacks                                                   │
-│   │   ├── CheckpointCallback                                      │
-│   │   ├── CurriculumCallback                                      │
-│   │   └── SelfPlayCallback                                        │
-│   └──────┬────────────────────────────────────────                │
-│          │                                                        │
-│   ┌──────┴───────────────────────────────────────────────────┐    │
-│   │                    Environment Layer                      │    │
-│   │   registry.py → make_env()                                │    │
-│   │   ┌──────────────────┐    ┌───────────────────────────┐   │    │
-│   │   │  walker_bullet   │    │ organism_arena_parallel    │   │    │
-│   │   │  (Gymnasium)     │    │ (PettingZoo Parallel)      │   │    │
-│   │   │  dynamics.py     │    │ battle rules + growth      │   │    │
-│   │   │  rewards.py      │    └───────────────────────────┘   │    │
-│   │   │  terminations.py │                                    │    │
-│   │   └──────────────────┘                                    │    │
-│   └──────────────────────────────────────────────────────────┘    │
-│                                                                   │
-│   ┌──────────────────────────────────────────────────────────┐    │
-│   │  Utils: config.py (OmegaConf) │ logging_utils.py (CSV)   │    │
-│   └──────────────────────────────────────────────────────────┘    │
-└───────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                        CLI (main.py)                                │
+│  train│eval│sweep│multi-seed│render-replay │ gui (new!)            │
+├──────┴────┴─────┴──────────┴──────────────┴────────────────────────┤
+│                                                                     │
+│  ┌──────────────────────┐      ┌──────────────────────────────┐     │
+│  │  CLI Runners         │      │  Flask GUI (gui/app.py)      │     │
+│  │  ├─ sb3_runner       │      │  REST API + web interface    │     │
+│  │  ├─ eval_runner      │      │  └─ training_manager.py      │     │
+│  │  ├─ sweep            │      │     (background thread)      │     │
+│  │  └─ multi_seed       │      └──────────────────────────────┘     │
+│  └──────────┬───────────┘                    │                     │
+│             │                               │                     │
+│  ┌──────────┴───────────────────────────────┴──────────────────┐    │
+│  │              Callbacks (SB3)                                │    │
+│  │  ├── CheckpointCallback                                    │    │
+│  │  ├── CurriculumCallback                                    │    │
+│  │  ├── SelfPlayCallback                                      │    │
+│  │  └── LiveTuningCallback (reads JSON for real-time tuning)  │    │
+│  └──────────────────────┬────────────────────────────────────┘     │
+│                         │                                          │
+│  ┌──────────────────────┴────────────────────────────────────┐     │
+│  │               Environment Layer                           │     │
+│  │  registry.py → make_env()                                 │     │
+│  │  ┌──────────────────────┐  ┌───────────────────────────┐  │     │
+│  │  │   walker_bullet      │  │ organism_arena_parallel   │  │     │
+│  │  │   (Gymnasium)        │  │ (PettingZoo Parallel)     │  │     │
+│  │  │   dynamics.py        │  │ battle rules + growth     │  │     │
+│  │  │   rewards.py         │  └───────────────────────────┘  │     │
+│  │  │   terminations.py    │                                 │     │
+│  │  └──────────────────────┘                                 │     │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  Utils: config.py (OmegaConf) │ logging_utils.py (CSV)      │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Design Decisions
@@ -669,6 +717,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 - `sweep.py` — Helpful error messages for invalid sweep parameter paths
 
 **✨ New Features:**
+- 🌐 **Web GUI** (`python -m rl_framework.cli.main gui`) — interactive wizard for experiment setup, real-time dashboard with reward charts, and live parameter tuning during training
 - 🔊 Sensor noise injection (`domain_randomization.sensor_noise_std`)
 - ⏱️ Action latency simulation (`domain_randomization.action_latency_steps`)
 - 📚 Curriculum learning with level-gated overrides

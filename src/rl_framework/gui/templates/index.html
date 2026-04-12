@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RL Experiment Framework</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>RL Experiment Framework</h1>
+      <nav>
+        <button class="nav-btn active" data-tab="wizard">New Experiment</button>
+        <button class="nav-btn" data-tab="dashboard">Dashboard</button>
+        <button class="nav-btn" data-tab="outputs">Outputs</button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- ============================================================ -->
+    <!-- TAB: WIZARD                                                   -->
+    <!-- ============================================================ -->
+    <section id="tab-wizard" class="tab-content active">
+      <div class="wizard">
+        <!-- Progress bar -->
+        <div class="wizard-steps">
+          <div class="step active" data-step="1"><span class="step-num">1</span> Environment</div>
+          <div class="step" data-step="2"><span class="step-num">2</span> Parameters</div>
+          <div class="step" data-step="3"><span class="step-num">3</span> Training</div>
+          <div class="step" data-step="4"><span class="step-num">4</span> Review &amp; Launch</div>
+        </div>
+
+        <!-- Step 1: Choose environment -->
+        <div class="wizard-panel active" id="wiz-step-1">
+          <h2>Choose Your Environment</h2>
+          <p class="hint">Select an environment type or start from an existing config template.</p>
+
+          <div class="card-grid">
+            <div class="env-card" data-env="walker_bullet">
+              <div class="env-icon">&#x1F6B6;</div>
+              <h3>Walker (Locomotion)</h3>
+              <p>Single-agent bipedal locomotion using PyBullet physics. Teach an agent to walk with configurable rewards, domain randomization, and curriculum learning.</p>
+              <ul class="env-features">
+                <li>Observation: 13-dim (pose + velocity)</li>
+                <li>Action: 3-dim (force x/y + torque z)</li>
+                <li>Physics: PyBullet</li>
+              </ul>
+            </div>
+            <div class="env-card" data-env="organism_arena_parallel">
+              <div class="env-icon">&#x2694;</div>
+              <h3>Organism Arena (Multi-Agent)</h3>
+              <p>Two-agent competitive arena with configurable battle rules, organism growth, and self-play training. PettingZoo parallel API.</p>
+              <ul class="env-features">
+                <li>Observation: 8-dim per agent</li>
+                <li>Action: 3-dim (move x/y + attack)</li>
+                <li>Multi-agent: PettingZoo</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="template-section">
+            <h3>Or start from a template:</h3>
+            <div id="template-list" class="template-grid"></div>
+          </div>
+
+          <div class="wizard-nav">
+            <span></span>
+            <button class="btn primary" id="wiz-next-1" disabled>Next: Parameters</button>
+          </div>
+        </div>
+
+        <!-- Step 2: Environment parameters -->
+        <div class="wizard-panel" id="wiz-step-2">
+          <h2>Environment Parameters</h2>
+          <p class="hint">Configure the environment settings. Hover over labels for descriptions.</p>
+
+          <div class="form-section">
+            <label>Experiment Name
+              <input type="text" id="cfg-experiment-name" placeholder="my_experiment" />
+            </label>
+            <label>Seed
+              <input type="number" id="cfg-seed" value="42" min="0" />
+            </label>
+          </div>
+
+          <div id="env-params-container"></div>
+
+          <div class="wizard-nav">
+            <button class="btn" id="wiz-prev-2">Back</button>
+            <button class="btn primary" id="wiz-next-2">Next: Training</button>
+          </div>
+        </div>
+
+        <!-- Step 3: Training parameters -->
+        <div class="wizard-panel" id="wiz-step-3">
+          <h2>Training Parameters</h2>
+          <p class="hint">Configure PPO training hyperparameters.</p>
+
+          <div id="training-params-container"></div>
+
+          <div class="wizard-nav">
+            <button class="btn" id="wiz-prev-3">Back</button>
+            <button class="btn primary" id="wiz-next-3">Next: Review</button>
+          </div>
+        </div>
+
+        <!-- Step 4: Review & Launch -->
+        <div class="wizard-panel" id="wiz-step-4">
+          <h2>Review &amp; Launch</h2>
+          <p class="hint">Review your configuration before starting training.</p>
+
+          <div class="review-container">
+            <pre id="config-preview"></pre>
+          </div>
+
+          <div class="review-actions">
+            <label><input type="checkbox" id="save-config-check" checked /> Save config as YAML template</label>
+          </div>
+
+          <div class="wizard-nav">
+            <button class="btn" id="wiz-prev-4">Back</button>
+            <button class="btn success" id="launch-btn">Launch Training</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- TAB: DASHBOARD                                                -->
+    <!-- ============================================================ -->
+    <section id="tab-dashboard" class="tab-content">
+      <div class="dashboard">
+        <div class="dash-header">
+          <h2>Training Dashboard</h2>
+          <div id="run-selector">
+            <select id="active-run-select"><option value="">No active runs</option></select>
+            <span id="run-status-badge" class="badge">--</span>
+          </div>
+        </div>
+
+        <!-- Metrics cards -->
+        <div class="metrics-grid" id="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-label">Timesteps</div>
+            <div class="metric-value" id="m-timesteps">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Mean Reward</div>
+            <div class="metric-value" id="m-reward">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Ep Length</div>
+            <div class="metric-value" id="m-ep-len">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Loss</div>
+            <div class="metric-value" id="m-loss">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Policy Loss</div>
+            <div class="metric-value" id="m-pg-loss">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Value Loss</div>
+            <div class="metric-value" id="m-val-loss">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Entropy</div>
+            <div class="metric-value" id="m-entropy">--</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Learning Rate</div>
+            <div class="metric-value" id="m-lr">--</div>
+          </div>
+        </div>
+
+        <!-- Reward chart -->
+        <div class="chart-container">
+          <h3>Reward History</h3>
+          <canvas id="reward-chart" height="200"></canvas>
+        </div>
+
+        <!-- Live tuning -->
+        <div class="tuning-panel">
+          <h3>Live Parameter Tuning</h3>
+          <p class="hint">Modify parameters in real-time during training. Changes take effect at the next rollout boundary.</p>
+
+          <div class="tuning-grid" id="tuning-grid">
+            <div class="tuning-row">
+              <label>Learning Rate</label>
+              <input type="number" id="tune-lr" step="0.00001" value="0.0003" />
+              <button class="btn small" data-tune="learning_rate" data-input="tune-lr">Apply</button>
+            </div>
+          </div>
+
+          <div id="env-tuning-params"></div>
+
+          <div class="tuning-log">
+            <h4>Applied Changes</h4>
+            <div id="tuning-log-entries"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- TAB: OUTPUTS                                                  -->
+    <!-- ============================================================ -->
+    <section id="tab-outputs" class="tab-content">
+      <div class="outputs-panel">
+        <h2>Experiment Outputs</h2>
+        <p class="hint">Browse completed experiments and their checkpoints.</p>
+        <div id="outputs-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>RL Experiment Framework GUI &mdash; PPO training via Stable-Baselines3</p>
+  </footer>
+
+  <div id="toast-container"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -17,7 +17,8 @@ dependencies = [
   "numpy>=1.26",
   "pandas>=2.1",
   "tensorboard>=2.15",
-  "PyYAML>=6.0"
+  "PyYAML>=6.0",
+  "flask>=3.0"
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rl-gui",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "rl_framework.cli.main", "gui", "--port", "5111"],
+      "port": 5111
+    }
+  ]
+}
