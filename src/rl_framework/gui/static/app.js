@@ -24,8 +24,13 @@
   async function api(method, path, body) {
     const opts = { method, headers: { "Content-Type": "application/json" } };
     if (body) opts.body = JSON.stringify(body);
-    const r = await fetch(path, opts);
-    return r.json();
+    try {
+      const r = await fetch(path, opts);
+      return r.json();
+    } catch (err) {
+      console.error("API error:", method, path, err);
+      return { error: String(err) };
+    }
   }
 
   function toast(msg, type) {
