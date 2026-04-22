@@ -182,6 +182,8 @@ python -m rl_framework.cli.main gui --port 8080   # custom port
 | `--model-path` | Eval/replay only | — | Path to trained model `.zip` |
 | `--seeds` | multi-seed only | — | Comma-separated: `0,1,2,3,4` |
 | `--max-workers` | multi-seed only | cpu count | Parallel worker processes (pass `1` for sequential) |
+| `--resume` | train only | — | Path to a saved PPO `.zip` to continue training from |
+| `--trials` | morph-search only | 5 | Number of morphology mutations to evaluate |
 
 ### 🏋️ `train` — Train a PPO agent
 
@@ -284,9 +286,33 @@ python -m rl_framework.cli.main render-replay \
   --model-path outputs/robot_walk_basic/seed_42/checkpoints/final_model.zip
 ```
 
-**Output:** MP4 videos in `outputs/<experiment>/seed_<N>/videos/`
+**Output:**
+- Gymnasium envs (locomotion): MP4 in `outputs/<experiment>/seed_<N>/videos/`
+- PettingZoo parallel envs (organism arena): animated GIF (`replay.gif`) in the same folder
 
-> ⚠️ Currently supports **Gymnasium environments only** (locomotion). Organism arena rendering coming soon.
+### ⏯️ Resuming training
+
+Pass `--resume <checkpoint.zip>` to `train` to continue from a saved model.
+Both the PPO policy/optimizer state and the sibling `vecnormalize.pkl`
+running stats are restored, and TensorBoard timesteps continue where they
+left off.
+
+```bash
+python -m rl_framework.cli.main train \
+  --config-name robot_walk_basic \
+  --resume outputs/robot_walk_basic/seed_42/checkpoints/final_model.zip
+```
+
+### 🧬 `morph-search` — Random morphology search
+
+```bash
+python -m rl_framework.cli.main morph-search \
+  --config-name organism_arena_base --trials 8
+```
+
+Mutates the organism's morphology parameters (base size, health) across N
+trials, trains + evaluates each, and prints the best-scoring configuration.
+Currently scoped to `organism_arena_parallel`.
 
 ---
 
