@@ -35,6 +35,24 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
     device = cfg["training"].get("device", "auto")
     _validate_device(device)
 
+    if "learning_rate" in cfg["training"]:
+        _ensure_positive_number(cfg["training"]["learning_rate"], "training.learning_rate")
+    if "n_steps" in cfg["training"]:
+        _ensure_int(cfg["training"]["n_steps"], "training.n_steps", min_value=1)
+    if "batch_size" in cfg["training"]:
+        _ensure_int(cfg["training"]["batch_size"], "training.batch_size", min_value=1)
+    if "checkpoint_every" in cfg["training"]:
+        _ensure_int(cfg["training"]["checkpoint_every"], "training.checkpoint_every", min_value=1)
+
+    if "n_steps" in cfg["training"] and "batch_size" in cfg["training"]:
+        rollout_size = int(cfg["training"]["n_steps"]) * int(num_envs)
+        batch_size = int(cfg["training"]["batch_size"])
+        if batch_size > rollout_size:
+            raise ValueError(
+                "training.batch_size must be <= training.n_steps * training.num_envs "
+                f"(got batch_size={batch_size}, rollout_size={rollout_size})"
+            )
+
     eval_cfg = cfg.get("evaluation", {})
     if "episodes" in eval_cfg:
         _ensure_int(eval_cfg["episodes"], "evaluation.episodes", min_value=1)
@@ -85,3 +103,10 @@ def _ensure_int(value: Any, key: str, min_value: int | None = None) -> None:
         raise TypeError(f"Config key '{key}' must be int, got {type(value).__name__}")
     if min_value is not None and value < min_value:
         raise ValueError(f"Config key '{key}' must be >= {min_value}, got {value}")
+
+
+def _ensure_positive_number(value: Any, key: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"Config key '{key}' must be a number, got {type(value).__name__}")
+    if value <= 0:
+        raise ValueError(f"Config key '{key}' must be > 0, got {value}")

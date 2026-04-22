@@ -71,6 +71,7 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 - [Architecture](#architecture)
 - [Performance Tuning](#performance-tuning)
 - [Known Limitations](#known-limitations)
+- [Maintenance Notes](#maintenance-notes)
 - [Changelog](#changelog)
 - [License](#license)
 
@@ -95,9 +96,8 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 | supersuit | >= 3.9 | PettingZoo-to-VecEnv wrappers |
 | stable-baselines3 | >= 2.3 | PPO training + checkpoints |
 | pybullet | >= 3.2 | Physics simulation |
-| hydra-core | >= 1.3 | Config composition (OmegaConf backend) |
+| omegaconf | >= 2.3 | Config loading and composition |
 | numpy | >= 1.26 | Numerical operations |
-| pandas | >= 2.1 | Data analysis |
 | tensorboard | >= 2.15 | Training visualisation |
 | PyYAML | >= 6.0 | YAML parsing |
 | flask | >= 3.0 | Web GUI server |
@@ -759,6 +759,14 @@ Change `sb3_runner.py` (currently uses `PPO`):
 | **Shared policy only** | Multi-agent uses parameter-sharing PPO. Use [RLlib](https://www.ray.io/rllib) for multi-policy setups. |
 | **Version sensitivity** | Pin versions in `pyproject.toml` for production deployments |
 | **Sequential sweeps** | Use `xargs` / `GNU parallel` / job scheduler for parallel hyperparameter sweeps |
+
+---
+
+## 🛠️ Maintenance Notes
+
+- Historical audit artifact: `docs/exhaustive_repo_review_2026-04-22.md`
+- Incremental fixes report: `docs/fixes_2026-04-22.md`
+- Open items and future plan: `docs/open_items_todo.md`
 
 ---
 

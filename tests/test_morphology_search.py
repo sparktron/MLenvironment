@@ -26,11 +26,13 @@ def test_morphology_search_picks_highest_score(monkeypatch):
 
     # Score = base_size so trial with biggest base_size wins.
     scores: list[float] = []
+    model_paths_seen: list[str] = []
 
     def fake_train(cfg, **kw):
         return f"/tmp/{cfg['experiment_name']}.zip"
 
     def fake_eval(cfg, model_path):
+        model_paths_seen.append(model_path)
         score = float(cfg["environment"]["morphology"]["base_size"])
         scores.append(score)
         return {"mean_return": score}
@@ -48,6 +50,14 @@ def test_morphology_search_picks_highest_score(monkeypatch):
     # Experiment names are suffixed so outputs don't collide.
     names = [r["experiment_name"] for r in result["results"]]
     assert len(set(names)) == 4
+    assert all(path.endswith(".zip") for path in model_paths_seen)
+
+
+def test_as_model_zip_path_keeps_existing_zip_suffix() -> None:
+    from rl_framework.training.morphology_search import _as_model_zip_path
+
+    assert _as_model_zip_path("/tmp/model.zip") == "/tmp/model.zip"
+    assert _as_model_zip_path("/tmp/model") == "/tmp/model.zip"
 
 
 def test_morphology_search_rejects_non_arena_env(monkeypatch):

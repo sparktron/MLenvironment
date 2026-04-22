@@ -9,7 +9,14 @@ def _base_cfg() -> dict:
         "seed": 0,
         "output": {"base_dir": "outputs"},
         "environment": {"type": "walker_bullet"},
-        "training": {"total_timesteps": 1000, "num_envs": 1},
+        "training": {
+            "total_timesteps": 1000,
+            "num_envs": 1,
+            "learning_rate": 3e-4,
+            "n_steps": 128,
+            "batch_size": 64,
+            "checkpoint_every": 100,
+        },
         "evaluation": {"episodes": 3},
     }
 
@@ -65,4 +72,20 @@ def test_validate_experiment_config_rejects_invalid_self_play_values() -> None:
     cfg = _base_cfg()
     cfg["self_play"] = {"enabled": True, "snapshot_freq": 0, "max_league_size": 2}
     with pytest.raises(ValueError, match="self_play.snapshot_freq"):
+        validate_experiment_config(cfg)
+
+
+def test_validate_experiment_config_rejects_non_positive_learning_rate() -> None:
+    cfg = _base_cfg()
+    cfg["training"]["learning_rate"] = 0
+    with pytest.raises(ValueError, match="training.learning_rate"):
+        validate_experiment_config(cfg)
+
+
+def test_validate_experiment_config_rejects_batch_larger_than_rollout() -> None:
+    cfg = _base_cfg()
+    cfg["training"]["n_steps"] = 32
+    cfg["training"]["num_envs"] = 1
+    cfg["training"]["batch_size"] = 128
+    with pytest.raises(ValueError, match="training.batch_size"):
         validate_experiment_config(cfg)

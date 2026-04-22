@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from stable_baselines3 import PPO

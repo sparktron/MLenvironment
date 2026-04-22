@@ -12,6 +12,15 @@ from typing import Any
 from rl_framework.evolution.simple_search import RandomMorphologySearch
 
 
+def _as_model_zip_path(model_path: str) -> str:
+    """Return a Stable-Baselines3 model zip path.
+
+    SB3 ``save('foo')`` writes ``foo.zip``.  Keep paths that already end with
+    ``.zip`` unchanged to avoid producing ``.zip.zip``.
+    """
+    return model_path if model_path.endswith(".zip") else f"{model_path}.zip"
+
+
 def run_morphology_search(
     cfg: dict[str, Any],
     trials: int,
@@ -50,7 +59,7 @@ def run_morphology_search(
         trial_cfg["experiment_name"] = f"{base_name}_morph_{i:03d}"
 
         model_path = train(trial_cfg)
-        metrics = evaluate(trial_cfg, str(model_path))
+        metrics = evaluate(trial_cfg, _as_model_zip_path(str(model_path)))
 
         score = float(metrics.get("mean_return", float("-inf")))
         entry = {

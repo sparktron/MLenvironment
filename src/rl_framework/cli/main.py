@@ -6,7 +6,6 @@ from pathlib import Path
 import gymnasium as gym
 import yaml
 from gymnasium.wrappers import RecordVideo
-from omegaconf import OmegaConf
 from stable_baselines3 import PPO
 
 from rl_framework.envs.registry import make_env

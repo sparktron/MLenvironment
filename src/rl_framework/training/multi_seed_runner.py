@@ -11,7 +11,6 @@ import numpy as np
 
 from rl_framework.training.eval_runner import evaluate
 from rl_framework.training.sb3_runner import train
-from rl_framework.utils.logging_utils import create_experiment_paths
 
 
 def _run_one_seed(args: tuple[int, dict[str, Any]]) -> tuple[int, str, dict[str, float]]:
