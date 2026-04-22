@@ -19,7 +19,7 @@ from rl_framework.utils.config import load_config, to_container, validate_experi
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="RL experiment framework CLI")
-    parser.add_argument("command", choices=["train", "eval", "sweep", "multi-seed", "render-replay", "gui"])
+    parser.add_argument("command", choices=["train", "eval", "sweep", "multi-seed", "render-replay", "gui", "morph-search"])
     parser.add_argument("--config-name", default="", help="YAML file name without extension (required for all commands except gui)")
     parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
     parser.add_argument("--model-path", default="")
@@ -27,6 +27,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-workers", type=int, default=None, help="Parallel worker processes for multi-seed runs (default: cpu_count)")
     parser.add_argument("--dry-run", action="store_true", help="Plan runs without executing training (sweep only)")
     parser.add_argument("--resume", default="", help="Path to a saved PPO model (.zip) to resume training from")
+    parser.add_argument("--trials", type=int, default=5, help="Number of trials for morph-search (default: 5)")
     parser.add_argument("--host", default="127.0.0.1", help="GUI server host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=5000, help="GUI server port (default: 5000)")
     return parser.parse_args()
@@ -124,6 +125,14 @@ def main() -> None:
         if not args.model_path:
             raise ValueError("--model-path is required for render-replay")
         _render_replay(cfg_dict, args.model_path)
+    elif args.command == "morph-search":
+        from rl_framework.training.morphology_search import run_morphology_search
+        result = run_morphology_search(cfg_dict, trials=args.trials, seed=cfg_dict["seed"])
+        print(
+            f"best_trial={result['best_trial']}  "
+            f"best_score={result['best_score']:.4f}  "
+            f"best_params={result['best_params']}"
+        )
 
 
 if __name__ == "__main__":
