@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 import gymnasium as gym
+import yaml
 from gymnasium.wrappers import RecordVideo
 from omegaconf import OmegaConf
 from stable_baselines3 import PPO
@@ -70,7 +71,7 @@ def main() -> None:
     elif args.command == "eval":
         if not args.model_path:
             raise ValueError("--model-path is required for eval")
-        print(OmegaConf.to_yaml(evaluate(cfg_dict, args.model_path)))
+        print(yaml.dump(evaluate(cfg_dict, args.model_path), default_flow_style=False))
     elif args.command == "sweep":
         planned = run_sweep(cfg_dict, dry_run=args.dry_run)
         print(f"planned_runs={len(planned)} dry_run={args.dry_run}")
