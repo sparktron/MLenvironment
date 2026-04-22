@@ -252,7 +252,7 @@ _DEFAULT_OUTPUTS_DIR = Path(__file__).resolve().parents[3] / "outputs"
 @app.route("/api/outputs", methods=["GET"])
 def list_outputs():
     """List completed experiment outputs."""
-    outputs_dir = Path(request.args.get("base_dir", str(_DEFAULT_OUTPUTS_DIR)))
+    outputs_dir = _DEFAULT_OUTPUTS_DIR
     if not outputs_dir.exists():
         return jsonify([])
     results = []
