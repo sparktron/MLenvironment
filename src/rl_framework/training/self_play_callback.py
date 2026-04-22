@@ -60,6 +60,7 @@ class SelfPlayCallback(BaseCallback):
         max_league_size: int = 10,
         sampling_mode: str = "uniform",
         recent_bias_alpha: float = 1.0,
+        seed: int | None = None,
         verbose: int = 0,
     ):
         super().__init__(verbose)
@@ -79,7 +80,7 @@ class SelfPlayCallback(BaseCallback):
         self._recent_bias_alpha = recent_bias_alpha
         self._league: deque[Path] = deque()
         self._model_cache: dict[Path, PPO] = {}
-        self._rng = np.random.default_rng(42)
+        self._rng = np.random.default_rng(seed)
 
     # ------------------------------------------------------------------
     def _on_step(self) -> bool:

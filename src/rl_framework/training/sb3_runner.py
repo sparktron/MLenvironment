@@ -116,6 +116,7 @@ def train(
                 max_league_size=int(self_play_cfg.get("max_league_size", 10)),
                 sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
                 recent_bias_alpha=float(self_play_cfg.get("recent_bias_alpha", 1.0)),
+                seed=cfg["seed"],
                 verbose=1,
             ))
 
