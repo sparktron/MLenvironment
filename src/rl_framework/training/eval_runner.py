@@ -29,14 +29,15 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
         vec_env = ss.concat_vec_envs_v1(vec_env, 1, num_cpus=1, base_class="stable_baselines3")
     else:
         vec_env = DummyVecEnv([lambda: make_env(env_cfg["type"], env_cfg)])
-        vn_path = Path(model_path).with_name("vecnormalize.pkl")
-        if vn_path.exists():
-            vec_env = VecNormalize.load(str(vn_path), vec_env)
-            vec_env.training = False
-            vec_env.norm_reward = False
+
+    vn_path = Path(model_path).with_name("vecnormalize.pkl")
+    if vn_path.exists():
+        vec_env = VecNormalize.load(str(vn_path), vec_env)
+        vec_env.training = False
+        vec_env.norm_reward = False
 
     is_multiagent = env_cfg["type"] == "organism_arena_parallel"
-    num_agents = len(vec_env.observation_space) if is_multiagent else 1
+    num_agents = vec_env.num_envs if is_multiagent else 1
 
     try:
         model = PPO.load(model_path)
