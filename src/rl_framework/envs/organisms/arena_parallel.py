@@ -19,10 +19,11 @@ class BattleRules:
 
 
 class OrganismArenaParallelEnv(ParallelEnv):
-    metadata = {"name": "organism_arena_v0"}
+    metadata = {"name": "organism_arena_v0", "render_modes": ["human", "rgb_array"], "render_fps": 30}
 
-    def __init__(self, cfg: dict[str, Any]):
+    def __init__(self, cfg: dict[str, Any], render_mode: str | None = None):
         self.cfg = cfg
+        self.render_mode = render_mode
         self.possible_agents = ["agent_0", "agent_1"]
         self.agents = []
         self._rng = np.random.default_rng(cfg.get("seed", 0))
@@ -31,6 +32,8 @@ class OrganismArenaParallelEnv(ParallelEnv):
         self.morphology = cfg.get("morphology", {})
         self.state: dict[str, dict[str, Any]] = {}
         self.step_count = 0
+        self._fig = None
+        self._ax = None
 
     def observation_space(self, agent: str):
         # self x,y,health + opp relative x,y,health + cooldown
@@ -127,3 +130,107 @@ class OrganismArenaParallelEnv(ParallelEnv):
         observations = {agent: self._obs(agent) for agent in active_agents}
         infos = {agent: {"step": self.step_count} for agent in active_agents}
         return observations, rewards, terminations, truncations, infos
+
+    def render(self):
+        import matplotlib
+
+        if self.render_mode not in ("human", "rgb_array"):
+            return None
+
+        if self.render_mode == "human":
+            matplotlib.use("TkAgg")
+
+        import matplotlib.patches as mpatches
+        import matplotlib.pyplot as plt
+
+        if self._fig is None:
+            self._fig, self._ax = plt.subplots(figsize=(5, 5))
+            self._fig.tight_layout()
+
+        ax = self._ax
+        ax.clear()
+        ax.set_xlim(-self.bounds, self.bounds)
+        ax.set_ylim(-self.bounds, self.bounds)
+        ax.set_aspect("equal")
+        ax.set_facecolor("#1a1a2e")
+        self._fig.patch.set_facecolor("#1a1a2e")
+        ax.tick_params(colors="white")
+        for spine in ax.spines.values():
+            spine.set_edgecolor("#444")
+
+        # Arena border
+        border = mpatches.FancyBboxPatch(
+            (-self.bounds, -self.bounds), 2 * self.bounds, 2 * self.bounds,
+            boxstyle="square,pad=0", linewidth=2, edgecolor="#888", fill=False,
+        )
+        ax.add_patch(border)
+
+        _colors = {"agent_0": ("#4fc3f7", "#0288d1"), "agent_1": ("#ef9a9a", "#c62828")}
+        _labels = {"agent_0": "A0", "agent_1": "A1"}
+
+        for agent in self.possible_agents:
+            if agent not in self.state:
+                continue
+            s = self.state[agent]
+            pos = s["pos"]
+            size = s["size"]
+            health = s["health"]
+            max_health = float(self.morphology.get("health", 1.0)) * size
+            frac = np.clip(health / max_health, 0.0, 1.0) if max_health > 0 else 0.0
+            fill_color, edge_color = _colors[agent]
+
+            # Agent body circle — radius scales with size, normalised to arena
+            radius = 0.07 * size
+            circle = plt.Circle(pos, radius, color=fill_color, zorder=3)
+            ax.add_patch(circle)
+            circle_edge = plt.Circle(pos, radius, fill=False, edgecolor=edge_color, linewidth=2, zorder=4)
+            ax.add_patch(circle_edge)
+
+            # Attack range indicator (faint ring) when off cooldown
+            if s["cooldown"] == 0:
+                atk_ring = plt.Circle(pos, self.rules.attack_range, fill=False,
+                                      edgecolor=edge_color, linewidth=0.8, linestyle="--",
+                                      alpha=0.4, zorder=2)
+                ax.add_patch(atk_ring)
+
+            # Health bar above agent
+            bar_w = 0.18
+            bar_h = 0.025
+            bar_x = pos[0] - bar_w / 2
+            bar_y = pos[1] + radius + 0.03
+            # Background
+            ax.add_patch(mpatches.Rectangle((bar_x, bar_y), bar_w, bar_h,
+                                            color="#333", zorder=5))
+            # Fill
+            ax.add_patch(mpatches.Rectangle((bar_x, bar_y), bar_w * frac, bar_h,
+                                            color=fill_color, zorder=6))
+
+            # Cooldown pip
+            if s["cooldown"] > 0:
+                ax.text(pos[0], pos[1] - radius - 0.06, f"cd:{s['cooldown']}",
+                        color=edge_color, fontsize=6, ha="center", va="top", zorder=7)
+
+            ax.text(pos[0], pos[1], _labels[agent],
+                    color="white", fontsize=7, ha="center", va="center",
+                    fontweight="bold", zorder=8)
+
+        ax.set_title(f"Organism Arena  step={self.step_count}", color="white", fontsize=9, pad=4)
+
+        if self.render_mode == "human":
+            plt.pause(1.0 / self.metadata["render_fps"])
+            return None
+
+        # rgb_array
+        self._fig.canvas.draw()
+        buf = self._fig.canvas.buffer_rgba()
+        img = np.asarray(buf, dtype=np.uint8).reshape(
+            self._fig.canvas.get_width_height()[::-1] + (4,)
+        )
+        return img[:, :, :3]
+
+    def close(self):
+        if self._fig is not None:
+            import matplotlib.pyplot as plt
+            plt.close(self._fig)
+            self._fig = None
+            self._ax = None
