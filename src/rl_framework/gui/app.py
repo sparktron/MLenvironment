@@ -213,7 +213,8 @@ def start_training():
 def stop_training(run_id: str):
     result = manager.stop_run(run_id)
     if "error" in result:
-        return jsonify(result), 404
+        status = 404 if "Unknown run_id" in result["error"] else 409
+        return jsonify(result), status
     return jsonify(result)
 
 
