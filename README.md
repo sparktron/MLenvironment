@@ -764,6 +764,14 @@ Change `sb3_runner.py` (currently uses `PPO`):
 
 ## 📝 Changelog
 
+### v0.4.0
+
+**🐛 Bug Fixes:**
+- `gui/app.py` — Fixed path traversal vulnerability in `GET /api/outputs`: the `base_dir` query parameter is now ignored; the server always uses its own `_DEFAULT_OUTPUTS_DIR`
+- `gui/app.py` — `POST /api/train/stop/<run_id>` now returns **409 Conflict** (not 404) when the run exists but is not in a stoppable state; 404 is still returned for unknown run IDs
+- `live_tuning_callback.py` — Removed redundant `self.model.learning_rate = lr` assignment; SB3 uses `lr_schedule` (not the `learning_rate` attribute) to drive optimizer updates, so the stale write had no effect and was misleading
+- `gui/static/app.js` — `api()` fetch helper now wraps calls in `try/catch`; network failures and JSON parse errors previously caused silent unhandled promise rejections
+
 ### v0.3.0
 
 **✨ New Features:**
