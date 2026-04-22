@@ -35,6 +35,18 @@ def test_organism_env_api() -> None:
     assert set(truncations.keys()) == {"agent_0", "agent_1"}
 
 
+def test_organism_env_render_rgb_array() -> None:
+    """Smoke test: rgb_array render returns HxWx3 uint8 frames."""
+    cfg = {"type": "organism_arena_parallel", "seed": 1, "render_mode": "rgb_array"}
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=1)
+    frame = env.render()
+    assert isinstance(frame, np.ndarray)
+    assert frame.ndim == 3 and frame.shape[2] == 3
+    assert frame.dtype == np.uint8
+    env.close()
+
+
 def test_organism_env_obs_shape() -> None:
     cfg = {"type": "organism_arena_parallel", "seed": 1}
     env = make_env("organism_arena_parallel", cfg)

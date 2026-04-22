@@ -31,16 +31,56 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _save_frames_as_gif(frames: list, out_path: Path, fps: int = 30) -> None:
+    """Save a list of HxWx3 uint8 numpy arrays as an animated GIF via PIL."""
+    from PIL import Image
+
+    if not frames:
+        return
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    images = [Image.fromarray(f) for f in frames]
+    duration_ms = max(int(1000 / max(fps, 1)), 20)
+    images[0].save(
+        out_path,
+        save_all=True,
+        append_images=images[1:],
+        duration=duration_ms,
+        loop=0,
+        optimize=False,
+    )
+
+
 def _render_replay(cfg: dict, model_path: str) -> None:
+    from pettingzoo.utils.env import ParallelEnv
+
     env_cfg = cfg["environment"]
     env_cfg["render_mode"] = "rgb_array"
     env = make_env(env_cfg["type"], env_cfg)
-    if not isinstance(env, gym.Env):
-        raise ValueError("Replay rendering currently supports Gymnasium envs only")
     out_dir = Path(cfg["output"]["base_dir"]) / cfg["experiment_name"] / f"seed_{cfg['seed']}" / "videos"
-    wrapped = RecordVideo(env, video_folder=str(out_dir), episode_trigger=lambda idx: idx == 0)
+    out_dir.mkdir(parents=True, exist_ok=True)
     model = PPO.load(model_path)
 
+    if isinstance(env, ParallelEnv):
+        frames = []
+        observations, _ = env.reset(seed=cfg["seed"])
+        while env.agents:
+            actions = {}
+            for agent, obs in observations.items():
+                action, _ = model.predict(obs, deterministic=True)
+                actions[agent] = action
+            observations, _, _, _, _ = env.step(actions)
+            frame = env.render()
+            if frame is not None:
+                frames.append(frame)
+        env.close()
+        gif_path = out_dir / "replay.gif"
+        _save_frames_as_gif(frames, gif_path, fps=env.metadata.get("render_fps", 30))
+        print(f"saved_replay={gif_path}  frames={len(frames)}")
+        return
+
+    if not isinstance(env, gym.Env):
+        raise ValueError(f"Unsupported env type for replay: {type(env).__name__}")
+    wrapped = RecordVideo(env, video_folder=str(out_dir), episode_trigger=lambda idx: idx == 0)
     obs, _ = wrapped.reset(seed=cfg["seed"])
     done = False
     while not done:

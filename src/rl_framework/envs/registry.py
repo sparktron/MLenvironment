@@ -13,5 +13,5 @@ def make_env(env_type: str, cfg: dict[str, Any]) -> gym.Env | ParallelEnv:
     if env_type == "walker_bullet":
         return WalkerBulletEnv(cfg)
     if env_type == "organism_arena_parallel":
-        return OrganismArenaParallelEnv(cfg)
+        return OrganismArenaParallelEnv(cfg, render_mode=cfg.get("render_mode"))
     raise ValueError(f"Unknown env_type={env_type}")
