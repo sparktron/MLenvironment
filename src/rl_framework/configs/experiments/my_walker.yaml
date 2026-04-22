@@ -40,7 +40,7 @@ training:
   learning_rate: 0.0003
   n_steps: 1024
   normalize_observations: true
-  device: auto
+  device: cuda
   num_envs: 1
   policy: MlpPolicy
   total_timesteps: 20000

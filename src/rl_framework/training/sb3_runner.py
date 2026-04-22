@@ -98,7 +98,7 @@ def train(
                 str(resume_from),
                 env=vec_env,
                 tensorboard_log=str(paths.logs_dir),
-                device=cfg["training"].get("device", "auto"),
+                device=cfg["training"].get("device", "cuda"),
             )
         else:
             model = PPO(
@@ -109,7 +109,7 @@ def train(
                 batch_size=cfg["training"].get("batch_size", 256),
                 tensorboard_log=str(paths.logs_dir),
                 seed=cfg["seed"],
-                device=cfg["training"].get("device", "auto"),
+                device=cfg["training"].get("device", "cuda"),
                 verbose=1,
             )
 

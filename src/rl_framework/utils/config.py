@@ -32,7 +32,7 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
     num_envs = cfg["training"].get("num_envs", 1)
     _ensure_int(num_envs, "training.num_envs", min_value=1)
 
-    device = cfg["training"].get("device", "auto")
+    device = cfg["training"].get("device", "cuda")
     _validate_device(device)
 
     eval_cfg = cfg.get("evaluation", {})
@@ -61,12 +61,13 @@ def _validate_experiment_name(name: Any) -> None:
 
 
 def _validate_device(value: Any) -> None:
-    """Accept 'auto', 'cpu', 'cuda', or 'cuda:<int>'."""
+    """Accept only NVIDIA CUDA device strings: 'cuda' or 'cuda:<int>'."""
     if not isinstance(value, str):
         raise TypeError(f"training.device must be a string, got {type(value).__name__}")
-    if value not in ("auto", "cpu", "cuda") and not re.fullmatch(r"cuda:\d+", value):
+    if value != "cuda" and not re.fullmatch(r"cuda:\d+", value):
         raise ValueError(
-            f"training.device must be 'auto', 'cpu', 'cuda', or 'cuda:<N>', got {value!r}"
+            f"training.device must be 'cuda' or 'cuda:<N>' (e.g. 'cuda:0'), got {value!r}. "
+            "Only NVIDIA GPU training is supported."
         )
 
 

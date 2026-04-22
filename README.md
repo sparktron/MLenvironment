@@ -388,7 +388,7 @@ training:
   checkpoint_every: 5000             # Save a checkpoint every N steps
   normalize_observations: true       # Wrap env in VecNormalize
   num_envs: 1                        # >1 uses SubprocVecEnv for parallelism
-  device: auto                       # "auto" | "cpu" | "cuda" | "cuda:0" etc.
+  device: cuda                       # "cuda" (default) | "cuda:0" | "cuda:1" etc. — NVIDIA only
 
 # ─── Evaluation ─────────────────────────────────────────────────
 evaluation:
@@ -521,19 +521,18 @@ curriculum:
 
 Level parameters use dotted-key notation to override any value in the environment config at runtime. Per-level thresholds let you set different advancement bars at each difficulty stage.
 
-### 🖥️ GPU Acceleration
+### 🖥️ GPU Acceleration (NVIDIA only)
 
-The framework **automatically uses a GPU when one is available** — no configuration required. The training device is controlled by a single YAML key:
+The framework **requires an NVIDIA GPU** and defaults to `cuda`. The training device is controlled by a single YAML key:
 
 ```yaml
 training:
-  device: auto      # default — uses CUDA if available, CPU otherwise
-  # device: cuda    # force GPU (errors if CUDA is unavailable)
-  # device: cuda:1  # pin to a specific GPU
-  # device: cpu     # force CPU
+  device: cuda      # default — primary GPU
+  # device: cuda:0  # explicit primary GPU
+  # device: cuda:1  # pin to a second GPU (multi-GPU machines)
 ```
 
-Accepted values: `auto`, `cpu`, `cuda`, `cuda:<N>` (e.g. `cuda:0`). Any other value is rejected at config-validation time with a clear error message.
+Accepted values: `cuda` and `cuda:<N>` (e.g. `cuda:0`, `cuda:1`). Any other string (including `cpu` or `auto`) is rejected at config-validation time with a clear error message. An NVIDIA driver and a CUDA-enabled PyTorch build are required.
 
 > **Note:** PyBullet physics simulation is CPU-only. GPU acceleration applies to the PPO neural network (forward passes during rollout and the gradient update steps). For MLP policies the gain is modest; it becomes significant with larger networks or image-based (`CnnPolicy`) policies.
 
@@ -742,7 +741,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 | Technique | Action | Expected Gain |
 |---|---|---|
 | **Parallel rollouts** | Set `training.num_envs: 4+` | ~3-4× on 4 cores |
-| **GPU training** | `device: auto` (default) or `device: cuda` | Automatic; bigger gain with larger nets / CnnPolicy |
+| **GPU training** | `device: cuda` (default, NVIDIA required) | Always on; bigger gain with larger nets / CnnPolicy |
 | **Longer rollouts** | Increase `training.n_steps` | Better sample efficiency |
 | **Reduce logging** | Set `verbose: 0` | Minor |
 
@@ -754,6 +753,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 
 | Limitation | Workaround |
 |---|---|
+| **NVIDIA required** | An NVIDIA GPU + CUDA PyTorch build is mandatory; `cpu` and `auto` device strings are rejected |
 | **CPU physics** | PyBullet simulation is CPU-only; GPU speeds up the neural network only |
 | **Gymnasium replay only** | `render-replay` doesn't support PettingZoo. Multi-agent rendering coming soon. |
 | **Shared policy only** | Multi-agent uses parameter-sharing PPO. Use [RLlib](https://www.ray.io/rllib) for multi-policy setups. |
@@ -767,8 +767,8 @@ Change `sb3_runner.py` (currently uses `PPO`):
 ### v0.3.0
 
 **✨ New Features:**
-- 🖥️ **GPU acceleration** — `training.device` config key added (`auto` | `cpu` | `cuda` | `cuda:<N>`). Defaults to `"auto"`, which selects CUDA automatically when available and falls back to CPU. All five bundled experiment configs updated.
-- `config.py` — `_validate_device()` rejects invalid device strings at startup with a clear error message.
+- 🖥️ **NVIDIA GPU acceleration** — `training.device` config key added (`cuda` | `cuda:<N>`). Defaults to `"cuda"`. Only NVIDIA CUDA devices are accepted; `cpu` and `auto` are rejected at validation time. All five bundled experiment configs updated.
+- `config.py` — `_validate_device()` enforces NVIDIA-only strings at startup with a clear error message.
 
 ### v0.2.0
 
