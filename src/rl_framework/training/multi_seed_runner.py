@@ -61,31 +61,49 @@ def run_multi_seed(
         seed_args.append((seed, run_cfg))
 
     per_seed_metrics: dict[int, dict[str, float]] = {}
+    failed_seeds: dict[int, str] = {}
     model_paths: dict[int, str] = {}
 
     if max_workers == 1:
         # Sequential path — avoids subprocess overhead and is easier to debug.
         for seed, run_cfg in seed_args:
-            seed, model_path, metrics = _run_one_seed((seed, run_cfg))
-            model_paths[seed] = model_path
-            per_seed_metrics[seed] = metrics
-            print(f"[MultiSeed] seed={seed}  metrics={metrics}")
+            try:
+                seed, model_path, metrics = _run_one_seed((seed, run_cfg))
+                model_paths[seed] = model_path
+                per_seed_metrics[seed] = metrics
+                print(f"[MultiSeed] seed={seed}  metrics={metrics}")
+            except Exception as exc:
+                failed_seeds[seed] = str(exc)
+                print(f"[MultiSeed] seed={seed}  FAILED: {exc}")
     else:
         with ProcessPoolExecutor(max_workers=max_workers) as exe:
             future_to_seed = {exe.submit(_run_one_seed, args): args[0] for args in seed_args}
             for future in as_completed(future_to_seed):
-                seed, model_path, metrics = future.result()
-                model_paths[seed] = model_path
-                per_seed_metrics[seed] = metrics
-                print(f"[MultiSeed] seed={seed}  metrics={metrics}")
+                seed = future_to_seed[future]
+                try:
+                    seed, model_path, metrics = future.result()
+                    model_paths[seed] = model_path
+                    per_seed_metrics[seed] = metrics
+                    print(f"[MultiSeed] seed={seed}  metrics={metrics}")
+                except Exception as exc:
+                    failed_seeds[seed] = str(exc)
+                    print(f"[MultiSeed] seed={seed}  FAILED: {exc}")
 
-    # Collect in original seed order for deterministic aggregation.
-    ordered_metrics = [per_seed_metrics[s] for s in seeds]
+    if not per_seed_metrics:
+        raise RuntimeError(
+            f"All seeds failed. First failure: {next(iter(failed_seeds.values()))}"
+        )
+
+    # Collect only successful seeds for aggregation.
+    successful_seeds = [s for s in seeds if s in per_seed_metrics]
+    ordered_metrics = [per_seed_metrics[s] for s in successful_seeds]
     all_returns = [m.get("mean_return", m.get("mean_reward", 0.0)) for m in ordered_metrics]
     aggregate: dict[str, Any] = {
         "mean_return_mean": float(np.mean(all_returns)),
         "mean_return_std": float(np.std(all_returns)),
         "seeds": seeds,
+        "successful_seeds": successful_seeds,
+        "failed_seeds": failed_seeds,
         "per_seed": ordered_metrics,
     }
 
@@ -97,12 +115,16 @@ def run_multi_seed(
     with summary_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["seed", "mean_return"])
-        for seed, ret in zip(seeds, all_returns):
+        for seed, ret in zip(successful_seeds, all_returns):
             writer.writerow([seed, ret])
+        for seed, err in failed_seeds.items():
+            writer.writerow([seed, f"FAILED: {err}"])
         writer.writerow([])
         writer.writerow(["aggregate_mean", aggregate["mean_return_mean"]])
         writer.writerow(["aggregate_std", aggregate["mean_return_std"]])
 
     print(f"[MultiSeed] Aggregate: {aggregate['mean_return_mean']:.4f} +/- {aggregate['mean_return_std']:.4f}")
+    if failed_seeds:
+        print(f"[MultiSeed] WARNING: {len(failed_seeds)} seed(s) failed: {list(failed_seeds.keys())}")
     print(f"[MultiSeed] Summary written to {summary_path}")
     return aggregate
