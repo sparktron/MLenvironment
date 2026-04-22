@@ -68,7 +68,6 @@ class LiveTuningCallback(BaseCallback):
                 try:
                     lr = float(value)
                     self.model.lr_schedule = lambda _progress: lr
-                    self.model.learning_rate = lr
                     applied[key] = lr
                     if self.verbose >= 1:
                         print(f"[LiveTuning] learning_rate -> {lr}")
