@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +54,6 @@ def _validate_experiment_name(name: Any) -> None:
             f"experiment_name contains unsafe path components: {name!r}"
         )
     # Block any OS path separator to keep names as simple directory segments.
-    import re
     if re.search(r'[/\\]', name):
         raise ValueError(
             f"experiment_name must not contain path separators: {name!r}"
@@ -62,7 +62,6 @@ def _validate_experiment_name(name: Any) -> None:
 
 def _validate_device(value: Any) -> None:
     """Accept 'auto', 'cpu', 'cuda', or 'cuda:<int>'."""
-    import re
     if not isinstance(value, str):
         raise TypeError(f"training.device must be a string, got {type(value).__name__}")
     if value not in ("auto", "cpu", "cuda") and not re.fullmatch(r"cuda:\d+", value):
