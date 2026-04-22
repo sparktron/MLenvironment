@@ -15,7 +15,6 @@ dependencies = [
   "pybullet>=3.2",
   "hydra-core>=1.3",
   "numpy>=1.26",
-  "pandas>=2.1",
   "tensorboard>=2.15",
   "PyYAML>=6.0",
   "flask>=3.0"
