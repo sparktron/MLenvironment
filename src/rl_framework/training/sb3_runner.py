@@ -38,6 +38,7 @@ def train(
     cfg: dict[str, Any],
     extra_callbacks: list[BaseCallback] | None = None,
     stop_event: threading.Event | None = None,
+    resume_from: str | Path | None = None,
 ) -> Path:
     """Train a PPO agent from *cfg* and return the path to the saved model.
 
@@ -52,6 +53,11 @@ def train(
     stop_event:
         When set, a :class:`StopOnEvent` callback is prepended so training
         halts at the end of the current rollout.
+    resume_from:
+        Path to a saved PPO model (``.zip`` or the path without extension).
+        When provided, the model weights and optimizer state are restored and
+        training continues from the saved timestep counter.  If a sibling
+        ``vecnormalize.pkl`` exists, its running statistics are also restored.
     """
     paths = create_experiment_paths(cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"])
     env_cfg = cfg["environment"]
@@ -72,20 +78,40 @@ def train(
             vec_env = DummyVecEnv(env_fns)
 
     try:
-        if cfg["training"].get("normalize_observations", True):
-            vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=False)
+        normalize = cfg["training"].get("normalize_observations", True)
+        if normalize:
+            vecnorm_path = None
+            if resume_from is not None:
+                candidate = Path(resume_from).with_name("vecnormalize.pkl")
+                if candidate.exists():
+                    vecnorm_path = candidate
+            if vecnorm_path is not None:
+                vec_env = VecNormalize.load(str(vecnorm_path), vec_env)
+                # Keep updating stats and continue training.
+                vec_env.training = True
+                vec_env.norm_reward = False
+            else:
+                vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=False)
 
-        model = PPO(
-            policy=cfg["training"].get("policy", "MlpPolicy"),
-            env=vec_env,
-            learning_rate=cfg["training"].get("learning_rate", 3e-4),
-            n_steps=cfg["training"].get("n_steps", 1024),
-            batch_size=cfg["training"].get("batch_size", 256),
-            tensorboard_log=str(paths.logs_dir),
-            seed=cfg["seed"],
-            device=cfg["training"].get("device", "auto"),
-            verbose=1,
-        )
+        if resume_from is not None:
+            model = PPO.load(
+                str(resume_from),
+                env=vec_env,
+                tensorboard_log=str(paths.logs_dir),
+                device=cfg["training"].get("device", "auto"),
+            )
+        else:
+            model = PPO(
+                policy=cfg["training"].get("policy", "MlpPolicy"),
+                env=vec_env,
+                learning_rate=cfg["training"].get("learning_rate", 3e-4),
+                n_steps=cfg["training"].get("n_steps", 1024),
+                batch_size=cfg["training"].get("batch_size", 256),
+                tensorboard_log=str(paths.logs_dir),
+                seed=cfg["seed"],
+                device=cfg["training"].get("device", "auto"),
+                verbose=1,
+            )
 
         checkpoint_cb = CheckpointCallback(
             save_freq=cfg["training"].get("checkpoint_every", 10000),
@@ -120,7 +146,11 @@ def train(
                 verbose=1,
             ))
 
-        model.learn(total_timesteps=cfg["training"]["total_timesteps"], callback=callbacks)
+        model.learn(
+            total_timesteps=cfg["training"]["total_timesteps"],
+            callback=callbacks,
+            reset_num_timesteps=resume_from is None,
+        )
         final_path = paths.checkpoints_dir / "final_model"
         model.save(str(final_path))
         if isinstance(vec_env, VecNormalize):

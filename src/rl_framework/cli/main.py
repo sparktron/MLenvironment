@@ -26,6 +26,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--seeds", default="", help="Comma-separated seeds for multi-seed runs (e.g. 0,1,2,3,4)")
     parser.add_argument("--max-workers", type=int, default=None, help="Parallel worker processes for multi-seed runs (default: cpu_count)")
     parser.add_argument("--dry-run", action="store_true", help="Plan runs without executing training (sweep only)")
+    parser.add_argument("--resume", default="", help="Path to a saved PPO model (.zip) to resume training from")
     parser.add_argument("--host", default="127.0.0.1", help="GUI server host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=5000, help="GUI server port (default: 5000)")
     return parser.parse_args()
@@ -106,7 +107,7 @@ def main() -> None:
     validate_experiment_config(cfg_dict)
 
     if args.command == "train":
-        out = train(cfg_dict)
+        out = train(cfg_dict, resume_from=args.resume or None)
         print(f"saved_model={out}")
     elif args.command == "eval":
         if not args.model_path:
