@@ -1,7 +1,6 @@
 """Flask web application for the RL Experiment GUI."""
 from __future__ import annotations
 
-import json
 import uuid
 from pathlib import Path
 from typing import Any
@@ -183,6 +182,7 @@ def _training_schema() -> dict[str, Any]:
         "checkpoint_every": {"value": 5000, "type": "int", "desc": "Save checkpoint every N steps", "min": 100, "max": 1000000},
         "normalize_observations": {"value": True, "type": "bool", "desc": "Normalize observations with VecNormalize"},
         "num_envs": {"value": 1, "type": "int", "desc": "Parallel environments", "min": 1, "max": 32},
+        "device": {"value": "auto", "type": "choice", "choices": ["auto", "cpu", "cuda", "cuda:0"], "desc": "Training device"},
     }
 
 

@@ -6,8 +6,6 @@ because only the error/validation branches of the training endpoints are hit.
 """
 from __future__ import annotations
 
-import json
-from pathlib import Path
 
 import pytest
 import yaml
@@ -122,6 +120,7 @@ def test_schema_returns_both_envs(client):
     data = resp.get_json()
     assert "walker_bullet" in data and "organism_arena_parallel" in data
     assert "training" in data["walker_bullet"]
+    assert data["walker_bullet"]["training"]["device"]["value"] == "auto"
 
 
 # ----- training manager error paths -----

@@ -1,17 +1,11 @@
-"""Background training manager for the GUI.
-
-Runs training in a separate thread, exposes status via JSON files, and accepts
-live parameter changes from the GUI through a shared tuning file.
-"""
+"""Background training manager for the GUI."""
 from __future__ import annotations
 
 import copy
-import json
 import threading
 import time
 import traceback
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from rl_framework.utils.config import validate_experiment_config
@@ -26,8 +20,8 @@ class _RunState:
     started_at: float = 0.0
     finished_at: float = 0.0
     model_path: str = ""
-    tuning_file: str = ""
-    status_file: str = ""
+    pending_tuning_events: list[dict[str, Any]] = field(default_factory=list)
+    latest_metrics: dict[str, Any] = field(default_factory=dict)
     stop_event: threading.Event = field(default_factory=threading.Event)
 
 
@@ -76,30 +70,20 @@ class TrainingManager:
         return {"run_id": run_id, "status": "stopping"}
 
     def get_status(self, run_id: str) -> dict[str, Any]:
-        """Return the status of a run, including live metrics from the status file."""
+        """Return the status of a run, including latest streamed metrics."""
         with self._lock:
             state = self._runs.get(run_id)
             if state is None:
                 return {"error": f"Unknown run_id: {run_id}"}
-            result: dict[str, Any] = {
+            return {
                 "run_id": state.run_id,
                 "status": state.status,
                 "error": state.error,
                 "model_path": state.model_path,
                 "started_at": state.started_at,
                 "finished_at": state.finished_at,
+                "metrics": copy.deepcopy(state.latest_metrics),
             }
-
-        # Read live metrics from the status file written by LiveTuningCallback.
-        if state.status_file:
-            try:
-                raw = Path(state.status_file).read_text(encoding="utf-8").strip()
-                if raw:
-                    result["metrics"] = json.loads(raw)
-            except (OSError, json.JSONDecodeError):
-                pass
-
-        return result
 
     def list_runs(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -109,20 +93,14 @@ class TrainingManager:
             ]
 
     def apply_tuning(self, run_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Write live parameter changes for a running experiment."""
+        """Queue live parameter changes for the callback to apply atomically."""
         with self._lock:
             state = self._runs.get(run_id)
             if state is None:
                 return {"error": f"Unknown run_id: {run_id}"}
             if state.status != "running":
                 return {"error": "Run is not active"}
-            tuning_file = state.tuning_file
-        if not tuning_file:
-            return {"error": "Tuning file not configured for this run"}
-        try:
-            Path(tuning_file).write_text(json.dumps(params), encoding="utf-8")
-        except OSError as exc:
-            return {"error": str(exc)}
+            state.pending_tuning_events.append(copy.deepcopy(params))
         return {"applied": True, "params": params}
 
     # ------------------------------------------------------------------
@@ -136,25 +114,18 @@ class TrainingManager:
         from rl_framework.training.sb3_runner import train
 
         cfg = copy.deepcopy(state.cfg)
-        base_dir = Path(cfg["output"]["base_dir"]) / cfg["experiment_name"] / f"seed_{cfg['seed']}"
-        base_dir.mkdir(parents=True, exist_ok=True)
-
-        tuning_file = base_dir / "live_tuning.json"
-        status_file = base_dir / "live_status.json"
-        tuning_file.write_text("", encoding="utf-8")
-        status_file.write_text("", encoding="utf-8")
 
         with self._lock:
-            state.tuning_file = str(tuning_file)
-            state.status_file = str(status_file)
             state.status = "running"
             state.started_at = time.time()
+            state.latest_metrics = {}
+            state.pending_tuning_events = []
 
         try:
             live_cb = LiveTuningCallback(
-                tuning_file=tuning_file,
                 env_cfg=cfg["environment"],
-                status_file=status_file,
+                pop_tuning_event=lambda: self._pop_tuning_event(state.run_id),
+                publish_status=lambda payload: self._publish_status(state.run_id, payload),
                 verbose=1,
             )
             model_path = train(cfg, extra_callbacks=[live_cb], stop_event=state.stop_event)
@@ -167,3 +138,26 @@ class TrainingManager:
                 state.status = "failed"
                 state.error = traceback.format_exc()
                 state.finished_at = time.time()
+
+    def _pop_tuning_event(self, run_id: str) -> dict[str, Any] | None:
+        """Atomically consume pending tuning events for *run_id*.
+
+        Multiple queued updates are merged so later values win for the same key.
+        """
+        with self._lock:
+            state = self._runs.get(run_id)
+            if state is None or not state.pending_tuning_events:
+                return None
+            merged: dict[str, Any] = {}
+            for event in state.pending_tuning_events:
+                if isinstance(event, dict):
+                    merged.update(event)
+            state.pending_tuning_events.clear()
+            return merged or None
+
+    def _publish_status(self, run_id: str, payload: dict[str, Any]) -> None:
+        with self._lock:
+            state = self._runs.get(run_id)
+            if state is None:
+                return
+            state.latest_metrics = copy.deepcopy(payload)
