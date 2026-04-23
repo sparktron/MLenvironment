@@ -646,6 +646,17 @@ ruff check src/ tests/                    # Lint & format check
 python scripts/check_repo_policy.py       # Lockfile + tracked artifact policy checks
 ```
 
+### Reproducibility metadata (strict mode)
+
+Add this block to an experiment config to require provenance capture at run start:
+
+```yaml
+reproducibility:
+  strict: true
+```
+
+Each training run writes `run_metadata.json` under the run directory with config hash, git commit, lockfile hash, and runtime details.
+
 | Test | Verifies |
 |---|---|
 | `test_env_api.py` | Gymnasium & PettingZoo API compliance (shapes, types, interfaces) |

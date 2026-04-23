@@ -13,6 +13,7 @@ from rl_framework.envs.registry import make_env
 from rl_framework.training.curriculum_callback import CurriculumCallback
 from rl_framework.training.self_play_callback import SelfPlayCallback
 from rl_framework.utils.logging_utils import create_experiment_paths
+from rl_framework.utils.reproducibility import write_run_metadata
 
 
 class StopOnEvent(BaseCallback):
@@ -60,6 +61,13 @@ def train(
         ``vecnormalize.pkl`` exists, its running statistics are also restored.
     """
     paths = create_experiment_paths(cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"])
+    repro_cfg = cfg.get("reproducibility", {})
+    write_run_metadata(
+        paths.run_dir,
+        cfg,
+        strict=bool(repro_cfg.get("strict", False)),
+        resume_from=resume_from,
+    )
     env_cfg = cfg["environment"]
 
     num_envs = int(cfg["training"].get("num_envs", 1))

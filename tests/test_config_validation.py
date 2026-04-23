@@ -89,3 +89,10 @@ def test_validate_experiment_config_rejects_batch_larger_than_rollout() -> None:
     cfg["training"]["batch_size"] = 128
     with pytest.raises(ValueError, match="training.batch_size"):
         validate_experiment_config(cfg)
+
+
+def test_validate_experiment_config_rejects_non_bool_repro_strict() -> None:
+    cfg = _base_cfg()
+    cfg["reproducibility"] = {"strict": "yes"}
+    with pytest.raises(TypeError, match="reproducibility.strict"):
+        validate_experiment_config(cfg)

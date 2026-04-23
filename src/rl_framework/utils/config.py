@@ -62,6 +62,12 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
         _ensure_int(self_play_cfg.get("snapshot_freq", 5000), "self_play.snapshot_freq", min_value=1)
         _ensure_int(self_play_cfg.get("max_league_size", 10), "self_play.max_league_size", min_value=1)
 
+    repro_cfg = cfg.get("reproducibility", {})
+    if "strict" in repro_cfg and not isinstance(repro_cfg["strict"], bool):
+        raise TypeError(
+            f"Config key 'reproducibility.strict' must be bool, got {type(repro_cfg['strict']).__name__}"
+        )
+
 
 def _validate_experiment_name(name: Any) -> None:
     """Reject experiment names that could escape the output directory."""
