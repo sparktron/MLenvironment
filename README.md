@@ -120,6 +120,7 @@ git clone https://github.com/sparktron/MLenvironment.git && cd MLenvironment
 python -m venv .venv && source .venv/bin/activate
 pip install -e .                    # Core dependencies
 pip install -e ".[dev]"             # + dev tools (pytest, ruff)
+# CI uses pinned dependencies from requirements-lock.txt
 ```
 
 **Verify:**
@@ -642,6 +643,7 @@ MLenvironment/
 pytest                                    # Run all tests
 pytest tests/test_env_api.py -v          # Specific test
 ruff check src/ tests/                    # Lint & format check
+python scripts/check_repo_policy.py       # Lockfile + tracked artifact policy checks
 ```
 
 | Test | Verifies |

@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
+from typing import Callable
 
 from stable_baselines3.common.callbacks import BaseCallback
 
 
 class LiveTuningCallback(BaseCallback):
-    """SB3 callback that reads a JSON file each rollout to apply real-time parameter changes.
+    """SB3 callback that applies real-time parameter changes from an event source.
 
-    The GUI writes tuning requests to a JSON file.  This callback picks them
-    up at the end of every rollout, applies supported changes, and clears the
-    file so each command is consumed exactly once.
+    The GUI pushes tuning requests into an in-memory queue managed by
+    :class:`TrainingManager`. This callback consumes one merged event payload at
+    the end of each rollout and publishes status snapshots back to the manager.
 
     Supported live-tunable parameters
     ---------------------------------
@@ -22,44 +21,31 @@ class LiveTuningCallback(BaseCallback):
     - ``domain_randomization.*`` (float)  – any key under env_cfg["domain_randomization"]
     - ``battle_rules.*``         (float)  – any key under env_cfg["battle_rules"]
 
-    File format (``live_tuning.json``)::
-
-        {
-            "learning_rate": 0.001,
-            "reward.target_velocity": 2.0,
-            "termination.max_tilt_radians": 0.6
-        }
     """
 
     ENV_SECTIONS = ("reward", "termination", "domain_randomization", "battle_rules", "morphology", "sim")
 
     def __init__(
         self,
-        tuning_file: str | Path,
         env_cfg: dict[str, Any],
-        status_file: str | Path | None = None,
+        pop_tuning_event: Callable[[], dict[str, Any] | None] | None = None,
+        publish_status: Callable[[dict[str, Any]], None] | None = None,
         verbose: int = 0,
     ):
         super().__init__(verbose)
-        self._tuning_file = Path(tuning_file)
         self._env_cfg = env_cfg
-        self._status_file = Path(status_file) if status_file else None
+        self._pop_tuning_event = pop_tuning_event
+        self._publish_status = publish_status
         self._applied: list[dict[str, Any]] = []
 
     def _on_step(self) -> bool:
         return True
 
     def _on_rollout_end(self) -> None:
-        if not self._tuning_file.exists():
+        if self._pop_tuning_event is None:
             return
-        try:
-            raw = self._tuning_file.read_text(encoding="utf-8").strip()
-            if not raw:
-                return
-            params = json.loads(raw)
-            if not isinstance(params, dict) or not params:
-                return
-        except (json.JSONDecodeError, OSError):
+        params = self._pop_tuning_event()
+        if not isinstance(params, dict) or not params:
             return
 
         applied = {}
@@ -90,17 +76,11 @@ class LiveTuningCallback(BaseCallback):
         if applied:
             self._applied.append(applied)
 
-        # Clear the file so we don't re-apply.
-        try:
-            self._tuning_file.write_text("", encoding="utf-8")
-        except OSError:
-            pass
-
-        # Write status for the GUI to read.
+        # Emit status snapshot for GUI polling.
         self._write_status()
 
     def _write_status(self) -> None:
-        if self._status_file is None:
+        if self._publish_status is None:
             return
         try:
             status = {
@@ -117,6 +97,6 @@ class LiveTuningCallback(BaseCallback):
                         status[key] = float(self.logger.name_to_value[key])
                     except (KeyError, AttributeError, TypeError):
                         pass
-            self._status_file.write_text(json.dumps(status), encoding="utf-8")
-        except OSError:
+            self._publish_status(status)
+        except Exception:
             pass
