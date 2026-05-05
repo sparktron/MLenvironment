@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import platform
 import socket
@@ -10,6 +11,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 
 def write_run_metadata(
@@ -51,6 +54,11 @@ def _build_metadata(
         warnings.append(f"missing_lockfile:{lockfile_path}")
     if git_info["commit"] is None:
         warnings.append("missing_git_commit")
+        if not strict:
+            _log.warning(
+                "Reproducibility: git commit unavailable (not in a git repo or git not installed). "
+                "run_metadata.json will be incomplete."
+            )
 
     if strict:
         _require(config_hash, "Missing config hash in strict reproducibility mode.")
@@ -76,7 +84,7 @@ def _build_metadata(
             "platform": platform.platform(),
             "executable": sys.executable,
             "hostname": socket.gethostname(),
-            "cwd": os.getcwd(),
+            "cwd": _sanitize_cwd(os.getcwd()),
         },
         "warnings": warnings,
     }
@@ -97,7 +105,8 @@ def _git_info() -> dict[str, Any]:
 def _git_cmd(args: list[str]) -> str | None:
     try:
         return subprocess.check_output(["git", *args], text=True, stderr=subprocess.STDOUT).strip() or None
-    except Exception:
+    except Exception as exc:
+        _log.debug("git %s failed: %s", " ".join(args), exc)
         return None
 
 
@@ -124,3 +133,11 @@ def _sha256_file(path: Path) -> str | None:
 def _require(value: Any, message: str) -> None:
     if value is None or value == "":
         raise RuntimeError(message)
+
+
+def _sanitize_cwd(cwd: str) -> str:
+    """Return CWD with home directory replaced by '~' to avoid leaking absolute paths."""
+    try:
+        return "~/" + str(Path(cwd).relative_to(Path.home()))
+    except ValueError:
+        return cwd
