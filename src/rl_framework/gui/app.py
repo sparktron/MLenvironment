@@ -23,6 +23,7 @@ app = Flask(
     template_folder=str(Path(__file__).resolve().parent / "templates"),
     static_folder=str(Path(__file__).resolve().parent / "static"),
 )
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB — guard against oversized JSON payloads
 manager = TrainingManager()
 
 
@@ -258,10 +259,10 @@ def list_outputs():
         return jsonify([])
     results = []
     for exp_dir in sorted(outputs_dir.iterdir()):
-        if not exp_dir.is_dir():
+        if not exp_dir.is_dir() or exp_dir.is_symlink():
             continue
         for seed_dir in sorted(exp_dir.iterdir()):
-            if not seed_dir.is_dir() or not seed_dir.name.startswith("seed_"):
+            if not seed_dir.is_dir() or seed_dir.is_symlink() or not seed_dir.name.startswith("seed_"):
                 continue
             checkpoints = list((seed_dir / "checkpoints").glob("*.zip")) if (seed_dir / "checkpoints").exists() else []
             results.append({
