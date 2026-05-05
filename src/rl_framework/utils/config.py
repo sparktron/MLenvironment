@@ -80,6 +80,9 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
             f"Config key 'reproducibility.strict' must be bool, got {type(repro_cfg['strict']).__name__}"
         )
 
+    _validate_env_specific(cfg)
+    _validate_curriculum(cfg)
+
 
 def _validate_experiment_name(name: Any) -> None:
     """Reject experiment names that could escape the output directory."""
@@ -108,6 +111,20 @@ def _validate_device(value: Any) -> None:
         raise ValueError(
             f"training.device must be 'auto', 'cpu', 'cuda', or 'cuda:<N>' (e.g. 'cuda:0'), got {value!r}"
         )
+    if re.fullmatch(r"cuda:\d+", value):
+        device_idx = int(value.split(":")[1])
+        try:
+            import torch  # noqa: PLC0415
+            count = torch.cuda.device_count()
+            if count > 0 and device_idx >= count:
+                warnings.warn(
+                    f"training.device={value!r} but only {count} CUDA device(s) are available "
+                    f"(indices 0–{count - 1}). Training may fail or fall back to CPU.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+        except ImportError:
+            pass
 
 
 def _require_keys(d: dict[str, Any], keys: list[str]) -> None:
@@ -128,3 +145,49 @@ def _ensure_positive_number(value: Any, key: str) -> None:
         raise TypeError(f"Config key '{key}' must be a number, got {type(value).__name__}")
     if value <= 0:
         raise ValueError(f"Config key '{key}' must be > 0, got {value}")
+
+
+def _validate_env_specific(cfg: dict[str, Any]) -> None:
+    """Validate environment-type-specific config fields."""
+    env_cfg = cfg.get("environment", {})
+    env_type = env_cfg.get("type", "")
+
+    if env_type == "walker_bullet":
+        reward = env_cfg.get("reward", {})
+        for key in ("alive_bonus", "forward_velocity_weight", "orientation_penalty_weight", "torque_penalty_weight"):
+            if key in reward:
+                val = reward[key]
+                if isinstance(val, bool) or not isinstance(val, (int, float)) or val < 0:
+                    raise ValueError(
+                        f"environment.reward.{key} must be a non-negative number, got {val!r}"
+                    )
+
+    if env_type == "organism_arena_parallel":
+        battle = env_cfg.get("battle_rules", {})
+        for key in ("damage", "attack_range"):
+            if key in battle:
+                val = battle[key]
+                if isinstance(val, bool) or not isinstance(val, (int, float)) or val <= 0:
+                    raise ValueError(
+                        f"environment.battle_rules.{key} must be a positive number, got {val!r}"
+                    )
+        morphology = env_cfg.get("morphology", {})
+        valid_morph_keys = {"base_size", "episode_growth_scale", "health"}
+        unknown = set(morphology) - valid_morph_keys
+        if unknown:
+            raise ValueError(
+                f"Unknown environment.morphology keys: {sorted(unknown)}. "
+                f"Valid keys: {sorted(valid_morph_keys)}"
+            )
+
+
+def _validate_curriculum(cfg: dict[str, Any]) -> None:
+    """Cross-field check: curriculum.enabled=true requires non-empty level_params."""
+    curriculum = cfg.get("curriculum", {})
+    if curriculum.get("enabled", False):
+        level_params = curriculum.get("level_params", {})
+        if not level_params:
+            raise ValueError(
+                "curriculum.enabled is true but curriculum.level_params is empty. "
+                "Define at least one level override or set curriculum.enabled: false."
+            )
