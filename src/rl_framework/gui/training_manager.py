@@ -1,6 +1,7 @@
 """Background training manager for the GUI."""
 from __future__ import annotations
 
+import atexit
 import copy
 import threading
 import time
@@ -32,6 +33,7 @@ class TrainingManager:
         self._runs: dict[str, _RunState] = {}
         self._lock = threading.Lock()
         self._active_thread: threading.Thread | None = None
+        atexit.register(self._shutdown)
 
     # ------------------------------------------------------------------
     # Public API
@@ -48,7 +50,7 @@ class TrainingManager:
             state = _RunState(run_id=run_id, cfg=cfg)
             self._runs[run_id] = state
 
-        thread = threading.Thread(target=self._train_worker, args=(state,), daemon=True)
+        thread = threading.Thread(target=self._train_worker, args=(state,), daemon=False)
         self._active_thread = thread
         thread.start()
         return {"run_id": run_id, "status": "started"}
@@ -102,6 +104,25 @@ class TrainingManager:
                 return {"error": "Run is not active"}
             state.pending_tuning_events.append(copy.deepcopy(params))
         return {"applied": True, "params": params}
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def _shutdown(self) -> None:
+        """Signal any active run to stop and wait up to 30 s for the thread to finish.
+
+        Registered via ``atexit`` so mid-checkpoint writes complete before the
+        interpreter exits, avoiding partial checkpoint files.
+        """
+        with self._lock:
+            for state in self._runs.values():
+                if state.status == "running":
+                    state.status = "stopping"
+                    state.stop_event.set()
+        thread = self._active_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=30.0)
 
     # ------------------------------------------------------------------
     # Background worker
