@@ -26,5 +26,12 @@ jobs:
         continue-on-error: true
       - name: Lint
         run: ruff check src tests scripts
-      - name: Test
-        run: pytest -q
+      - name: Type check
+        run: |
+          pip install mypy
+          mypy src --ignore-missing-imports --no-error-summary
+        continue-on-error: true
+      - name: Test with coverage
+        run: |
+          pip install pytest-cov
+          pytest -q --cov=src/rl_framework --cov-report=term-missing --cov-fail-under=60
