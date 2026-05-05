@@ -16,6 +16,23 @@ from rl_framework.utils.logging_utils import create_experiment_paths
 from rl_framework.utils.reproducibility import write_run_metadata
 
 
+def _validate_resume_path(resume_from: Path, normalize: bool) -> None:
+    """Raise FileNotFoundError early with a clear message if resume files are missing."""
+    model_path = resume_from if str(resume_from).endswith(".zip") else Path(str(resume_from) + ".zip")
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"resume_from model not found: {model_path}. "
+            "Check that the checkpoint path is correct."
+        )
+    if normalize:
+        vecnorm = model_path.with_name("vecnormalize.pkl")
+        if not vecnorm.exists():
+            raise FileNotFoundError(
+                f"vecnormalize.pkl not found alongside model {model_path}. "
+                "Move both files together, or set normalize_observations: false."
+            )
+
+
 class StopOnEvent(BaseCallback):
     """SB3 callback that halts training when a :class:`threading.Event` is set.
 
@@ -60,6 +77,12 @@ def train(
         training continues from the saved timestep counter.  If a sibling
         ``vecnormalize.pkl`` exists, its running statistics are also restored.
     """
+    if resume_from is not None:
+        _validate_resume_path(
+            Path(resume_from),
+            cfg["training"].get("normalize_observations", True),
+        )
+
     paths = create_experiment_paths(cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"])
     repro_cfg = cfg.get("reproducibility", {})
     write_run_metadata(
