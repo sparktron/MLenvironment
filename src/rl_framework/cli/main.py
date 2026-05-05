@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json as _json
 from pathlib import Path
 
 import gymnasium as gym
@@ -29,6 +30,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--trials", type=int, default=5, help="Number of trials for morph-search (default: 5)")
     parser.add_argument("--host", default="127.0.0.1", help="GUI server host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=5000, help="GUI server port (default: 5000)")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Write the result as a single JSON line to stdout; suppresses human-readable output. "
+             "Useful for scripting and CI pipelines.",
+    )
     return parser.parse_args()
 
 
@@ -51,7 +58,8 @@ def _save_frames_as_gif(frames: list, out_path: Path, fps: int = 30) -> None:
     )
 
 
-def _render_replay(cfg: dict, model_path: str) -> None:
+def _render_replay(cfg: dict, model_path: str) -> dict:
+    """Render a replay and return a result dict with saved path and frame count."""
     from pettingzoo.utils.env import ParallelEnv
 
     env_cfg = cfg["environment"]
@@ -76,19 +84,24 @@ def _render_replay(cfg: dict, model_path: str) -> None:
         env.close()
         gif_path = out_dir / "replay.gif"
         _save_frames_as_gif(frames, gif_path, fps=env.metadata.get("render_fps", 30))
-        print(f"saved_replay={gif_path}  frames={len(frames)}")
-        return
+        return {"saved_replay": str(gif_path), "frames": len(frames)}
 
     if not isinstance(env, gym.Env):
         raise ValueError(f"Unsupported env type for replay: {type(env).__name__}")
     wrapped = RecordVideo(env, video_folder=str(out_dir), episode_trigger=lambda idx: idx == 0)
     obs, _ = wrapped.reset(seed=cfg["seed"])
     done = False
+    frame_count = 0
     while not done:
         action, _ = model.predict(obs, deterministic=True)
         obs, _, term, trunc, _ = wrapped.step(action)
         done = bool(term or trunc)
+        frame_count += 1
     wrapped.close()
+    # RecordVideo writes an mp4; find it for the result dict.
+    mp4_files = list(out_dir.glob("*.mp4"))
+    saved = str(mp4_files[0]) if mp4_files else str(out_dir)
+    return {"saved_replay": saved, "frames": frame_count}
 
 
 def main() -> None:
@@ -106,32 +119,54 @@ def main() -> None:
     cfg_dict = to_container(cfg)
     validate_experiment_config(cfg_dict)
 
+    result: dict = {}
+
     if args.command == "train":
         out = train(cfg_dict, resume_from=args.resume or None)
-        print(f"saved_model={out}")
+        result = {"saved_model": str(out)}
+        if not args.json:
+            print(f"saved_model={out}")
+
     elif args.command == "eval":
         if not args.model_path:
             raise ValueError("--model-path is required for eval")
-        print(yaml.dump(evaluate(cfg_dict, args.model_path), default_flow_style=False))
+        metrics = evaluate(cfg_dict, args.model_path)
+        result = metrics
+        if not args.json:
+            print(yaml.dump(metrics, default_flow_style=False))
+
     elif args.command == "sweep":
         planned = run_sweep(cfg_dict, dry_run=args.dry_run)
-        print(f"planned_runs={len(planned)} dry_run={args.dry_run}")
+        result = {"planned_runs": len(planned), "dry_run": args.dry_run}
+        if not args.json:
+            print(f"planned_runs={len(planned)} dry_run={args.dry_run}")
+
     elif args.command == "multi-seed":
         seeds = [int(s) for s in args.seeds.split(",")] if args.seeds else None
         agg = run_multi_seed(cfg_dict, seeds=seeds, max_workers=args.max_workers)
-        print(f"mean={agg['mean_return_mean']:.4f}  std={agg['mean_return_std']:.4f}")
+        result = agg
+        if not args.json:
+            print(f"mean={agg['mean_return_mean']:.4f}  std={agg['mean_return_std']:.4f}")
+
     elif args.command == "render-replay":
         if not args.model_path:
             raise ValueError("--model-path is required for render-replay")
-        _render_replay(cfg_dict, args.model_path)
+        result = _render_replay(cfg_dict, args.model_path)
+        if not args.json:
+            print(f"saved_replay={result['saved_replay']}  frames={result['frames']}")
+
     elif args.command == "morph-search":
         from rl_framework.training.morphology_search import run_morphology_search
         result = run_morphology_search(cfg_dict, trials=args.trials, seed=cfg_dict["seed"])
-        print(
-            f"best_trial={result['best_trial']}  "
-            f"best_score={result['best_score']:.4f}  "
-            f"best_params={result['best_params']}"
-        )
+        if not args.json:
+            print(
+                f"best_trial={result['best_trial']}  "
+                f"best_score={result['best_score']:.4f}  "
+                f"best_params={result['best_params']}"
+            )
+
+    if args.json:
+        print(_json.dumps(result))
 
 
 if __name__ == "__main__":
