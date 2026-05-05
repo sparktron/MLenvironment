@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -43,14 +44,25 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
         _ensure_int(cfg["training"]["batch_size"], "training.batch_size", min_value=1)
     if "checkpoint_every" in cfg["training"]:
         _ensure_int(cfg["training"]["checkpoint_every"], "training.checkpoint_every", min_value=1)
+        ckpt_every = int(cfg["training"]["checkpoint_every"])
+        total_ts = int(cfg["training"]["total_timesteps"])
+        if ckpt_every > total_ts:
+            warnings.warn(
+                f"training.checkpoint_every ({ckpt_every}) > training.total_timesteps ({total_ts}): "
+                "no checkpoint will be saved during training.",
+                UserWarning,
+                stacklevel=2,
+            )
 
-    if "n_steps" in cfg["training"] and "batch_size" in cfg["training"]:
-        rollout_size = int(cfg["training"]["n_steps"]) * int(num_envs)
+    if "batch_size" in cfg["training"]:
+        n_steps = int(cfg["training"].get("n_steps", 1024))
+        rollout_size = n_steps * int(num_envs)
         batch_size = int(cfg["training"]["batch_size"])
         if batch_size > rollout_size:
             raise ValueError(
                 "training.batch_size must be <= training.n_steps * training.num_envs "
-                f"(got batch_size={batch_size}, rollout_size={rollout_size})"
+                f"(got batch_size={batch_size}, n_steps={n_steps}, num_envs={num_envs}, "
+                f"rollout_size={rollout_size})"
             )
 
     eval_cfg = cfg.get("evaluation", {})
