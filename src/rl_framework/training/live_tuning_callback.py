@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 from typing import Callable
 
 from stable_baselines3.common.callbacks import BaseCallback
+
+_log = logging.getLogger(__name__)
 
 
 class LiveTuningCallback(BaseCallback):
@@ -57,8 +60,8 @@ class LiveTuningCallback(BaseCallback):
                     applied[key] = lr
                     if self.verbose >= 1:
                         print(f"[LiveTuning] learning_rate -> {lr}")
-                except (TypeError, ValueError):
-                    pass
+                except (TypeError, ValueError) as exc:
+                    _log.warning("LiveTuning: could not apply 'learning_rate'=%r: %s", value, exc)
             else:
                 parts = key.split(".", 1)
                 if len(parts) == 2 and parts[0] in self.ENV_SECTIONS:
@@ -70,8 +73,8 @@ class LiveTuningCallback(BaseCallback):
                             applied[key] = cast_val
                             if self.verbose >= 1:
                                 print(f"[LiveTuning] {key} -> {cast_val}")
-                        except (TypeError, ValueError):
-                            pass
+                        except (TypeError, ValueError) as exc:
+                            _log.warning("LiveTuning: could not apply %r=%r: %s", key, value, exc)
 
         if applied:
             self._applied.append(applied)
