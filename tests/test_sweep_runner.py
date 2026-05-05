@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from rl_framework.training import sweep as sweep_module
+from rl_framework.utils.config_merge import set_nested
 
 
 def test_run_sweep_dry_run_writes_manifest_and_skips_training(tmp_path, monkeypatch) -> None:
@@ -47,4 +48,4 @@ def test_run_sweep_executes_training_when_not_dry_run(tmp_path, monkeypatch) -> 
 def test_set_nested_rejects_missing_intermediate_key() -> None:
     cfg = {"training": {"learning_rate": 3e-4}}
     with pytest.raises(KeyError, match="intermediate key 'optimizer' not found"):
-        sweep_module._set_nested(cfg, "training.optimizer.lr", 1e-4)
+        set_nested(cfg, "training.optimizer.lr", 1e-4)
