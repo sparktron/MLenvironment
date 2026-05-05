@@ -4,6 +4,8 @@ from typing import Any
 
 from stable_baselines3.common.callbacks import BaseCallback
 
+from rl_framework.utils.config_merge import set_nested
+
 
 class CurriculumCallback(BaseCallback):
     """SB3 callback that adjusts environment difficulty based on training progress.
@@ -86,7 +88,7 @@ class CurriculumCallback(BaseCallback):
         """Write the parameter overrides for *level* into the live env config."""
         overrides = self._level_params.get(level, {})
         for dotted_key, value in overrides.items():
-            _set_nested(self._env_cfg, dotted_key, value)
+            set_nested(self._env_cfg, dotted_key, value, strict=False)
 
     @property
     def current_level(self) -> int:
@@ -105,10 +107,3 @@ def _safe_logger_value(logger: Any, key: str) -> float | None:
         return None
 
 
-def _set_nested(d: dict[str, Any], key: str, value: Any) -> None:
-    """Set a value in a nested dict using a dotted key path (e.g. 'reward.target_velocity')."""
-    keys = key.split(".")
-    cur = d
-    for k in keys[:-1]:
-        cur = cur.setdefault(k, {})
-    cur[keys[-1]] = value
