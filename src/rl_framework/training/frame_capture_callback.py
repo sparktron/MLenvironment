@@ -56,19 +56,17 @@ class FrameCaptureCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         """Called after every env.step()."""
-        current_step = self.model.num_timesteps
+        # Count completed episodes using the done flags SB3 provides in locals.
+        dones = self.locals.get("dones")
+        if dones is not None:
+            self.episode_num += int(sum(dones))
 
-        # Check if we should capture this frame
+        current_step = self.model.num_timesteps
         if current_step - self.last_capture_step >= self.capture_interval:
             self._capture_frame(current_step)
             self.last_capture_step = current_step
 
         return True
-
-    def _on_step_update(self) -> None:
-        """Track episode boundaries for frame metadata."""
-        # This is called at various points; we'll use dones to track episodes
-        pass
 
     def _capture_frame(self, timestep: int) -> None:
         """Capture a frame from the environment."""
