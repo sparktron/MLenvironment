@@ -178,3 +178,102 @@ def test_list_outputs_lists_experiments(client, tmp_path):
     assert len(data) == 1
     assert data[0]["experiment"] == "exp1"
     assert data[0]["has_final_model"] is True
+
+
+# ----- frames endpoint -----
+
+def _inject_run_with_callback(manager, run_id: str, callback=None) -> None:
+    """Insert a synthetic _RunState directly into manager._runs."""
+    import threading
+    from rl_framework.gui.training_manager import _RunState
+
+    state = _RunState(
+        run_id=run_id,
+        cfg={"experiment_name": "test"},
+        status="running",
+        stop_event=threading.Event(),
+        frame_capture_callback=callback,
+    )
+    manager._runs[run_id] = state
+
+
+def test_frames_unknown_run_returns_404(client) -> None:
+    c, _, _ = client
+    resp = c.get("/api/train/frames/no_such_run")
+    assert resp.status_code == 404
+
+
+def test_frames_run_without_callback_returns_empty_list(client) -> None:
+    from rl_framework.gui import app as gui_app
+
+    c, _, _ = client
+    _inject_run_with_callback(gui_app.manager, "run_no_cb", callback=None)
+
+    resp = c.get("/api/train/frames/run_no_cb")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"frames": []}
+
+
+def test_frames_returns_captured_frames(client) -> None:
+    from unittest.mock import MagicMock
+    from rl_framework.gui import app as gui_app
+
+    c, _, _ = client
+
+    fake_cb = MagicMock()
+    fake_cb.get_frames.return_value = [
+        {"frame_index": 0, "timestep": 50, "episode_num": 0, "image_base64": "abc"},
+        {"frame_index": 1, "timestep": 100, "episode_num": 0, "image_base64": "def"},
+    ]
+    _inject_run_with_callback(gui_app.manager, "run_with_frames", callback=fake_cb)
+
+    resp = c.get("/api/train/frames/run_with_frames")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert len(data["frames"]) == 2
+    assert data["frames"][0]["frame_index"] == 0
+
+
+def test_frames_since_parameter_forwarded_to_callback(client) -> None:
+    from unittest.mock import MagicMock
+    from rl_framework.gui import app as gui_app
+
+    c, _, _ = client
+
+    fake_cb = MagicMock()
+    fake_cb.get_frames.return_value = []
+    _inject_run_with_callback(gui_app.manager, "run_since", callback=fake_cb)
+
+    resp = c.get("/api/train/frames/run_since?since=7")
+    assert resp.status_code == 200
+    fake_cb.get_frames.assert_called_once_with(since=7)
+
+
+def test_frames_since_defaults_to_zero(client) -> None:
+    from unittest.mock import MagicMock
+    from rl_framework.gui import app as gui_app
+
+    c, _, _ = client
+
+    fake_cb = MagicMock()
+    fake_cb.get_frames.return_value = []
+    _inject_run_with_callback(gui_app.manager, "run_default_since", callback=fake_cb)
+
+    resp = c.get("/api/train/frames/run_default_since")
+    assert resp.status_code == 200
+    fake_cb.get_frames.assert_called_once_with(since=0)
+
+
+def test_frames_since_invalid_value_falls_back_to_zero(client) -> None:
+    from unittest.mock import MagicMock
+    from rl_framework.gui import app as gui_app
+
+    c, _, _ = client
+
+    fake_cb = MagicMock()
+    fake_cb.get_frames.return_value = []
+    _inject_run_with_callback(gui_app.manager, "run_bad_since", callback=fake_cb)
+
+    resp = c.get("/api/train/frames/run_bad_since?since=notanumber")
+    assert resp.status_code == 200
+    fake_cb.get_frames.assert_called_once_with(since=0)
