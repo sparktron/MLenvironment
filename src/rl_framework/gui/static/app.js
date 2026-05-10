@@ -481,8 +481,9 @@
       }
     }
 
-    // Stop polling when done
+    // Stop polling when done; flush final frames first so nothing is lost.
     if (data.status === "completed" || data.status === "failed") {
+      await pollFrames();
       stopPolling();
       if (data.status === "completed") toast("Training completed! Model: " + data.model_path, "success");
       if (data.status === "failed") toast("Training failed: " + (data.error || "").slice(0, 100), "error");
@@ -685,7 +686,7 @@
     var wasEmpty = frameData.length === 0;
 
     // Append only new frames; update high-water mark.
-    frameData = frameData.concat(result.frames);
+    result.frames.forEach(function (f) { frameData.push(f); });
     nextFrameSince = frameData[frameData.length - 1].frame_index + 1;
     $("#frame-scrubber").max = frameData.length - 1;
 
