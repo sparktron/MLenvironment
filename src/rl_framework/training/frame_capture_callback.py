@@ -100,6 +100,10 @@ class FrameCaptureCallback(BaseCallback):
             if frame is None or not isinstance(frame, np.ndarray):
                 return
 
+            # Require an HxWxC array; skip grayscale (HxW) or unexpected shapes.
+            if frame.ndim != 3:
+                return
+
             # Ensure frame is uint8 RGB
             if frame.dtype != np.uint8:
                 frame = np.uint8(np.clip(frame, 0, 255))
