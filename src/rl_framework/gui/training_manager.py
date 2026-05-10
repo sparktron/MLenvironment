@@ -24,6 +24,7 @@ class _RunState:
     pending_tuning_events: list[dict[str, Any]] = field(default_factory=list)
     latest_metrics: dict[str, Any] = field(default_factory=dict)
     stop_event: threading.Event = field(default_factory=threading.Event)
+    frame_capture_callback: Any = None  # FrameCaptureCallback instance
 
 
 class TrainingManager:
@@ -105,6 +106,22 @@ class TrainingManager:
             state.pending_tuning_events.append(copy.deepcopy(params))
         return {"applied": True, "params": params}
 
+    def get_frames(self, run_id: str, since: int = 0) -> dict[str, Any]:
+        """Return captured frames for a run with frame_index >= since.
+
+        Callers pass the last seen frame_index + 1 so each response only
+        contains frames they haven't processed yet, keeping payload size small.
+        """
+        with self._lock:
+            state = self._runs.get(run_id)
+            if state is None:
+                return {"error": f"Unknown run_id: {run_id}"}
+            if state.frame_capture_callback is None:
+                return {"frames": []}
+        # get_frames acquires its own lock; release ours first to avoid nesting.
+        frames = state.frame_capture_callback.get_frames(since=since)
+        return {"frames": frames}
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -131,10 +148,13 @@ class TrainingManager:
     def _train_worker(self, state: _RunState) -> None:
         """Run training in a background thread."""
         # Lazy imports so the heavy ML stack is only loaded when a run actually starts.
+        from rl_framework.training.frame_capture_callback import FrameCaptureCallback
         from rl_framework.training.live_tuning_callback import LiveTuningCallback
         from rl_framework.training.sb3_runner import train
 
         cfg = copy.deepcopy(state.cfg)
+        # Enable rendering for frame capture
+        cfg.setdefault("environment", {})["render_mode"] = "rgb_array"
 
         with self._lock:
             state.status = "running"
@@ -149,7 +169,12 @@ class TrainingManager:
                 publish_status=lambda payload: self._publish_status(state.run_id, payload),
                 verbose=1,
             )
-            model_path = train(cfg, extra_callbacks=[live_cb], stop_event=state.stop_event)
+            frame_cb = FrameCaptureCallback(capture_interval=50, max_frames=200, verbose=1)
+
+            with self._lock:
+                state.frame_capture_callback = frame_cb
+
+            model_path = train(cfg, extra_callbacks=[live_cb, frame_cb], stop_event=state.stop_event)
             with self._lock:
                 state.status = "completed"
                 state.model_path = str(model_path)

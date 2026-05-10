@@ -244,6 +244,24 @@ def tune_params(run_id: str):
     return jsonify(result)
 
 
+@app.route("/api/train/frames/<run_id>", methods=["GET"])
+def get_frames(run_id: str):
+    """Get captured frames from a training run.
+
+    Query params:
+        since (int, default 0): only return frames with frame_index >= since.
+            Pass the last seen frame_index + 1 to receive only new frames.
+    """
+    try:
+        since = int(request.args.get("since", 0))
+    except (TypeError, ValueError):
+        since = 0
+    result = manager.get_frames(run_id, since=since)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
+
 # ------------------------------------------------------------------
 # Outputs API
 # ------------------------------------------------------------------

@@ -14,6 +14,14 @@
   let activeRunId = null;         // run_id being monitored
   let pollTimer = null;           // setInterval id for dashboard polling
   let rewardHistory = [];         // [{x: timestep, y: reward}, ...]
+  let frameData = [];             // all captured frames (client-side buffer)
+  let nextFrameSince = 0;         // high-water mark: fetch only frames >= this index
+  let isPlaying = false;          // playback state
+  let currentFrameIndex = 0;      // current frame being displayed
+  let playbackSpeed = 1.0;        // 0.5x, 1x, 2x, 4x
+  let frameUpdateTimer = null;    // timer for frame playback
+  let lastFrameDisplayTime = 0;   // for frame timing
+  let framePollTimer = null;      // timer for polling frames
 
   // ------------------------------------------------------------------
   // Helpers
@@ -388,6 +396,10 @@
     $$(".tab-content").forEach(function (t) { t.classList.remove("active"); });
     $("#tab-dashboard").classList.add("active");
     rewardHistory = [];
+    frameData = [];
+    nextFrameSince = 0;
+    currentFrameIndex = 0;
+    stopFramePlayback();
     buildEnvTuningControls();
     startPolling();
   });
@@ -399,10 +411,12 @@
     stopPolling();
     refreshRuns();
     pollTimer = setInterval(pollStatus, 2000);
+    framePollTimer = setInterval(pollFrames, 1000);
   }
 
   function stopPolling() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (framePollTimer) { clearInterval(framePollTimer); framePollTimer = null; }
   }
 
   async function refreshRuns() {
@@ -427,6 +441,10 @@
   $("#active-run-select").addEventListener("change", function () {
     activeRunId = this.value;
     rewardHistory = [];
+    frameData = [];
+    nextFrameSince = 0;
+    currentFrameIndex = 0;
+    stopFramePlayback();
     if (activeRunId) startPolling();
   });
 
@@ -652,6 +670,107 @@
       container.appendChild(item);
     });
   }
+
+  // ------------------------------------------------------------------
+  // Frame Playback
+  // ------------------------------------------------------------------
+  async function pollFrames() {
+    if (!activeRunId) return;
+    var result = await api("GET", "/api/train/frames/" + activeRunId + "?since=" + nextFrameSince);
+    if (result.error || !result.frames || result.frames.length === 0) return;
+
+    // Append only new frames; update high-water mark.
+    frameData = frameData.concat(result.frames);
+    nextFrameSince = frameData[frameData.length - 1].frame_index + 1;
+    $("#frame-scrubber").max = frameData.length - 1;
+  }
+
+  function updateFrameDisplay() {
+    if (frameData.length === 0) {
+      $("#frame-indicator").textContent = "0 / 0";
+      var canvas = $("#frame-canvas");
+      var ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#333";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    currentFrameIndex = Math.max(0, Math.min(currentFrameIndex, frameData.length - 1));
+    var frame = frameData[currentFrameIndex];
+    if (!frame || !frame.image_base64) return;
+
+    var canvas = $("#frame-canvas");
+    var ctx = canvas.getContext("2d");
+    var img = new Image();
+    img.onload = function () {
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
+    img.onerror = function () {
+      console.error("Failed to load frame image");
+    };
+    img.src = "data:image/jpeg;base64," + frame.image_base64;
+
+    $("#frame-scrubber").value = currentFrameIndex;
+    $("#frame-indicator").textContent = (currentFrameIndex + 1) + " / " + frameData.length;
+  }
+
+  function startFramePlayback() {
+    stopFramePlayback();
+    isPlaying = true;
+    $("#play-pause-btn").textContent = "⏸ Pause";
+    lastFrameDisplayTime = Date.now();
+
+    frameUpdateTimer = setInterval(function () {
+      if (!isPlaying || frameData.length === 0) return;
+
+      var now = Date.now();
+      var elapsed = now - lastFrameDisplayTime;
+      var frameIntervalMs = 1000 / 30; // Assume 30 FPS for display
+      var scaledInterval = frameIntervalMs / playbackSpeed;
+
+      if (elapsed >= scaledInterval) {
+        currentFrameIndex++;
+        if (currentFrameIndex >= frameData.length) {
+          currentFrameIndex = frameData.length - 1;
+          stopFramePlayback();
+        } else {
+          updateFrameDisplay();
+        }
+        lastFrameDisplayTime = now;
+      }
+    }, 16); // ~60 FPS update rate
+  }
+
+  function stopFramePlayback() {
+    isPlaying = false;
+    $("#play-pause-btn").textContent = "▶ Play";
+    if (frameUpdateTimer) { clearInterval(frameUpdateTimer); frameUpdateTimer = null; }
+  }
+
+  $("#play-pause-btn").addEventListener("click", function () {
+    if (frameData.length === 0) {
+      toast("No frames yet. Training will capture them.", "info");
+      return;
+    }
+    if (isPlaying) {
+      stopFramePlayback();
+    } else {
+      if (currentFrameIndex >= frameData.length - 1) {
+        currentFrameIndex = 0;
+      }
+      startFramePlayback();
+    }
+  });
+
+  $("#frame-scrubber").addEventListener("input", function () {
+    stopFramePlayback();
+    currentFrameIndex = parseInt(this.value);
+    updateFrameDisplay();
+  });
+
+  $("#playback-speed").addEventListener("change", function () {
+    playbackSpeed = parseFloat(this.value);
+  });
 
   // ------------------------------------------------------------------
   // Init
