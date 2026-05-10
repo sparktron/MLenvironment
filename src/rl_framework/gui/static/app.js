@@ -679,10 +679,19 @@
     var result = await api("GET", "/api/train/frames/" + activeRunId + "?since=" + nextFrameSince);
     if (result.error || !result.frames || result.frames.length === 0) return;
 
+    var wasEmpty = frameData.length === 0;
+
     // Append only new frames; update high-water mark.
     frameData = frameData.concat(result.frames);
     nextFrameSince = frameData[frameData.length - 1].frame_index + 1;
     $("#frame-scrubber").max = frameData.length - 1;
+
+    // Show the very first frame that arrives so the canvas isn't blank,
+    // but only when the user hasn't manually positioned the scrubber yet.
+    // Never disturb the scrubber position once playback or seeking has begun.
+    if (wasEmpty) {
+      updateFrameDisplay();
+    }
   }
 
   function updateFrameDisplay() {
