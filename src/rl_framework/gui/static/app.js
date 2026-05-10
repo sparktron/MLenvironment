@@ -22,6 +22,7 @@
   let frameUpdateTimer = null;    // timer for frame playback
   let lastFrameDisplayTime = 0;   // for frame timing
   let framePollTimer = null;      // timer for polling frames
+  let frameDisplayGen = 0;        // generation counter; onload ignores stale loads
 
   // ------------------------------------------------------------------
   // Helpers
@@ -399,6 +400,7 @@
     frameData = [];
     nextFrameSince = 0;
     currentFrameIndex = 0;
+    frameDisplayGen = 0;
     stopFramePlayback();
     buildEnvTuningControls();
     startPolling();
@@ -444,6 +446,7 @@
     frameData = [];
     nextFrameSince = 0;
     currentFrameIndex = 0;
+    frameDisplayGen = 0;
     stopFramePlayback();
     if (activeRunId) startPolling();
   });
@@ -710,8 +713,11 @@
 
     var canvas = $("#frame-canvas");
     var ctx = canvas.getContext("2d");
+    var gen = ++frameDisplayGen;
     var img = new Image();
     img.onload = function () {
+      // Discard if a newer paint request has already been issued.
+      if (gen !== frameDisplayGen) return;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     };
     img.onerror = function () {
