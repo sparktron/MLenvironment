@@ -7,9 +7,12 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from rl_framework.utils.config import validate_experiment_config
+
+if TYPE_CHECKING:
+    from rl_framework.training.frame_capture_callback import FrameCaptureCallback
 
 
 @dataclass
@@ -24,7 +27,7 @@ class _RunState:
     pending_tuning_events: list[dict[str, Any]] = field(default_factory=list)
     latest_metrics: dict[str, Any] = field(default_factory=dict)
     stop_event: threading.Event = field(default_factory=threading.Event)
-    frame_capture_callback: Any = None  # FrameCaptureCallback instance
+    frame_capture_callback: Optional["FrameCaptureCallback"] = None
 
 
 class TrainingManager:
