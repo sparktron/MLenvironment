@@ -176,6 +176,29 @@
           </div>
         </div>
 
+        <!-- Live environment visualization -->
+        <div class="visualization-panel">
+          <h3>Live Environment Visualization</h3>
+          <div class="video-viewer">
+            <canvas id="frame-canvas" width="640" height="480"></canvas>
+            <div class="video-controls">
+              <button id="play-pause-btn" class="btn small">▶ Play</button>
+              <label>Speed:
+                <select id="playback-speed">
+                  <option value="0.5">0.5x</option>
+                  <option value="1" selected>1x</option>
+                  <option value="2">2x</option>
+                  <option value="4">4x</option>
+                </select>
+              </label>
+              <div class="timeline">
+                <input type="range" id="frame-scrubber" min="0" max="100" value="0" />
+                <span id="frame-indicator">0 / 0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Reward chart -->
         <div class="chart-container">
           <h3>Reward History</h3>
