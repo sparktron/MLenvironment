@@ -132,6 +132,31 @@ def test_train_start_empty_payload(client):
     assert resp.status_code == 400
 
 
+def test_train_start_invalid_config_returns_400_not_500(client):
+    """validate_experiment_config exceptions must surface as 400, not 500."""
+    c, _, _ = client
+    # Missing required keys -> KeyError inside validate_experiment_config
+    bad_cfg = {"experiment_name": "test"}
+    resp = c.post("/api/train/start", json=bad_cfg)
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+def test_train_start_invalid_seed_type_returns_400(client):
+    """seed must be int; sending a string triggers TypeError -> 400."""
+    c, _, _ = client
+    bad_cfg = {
+        "experiment_name": "test",
+        "seed": "not_an_int",
+        "output": {"base_dir": "outputs"},
+        "environment": {"type": "walker_bullet"},
+        "training": {"total_timesteps": 1000},
+    }
+    resp = c.post("/api/train/start", json=bad_cfg)
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
 def test_train_stop_unknown_run(client):
     c, _, _ = client
     resp = c.post("/api/train/stop/does_not_exist")
@@ -142,6 +167,24 @@ def test_train_status_unknown_run(client):
     c, _, _ = client
     resp = c.get("/api/train/status/does_not_exist")
     assert resp.status_code == 404
+
+
+def test_train_stop_already_stopped_run_returns_409(client):
+    """Stopping a non-running run returns 409."""
+    import threading
+    from rl_framework.gui import app as gui_app
+    from rl_framework.gui.training_manager import _RunState
+
+    c, _, _ = client
+    state = _RunState(
+        run_id="run_done",
+        cfg={"experiment_name": "exp"},
+        status="completed",
+        stop_event=threading.Event(),
+    )
+    gui_app.manager._runs["run_done"] = state
+    resp = c.post("/api/train/stop/run_done")
+    assert resp.status_code == 409
 
 
 def test_train_tune_unknown_run(client):

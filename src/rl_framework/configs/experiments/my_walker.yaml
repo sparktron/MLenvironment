@@ -22,25 +22,21 @@ environment:
     target_velocity: 1
     torque_penalty_weight: 0.01
   sim:
-    body_half_extents:
-    - 0.2
-    - 0.1
-    - 0.08
     friction: 0.9
     gravity: -9.81
     mass: 3
-    max_force: 35
+    max_torque: 35
   termination:
     max_steps: 800
     max_tilt_radians: 0.8
-    min_height: 0.12
+    min_height: 0.38
 training:
   batch_size: 256
   checkpoint_every: 5000
+  device: auto
   learning_rate: 0.0003
   n_steps: 1024
   normalize_observations: true
-  device: auto
   num_envs: 1
   policy: MlpPolicy
   total_timesteps: 20000

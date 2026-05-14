@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 
 def _walker_cfg(tmp_path: Path, timesteps: int = 256, checkpoint_every: int = 128) -> dict:
     return {

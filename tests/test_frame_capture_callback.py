@@ -7,13 +7,11 @@ from __future__ import annotations
 
 import threading
 import time
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
-import pytest
 
-from rl_framework.training.frame_capture_callback import FrameCaptureCallback, FrameData
+from rl_framework.training.frame_capture_callback import FrameCaptureCallback
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +266,9 @@ def test_concurrent_write_and_read_does_not_raise() -> None:
 
     t_w = threading.Thread(target=_writer)
     t_r = threading.Thread(target=_reader)
-    t_w.start(); t_r.start()
-    t_w.join(); t_r.join()
+    t_w.start()
+    t_r.start()
+    t_w.join()
+    t_r.join()
 
     assert errors == [], f"Concurrent access raised: {errors}"

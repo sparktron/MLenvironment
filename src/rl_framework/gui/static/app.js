@@ -317,10 +317,12 @@
   // Assemble config from form inputs
   // ------------------------------------------------------------------
   function assembleConfig() {
+    var _seedRaw = parseInt($("#cfg-seed").value);
+    var _seed = isNaN(_seedRaw) ? 42 : _seedRaw;
     currentConfig = {
       experiment_name: $("#cfg-experiment-name").value || "experiment",
-      seed: parseInt($("#cfg-seed").value) || 42,
-      environment: { type: selectedEnv, seed: parseInt($("#cfg-seed").value) || 42 },
+      seed: _seed,
+      environment: { type: selectedEnv, seed: _seed },
       training: {},
       evaluation: {},
       output: { base_dir: "outputs" },
@@ -393,7 +395,7 @@
     toast("Training started: " + activeRunId, "success");
     // Switch to dashboard
     $$(".nav-btn").forEach(function (b) { b.classList.remove("active"); });
-    $$(".nav-btn")[1].classList.add("active");
+    $(".nav-btn[data-tab='dashboard']").classList.add("active");
     $$(".tab-content").forEach(function (t) { t.classList.remove("active"); });
     $("#tab-dashboard").classList.add("active");
     rewardHistory = [];
@@ -437,8 +439,19 @@
     });
     if (activeRunId) sel.value = activeRunId;
     else activeRunId = runs[runs.length - 1].run_id;
-    if (activeRunId) startPolling();
+    // Do NOT call startPolling() here — startPolling already calls refreshRuns()
+    // once at startup; calling it back creates an unbounded async loop.
   }
+
+  $("#stop-run-btn").addEventListener("click", async function () {
+    if (!activeRunId) { toast("No active run selected", "error"); return; }
+    var result = await api("POST", "/api/train/stop/" + activeRunId);
+    if (result.error) {
+      toast("Stop failed: " + result.error, "error");
+    } else {
+      toast("Stop requested for " + activeRunId, "info");
+    }
+  });
 
   $("#active-run-select").addEventListener("change", function () {
     activeRunId = this.value;
@@ -748,6 +761,7 @@
         currentFrameIndex++;
         if (currentFrameIndex >= frameData.length) {
           currentFrameIndex = frameData.length - 1;
+          updateFrameDisplay();
           stopFramePlayback();
         } else {
           updateFrameDisplay();

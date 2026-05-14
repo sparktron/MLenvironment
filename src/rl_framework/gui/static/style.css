@@ -281,6 +281,7 @@ input[type="checkbox"] { width: auto; margin-right: 0.4rem; }
   text-transform: uppercase;
 }
 .badge.running { background: rgba(108,140,255,0.2); color: var(--accent); }
+.badge.stopping { background: rgba(251,191,36,0.2); color: var(--warning); }
 .badge.completed { background: rgba(74,222,128,0.2); color: var(--success); }
 .badge.failed { background: rgba(248,113,113,0.2); color: var(--danger); }
 .badge.pending { background: rgba(139,143,163,0.2); color: var(--text-dim); }

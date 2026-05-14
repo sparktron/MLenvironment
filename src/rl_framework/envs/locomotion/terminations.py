@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 @dataclass
 class WalkerTermination:
-    min_height: float = 0.15
+    min_height: float = 0.38
     max_tilt_radians: float = 0.9
     max_steps: int = 1000
 

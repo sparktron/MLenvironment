@@ -206,7 +206,9 @@ def start_training():
     run_id = f"run_{uuid.uuid4().hex[:8]}"
     result = manager.start_run(run_id, cfg)
     if "error" in result:
-        return jsonify(result), 409
+        # 409 for "already running"; 400 for bad config / validation errors.
+        already_running = "already active" in result["error"]
+        return jsonify(result), 409 if already_running else 400
     return jsonify(result)
 
 

@@ -9,3 +9,5 @@ outputs/
 
 *.egg-info/
 src/rl_experiment_framework.egg-info/
+
+.claude/worktrees/

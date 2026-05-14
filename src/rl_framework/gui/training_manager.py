@@ -45,7 +45,10 @@ class TrainingManager:
 
     def start_run(self, run_id: str, cfg: dict[str, Any]) -> dict[str, Any]:
         """Validate config and start training in a background thread."""
-        validate_experiment_config(cfg)
+        try:
+            validate_experiment_config(cfg)
+        except (ValueError, TypeError, KeyError) as exc:
+            return {"error": str(exc)}
 
         with self._lock:
             if any(r.status == "running" for r in self._runs.values()):
