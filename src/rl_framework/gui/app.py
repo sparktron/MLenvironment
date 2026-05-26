@@ -117,8 +117,16 @@ def get_schema():
                     "gravity": {"value": -9.81, "type": "float", "desc": "Gravity (m/s^2)", "min": -20, "max": 0},
                     "mass": {"value": 3.0, "type": "float", "desc": "Body mass (kg)", "min": 0.1, "max": 50},
                     "friction": {"value": 0.9, "type": "float", "desc": "Ground friction", "min": 0.0, "max": 2.0},
-                    "max_force": {"value": 35.0, "type": "float", "desc": "Max actuator force (N)", "min": 1, "max": 200},
+                    "max_force": {"value": 35.0, "type": "float", "desc": "Global torque scale (legacy; 35 = 1.0×)", "min": 1, "max": 200},
                     "body_half_extents": {"value": [0.2, 0.1, 0.08], "type": "list_float", "desc": "Body size [x, y, z]"},
+                    "timestep": {"value": 1.0 / 240.0, "type": "float", "desc": "Physics timestep (s)", "min": 0.0005, "max": 0.05},
+                    "frame_skip": {"value": 4, "type": "int", "desc": "Physics ticks per agent step", "min": 1, "max": 16},
+                    "settle_steps": {"value": 30, "type": "int", "desc": "Sim ticks holding rest pose after reset", "min": 0, "max": 240},
+                    "control": {
+                        "mode": {"value": "pd", "type": "choice", "choices": ["pd", "torque"], "desc": "Actuator mode: PD position targets or raw torque"},
+                        "position_gain": {"value": 0.1, "type": "float", "desc": "PD position gain (Kp)", "min": 0.0, "max": 10.0},
+                        "velocity_gain": {"value": 1.0, "type": "float", "desc": "PD velocity gain (Kd)", "min": 0.0, "max": 10.0},
+                    },
                 },
                 "reward": {
                     "alive_bonus": {"value": 1.0, "type": "float", "desc": "Bonus for staying alive", "min": 0, "max": 10},
@@ -128,9 +136,8 @@ def get_schema():
                     "torque_penalty_weight": {"value": 0.01, "type": "float", "desc": "Penalty for torque usage", "min": 0, "max": 1},
                 },
                 "termination": {
-                    "min_height": {"value": 0.12, "type": "float", "desc": "Min body height before termination (m)", "min": 0, "max": 1},
-                    "max_tilt_radians": {"value": 0.8, "type": "float", "desc": "Max body tilt before termination (rad)", "min": 0.1, "max": 3.14},
-                    "max_steps": {"value": 800, "type": "int", "desc": "Max steps per episode", "min": 50, "max": 10000},
+                    "min_height": {"value": 0.18, "type": "float", "desc": "Torso COM height below which fall is detected (m)", "min": 0, "max": 1},
+                    "max_steps": {"value": 800, "type": "int", "desc": "Max steps per episode (truncation)", "min": 50, "max": 10000},
                 },
                 "reset_randomization": {
                     "position_xy_noise": {"value": 0.02, "type": "float", "desc": "XY position noise at reset", "min": 0, "max": 1},

@@ -22,14 +22,25 @@ environment:
     target_velocity: 1
     torque_penalty_weight: 0.01
   sim:
+    body_half_extents:
+    - 0.2
+    - 0.1
+    - 0.08
     friction: 0.9
     gravity: -9.81
     mass: 3
-    max_torque: 35
+    max_force: 35
+    timestep: 0.004166667        # 1/240 s physics tick
+    frame_skip: 4                # 4 physics ticks per agent step → 60 Hz control
+    settle_steps: 30             # PD-hold rest pose after reset before first obs
+    control:
+      mode: pd                   # "pd" (target joint angles) or "torque"
+      position_gain: 0.1
+      velocity_gain: 1.0
   termination:
     max_steps: 800
     max_tilt_radians: 0.8
-    min_height: 0.38
+    min_height: 0.18
 training:
   batch_size: 256
   checkpoint_every: 5000

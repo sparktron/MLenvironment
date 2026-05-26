@@ -10,6 +10,13 @@ environment:
     friction: 0.9
     max_force: 35.0
     body_half_extents: [0.2, 0.1, 0.08]
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
   reward:
     alive_bonus: 1.0
     forward_velocity_weight: 2.0
@@ -17,8 +24,7 @@ environment:
     orientation_penalty_weight: 1.0
     torque_penalty_weight: 0.01
   termination:
-    min_height: 0.12
-    max_tilt_radians: 0.8
+    min_height: 0.18
     max_steps: 800
   reset_randomization:
     position_xy_noise: 0.02
