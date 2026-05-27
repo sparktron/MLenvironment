@@ -6,7 +6,7 @@ environment:
   seed: 42
   sim:
     gravity: -9.81
-    mass: 3.0
+    mass: 28.0
     friction: 0.9
     max_force: 35.0
     body_half_extents: [0.2, 0.1, 0.08]
@@ -27,6 +27,7 @@ environment:
     fall_penalty: 10.0
   termination:
     min_height: 0.18
+    max_height: 1.5
     max_steps: 800
   reset_randomization:
     position_xy_noise: 0.02

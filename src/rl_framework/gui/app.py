@@ -115,9 +115,9 @@ def get_schema():
                 "seed": {"value": 42, "type": "int", "desc": "Environment random seed"},
                 "sim": {
                     "gravity": {"value": -9.81, "type": "float", "desc": "Gravity (m/s^2)", "min": -20, "max": 0},
-                    "mass": {"value": 3.0, "type": "float", "desc": "Body mass (kg)", "min": 0.1, "max": 50},
+                    "mass": {"value": 28.0, "type": "float", "desc": "Torso mass (kg) — Atlas DRC: 28", "min": 0.1, "max": 200},
                     "friction": {"value": 0.9, "type": "float", "desc": "Ground friction", "min": 0.0, "max": 2.0},
-                    "max_force": {"value": 35.0, "type": "float", "desc": "Global torque scale (legacy; 35 = 1.0×)", "min": 1, "max": 200},
+                    "max_force": {"value": 35.0, "type": "float", "desc": "Global torque scale (legacy; 35 = 1.0× of per-joint Atlas caps)", "min": 1, "max": 500},
                     "body_half_extents": {"value": [0.2, 0.1, 0.08], "type": "list_float", "desc": "Body size [x, y, z]"},
                     "timestep": {"value": 1.0 / 240.0, "type": "float", "desc": "Physics timestep (s)", "min": 0.0005, "max": 0.05},
                     "frame_skip": {"value": 4, "type": "int", "desc": "Physics ticks per agent step", "min": 1, "max": 16},
@@ -139,6 +139,7 @@ def get_schema():
                 },
                 "termination": {
                     "min_height": {"value": 0.18, "type": "float", "desc": "Torso COM height below which fall is detected (m)", "min": 0, "max": 1},
+                    "max_height": {"value": 1.5, "type": "float", "desc": "Torso COM height above which 'flying' is detected (m)", "min": 0.5, "max": 10},
                     "max_steps": {"value": 800, "type": "int", "desc": "Max steps per episode (truncation)", "min": 50, "max": 10000},
                 },
                 "reset_randomization": {

@@ -21,16 +21,19 @@ class JointSpec:
 #   6 rShoulder  7 rElbow  8 lShoulder  9 lElbow
 # Link 10 (head) is JOINT_FIXED and is NOT in this list.
 JOINT_SPECS: tuple[JointSpec, ...] = (
-    JointSpec("rHip",      -1.2,  1.5,  0.00, 30.0),
-    JointSpec("rKnee",      0.0,  2.3,  0.30, 30.0),
-    JointSpec("rAnkle",    -0.6,  0.6, -0.15, 12.0),
-    JointSpec("lHip",      -1.2,  1.5,  0.00, 30.0),
-    JointSpec("lKnee",      0.0,  2.3,  0.30, 30.0),
-    JointSpec("lAnkle",    -0.6,  0.6, -0.15, 12.0),
-    JointSpec("rShoulder", -2.0,  2.0,  0.00, 10.0),
-    JointSpec("rElbow",     0.0,  2.3,  0.20,  8.0),
-    JointSpec("lShoulder", -2.0,  2.0,  0.00, 10.0),
-    JointSpec("lElbow",     0.0,  2.3,  0.20,  8.0),
+    # Atlas DRC-class peak torques (N·m). Source: atlas_v3.urdf joint <limit>
+    # effort values, restricted to the sagittal-plane joints we model here.
+    # Hip pitch and knee carry the body; ankle stabilises foot pitch.
+    JointSpec("rHip",      -1.2,  1.5,  0.00, 190.0),
+    JointSpec("rKnee",      0.0,  2.3,  0.30, 220.0),
+    JointSpec("rAnkle",    -0.6,  0.6, -0.15, 100.0),
+    JointSpec("lHip",      -1.2,  1.5,  0.00, 190.0),
+    JointSpec("lKnee",      0.0,  2.3,  0.30, 220.0),
+    JointSpec("lAnkle",    -0.6,  0.6, -0.15, 100.0),
+    JointSpec("rShoulder", -2.0,  2.0,  0.00,  90.0),
+    JointSpec("rElbow",     0.0,  2.3,  0.20, 100.0),
+    JointSpec("lShoulder", -2.0,  2.0,  0.00,  90.0),
+    JointSpec("lElbow",     0.0,  2.3,  0.20, 100.0),
 )
 NUM_JOINTS = len(JOINT_SPECS)
 JOINT_INDICES = list(range(NUM_JOINTS))

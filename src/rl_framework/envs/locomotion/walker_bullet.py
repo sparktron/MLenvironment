@@ -166,12 +166,17 @@ class WalkerBulletEnv(gym.Env):
             baseMass=mass,
             baseCollisionShapeIndex=torso_col,
             baseVisualShapeIndex=torso_vis,
+            # Atlas DRC-class mass distribution (kg). Source: atlas_v3.urdf
+            # released by Boston Dynamics for the DARPA Robotics Challenge sim.
+            # Total = 28 (torso, set via baseMass) + 1.5 (head) + 14 (thighs)
+            #       + 7.4 (shins) + 4 (feet) + 6 (upper arms) + 5 (forearms)
+            #       ≈ 65.9 kg (hardware Atlas is ~82 kg incl. battery/hands).
             linkMasses=[
-                0.15, 0.10, 0.05,           # right leg
-                0.15, 0.10, 0.05,           # left leg
-                0.20, 0.12,                 # right arm
-                0.20, 0.12,                 # left arm
-                0.10,                       # head
+                7.0, 3.7, 2.0,              # right leg: thigh, shin, foot
+                7.0, 3.7, 2.0,              # left leg
+                3.0, 2.5,                   # right arm: upper, forearm
+                3.0, 2.5,                   # left arm
+                1.5,                        # head
             ],
             linkCollisionShapeIndices=[
                 -1, -1, r_foot_col,         # right leg (only foot collides)
@@ -360,7 +365,9 @@ class WalkerBulletEnv(gym.Env):
         if self.render_mode == "rgb_array":
             if self.robot_id >= 0:
                 pos, _ = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self._connection)
-                target = [pos[0], pos[1], self.TORSO_STAND_Z * 0.5]
+                # Follow robot's actual z so unusual behavior (jumping, falling)
+                # stays in frame; clamp low so we never look underground.
+                target = [pos[0], pos[1], max(0.35, pos[2] * 0.6)]
             else:
                 target = [0.0, 0.0, 0.35]
             view = p.computeViewMatrixFromYawPitchRoll(
