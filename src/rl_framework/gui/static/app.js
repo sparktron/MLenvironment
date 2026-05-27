@@ -180,16 +180,37 @@
 
       var group = document.createElement("div");
       group.className = "form-group";
-
-      Object.keys(sectionData).forEach(function (key) {
-        var spec = sectionData[key];
-        var prefillVal = prefillEnv && prefillEnv[section] ? prefillEnv[section][key] : null;
-        var val = prefillVal != null ? prefillVal : spec.value;
-        var inputEl = createInput("env." + section + "." + key, spec, val);
-        group.appendChild(inputEl);
-      });
-
+      populateGroup(
+        "env." + section,
+        sectionData,
+        prefillEnv ? prefillEnv[section] : null,
+        group
+      );
       container.appendChild(group);
+    });
+  }
+
+  // Recursively populate a form group. Schema entries with a `type` field are
+  // leaves and get an <input>; entries without `type` are sub-groups and get
+  // a subtitle + recursive render. This preserves nested groups like
+  // `sim.control` when the wizard later assembles the config.
+  function populateGroup(pathPrefix, groupSpec, prefillData, container) {
+    Object.keys(groupSpec).forEach(function (key) {
+      var spec = groupSpec[key];
+      var prefillVal = prefillData ? prefillData[key] : null;
+
+      if (spec && spec.type) {
+        // leaf
+        var val = (prefillVal != null) ? prefillVal : spec.value;
+        container.appendChild(createInput(pathPrefix + "." + key, spec, val));
+      } else if (spec && typeof spec === "object") {
+        // nested group — render sub-heading and recurse
+        var sub = document.createElement("div");
+        sub.className = "form-group-subtitle";
+        sub.textContent = key.replace(/_/g, " ");
+        container.appendChild(sub);
+        populateGroup(pathPrefix + "." + key, spec, prefillVal, container);
+      }
     });
   }
 

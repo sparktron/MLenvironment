@@ -7,6 +7,7 @@ from typing import Any
 import supersuit as ss
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
+from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
 
 from rl_framework.envs.registry import make_env
@@ -48,8 +49,32 @@ class StopOnEvent(BaseCallback):
         return not self._stop_event.is_set()
 
 
-def _build_single_env(env_cfg: dict[str, Any]):
-    return lambda: make_env(env_cfg["type"], env_cfg)
+def _build_single_env(env_cfg: dict[str, Any], monitor_dir: Path | None = None, rank: int = 0):
+    """Return a factory that creates one gym env wrapped in SB3's ``Monitor``.
+
+    The Monitor wrapper is what makes ``rollout/ep_rew_mean`` and
+    ``rollout/ep_len_mean`` appear in the TensorBoard logger — SB3 pulls
+    episode stats from each env's Monitor info dict via its ``ep_info_buffer``.
+    Without it, the rollout/* tags are silently empty and the dashboard
+    counters stay at ``--``.
+    """
+    def _make():
+        env = make_env(env_cfg["type"], env_cfg)
+        filename = str(monitor_dir / f"monitor_env{rank}.csv") if monitor_dir is not None else None
+        return Monitor(env, filename=filename)
+    return _make
+
+
+def _make_lr_schedule(start: float, end: float | None):
+    """Return either a constant LR or a linear-decay callable accepting SB3's
+    remaining-progress value (1.0 at start of training, 0.0 at end)."""
+    if end is None:
+        return float(start)
+    start_f, end_f = float(start), float(end)
+    def schedule(progress_remaining: float) -> float:
+        # SB3 passes progress_remaining ∈ [1.0, 0.0]
+        return end_f + (start_f - end_f) * float(progress_remaining)
+    return schedule
 
 
 def train(
@@ -102,7 +127,10 @@ def train(
             vec_env, max(num_envs, 1), num_cpus=max(num_envs, 1), base_class="stable_baselines3",
         )
     else:
-        env_fns = [_build_single_env(env_cfg) for _ in range(max(num_envs, 1))]
+        env_fns = [
+            _build_single_env(env_cfg, monitor_dir=paths.logs_dir, rank=i)
+            for i in range(max(num_envs, 1))
+        ]
         if num_envs > 1:
             vec_env = SubprocVecEnv(env_fns)
         else:
@@ -132,15 +160,27 @@ def train(
                 device=cfg["training"].get("device", "auto"),
             )
         else:
+            train_cfg = cfg["training"]
+            lr = _make_lr_schedule(
+                train_cfg.get("learning_rate", 3e-4),
+                train_cfg.get("learning_rate_end"),  # None → constant LR
+            )
             model = PPO(
-                policy=cfg["training"].get("policy", "MlpPolicy"),
+                policy=train_cfg.get("policy", "MlpPolicy"),
                 env=vec_env,
-                learning_rate=cfg["training"].get("learning_rate", 3e-4),
-                n_steps=cfg["training"].get("n_steps", 1024),
-                batch_size=cfg["training"].get("batch_size", 256),
+                learning_rate=lr,
+                n_steps=train_cfg.get("n_steps", 1024),
+                batch_size=train_cfg.get("batch_size", 256),
+                n_epochs=train_cfg.get("n_epochs", 10),
+                gamma=train_cfg.get("gamma", 0.99),
+                gae_lambda=train_cfg.get("gae_lambda", 0.95),
+                clip_range=train_cfg.get("clip_range", 0.2),
+                ent_coef=train_cfg.get("ent_coef", 0.005),
+                vf_coef=train_cfg.get("vf_coef", 0.5),
+                max_grad_norm=train_cfg.get("max_grad_norm", 0.5),
                 tensorboard_log=str(paths.logs_dir),
                 seed=cfg["seed"],
-                device=cfg["training"].get("device", "auto"),
+                device=train_cfg.get("device", "auto"),
                 verbose=1,
             )
 

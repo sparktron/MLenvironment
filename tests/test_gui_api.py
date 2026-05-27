@@ -169,6 +169,29 @@ def test_train_status_unknown_run(client):
     assert resp.status_code == 404
 
 
+def test_train_status_known_run_returns_200(client):
+    import threading
+    from rl_framework.gui import app as gui_app
+    from rl_framework.gui.training_manager import _RunState
+
+    c, _, _ = client
+    state = _RunState(
+        run_id="run_known",
+        cfg={"experiment_name": "exp"},
+        status="failed",
+        error="traceback text",
+        stop_event=threading.Event(),
+    )
+    gui_app.manager._runs["run_known"] = state
+
+    resp = c.get("/api/train/status/run_known")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["run_id"] == "run_known"
+    assert data["status"] == "failed"
+    assert data["error"] == "traceback text"
+
+
 def test_train_stop_already_stopped_run_returns_409(client):
     """Stopping a non-running run returns 409."""
     import threading

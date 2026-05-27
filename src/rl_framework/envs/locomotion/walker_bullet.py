@@ -31,15 +31,17 @@ class WalkerBulletEnv(gym.Env):
         try:
             self._rng = np.random.default_rng(cfg.get("seed", 0))
 
-            sim_cfg = cfg.get("sim", {})
+            # `or {}` everywhere: the GUI wizard sometimes writes `key: null`
+            # for nested groups, which would otherwise crash .get(...) chains.
+            sim_cfg = cfg.get("sim") or {}
             # Accept both max_torque and legacy max_force keys.
             max_torque = sim_cfg.get("max_torque", sim_cfg.get("max_force", 35.0))
-            ctrl_cfg = sim_cfg.get("control", {})
+            ctrl_cfg = sim_cfg.get("control") or {}
             self.dynamics = WalkerDynamics(
                 max_torque=max_torque,
                 control_mode=str(ctrl_cfg.get("mode", "pd")),
-                position_gain=float(ctrl_cfg.get("position_gain", 0.5)),
-                velocity_gain=float(ctrl_cfg.get("velocity_gain", 0.05)),
+                position_gain=float(ctrl_cfg.get("position_gain", 0.1)),
+                velocity_gain=float(ctrl_cfg.get("velocity_gain", 1.0)),
             )
             # Physics timestep + how many sim steps per agent step.
             # Default: 240 Hz physics, 4× repeat → 60 Hz control.
@@ -49,18 +51,22 @@ class WalkerBulletEnv(gym.Env):
             # immediately after reset, so the robot is at equilibrium before
             # the first agent observation.
             self._settle_steps = int(sim_cfg.get("settle_steps", 30))
-            reward_cfg = cfg.get("reward", {})
+            reward_cfg = cfg.get("reward") or {}
             self.reward_fn = WalkerReward(**{k: v for k, v in reward_cfg.items() if k in WalkerReward.__annotations__})
-            term_cfg = cfg.get("termination", {})
+            term_cfg = cfg.get("termination") or {}
             self.termination = WalkerTermination(**{k: v for k, v in term_cfg.items() if k in WalkerTermination.__annotations__})
 
-            # obs: pos(3)+quat(4)+lin_vel(3)+ang_vel(3)+joint_pos(10)+joint_vel(10) = 33
+            # obs: pos(3)+quat(4)+lin_vel(3)+ang_vel(3)+joint_pos(10)+joint_vel(10)
+            #      +mass_scale(1)+friction_scale(1) = 35
             # joints: rHip rKnee rAnkle lHip lKnee lAnkle rShoulder rElbow lShoulder lElbow
-            self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(33,), dtype=np.float32)
+            # The DR scales make randomization observable to the policy; without
+            # them, random mass/friction look like pure noise from the agent's
+            # perspective and actively hurt training.
+            self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(35,), dtype=np.float32)
             self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(10,), dtype=np.float32)
 
             # Domain randomisation: sensor noise
-            rand_cfg = cfg.get("domain_randomization", {})
+            rand_cfg = cfg.get("domain_randomization") or {}
             self._sensor_noise_std = float(rand_cfg.get("sensor_noise_std", 0.0))
 
             # Domain randomisation: action latency
@@ -70,6 +76,9 @@ class WalkerBulletEnv(gym.Env):
             self.step_count = 0
             self.robot_id = -1
             self.plane_id = -1
+            # DR scales — overwritten on each reset.
+            self._mass_scale = 1.0
+            self._friction_scale = 1.0
         except Exception:
             p.disconnect(self._connection)
             raise
@@ -93,10 +102,11 @@ class WalkerBulletEnv(gym.Env):
         p.resetSimulation(physicsClientId=cid)
         p.setTimeStep(self._sim_timestep, physicsClientId=cid)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        p.setGravity(0, 0, self.cfg.get("sim", {}).get("gravity", -9.81), physicsClientId=cid)
+        sim_cfg = self.cfg.get("sim") or {}
+        p.setGravity(0, 0, sim_cfg.get("gravity", -9.81), physicsClientId=cid)
         self.plane_id = p.loadURDF("plane.urdf", physicsClientId=cid)
 
-        sim  = self.cfg.get("sim", {})
+        sim = sim_cfg
         mass = sim.get("mass", 3.0)
         fric = sim.get("friction", 0.8)
 
@@ -236,18 +246,27 @@ class WalkerBulletEnv(gym.Env):
         joint_states = p.getJointStates(self.robot_id, JOINT_INDICES, physicsClientId=self._connection)
         joint_pos = [s[0] for s in joint_states]
         joint_vel = [s[1] for s in joint_states]
-        obs = np.array([*pos, *quat, *lin_vel, *ang_vel, *joint_pos, *joint_vel], dtype=np.float32)
+        obs = np.array(
+            [*pos, *quat, *lin_vel, *ang_vel, *joint_pos, *joint_vel,
+             self._mass_scale, self._friction_scale],
+            dtype=np.float32,
+        )
         if self._sensor_noise_std > 0.0:
             obs = obs + self._rng.normal(0.0, self._sensor_noise_std, size=obs.shape).astype(np.float32)
         return obs
 
     def _apply_domain_randomization(self) -> None:
-        rand_cfg = self.cfg.get("domain_randomization", {})
+        rand_cfg = self.cfg.get("domain_randomization") or {}
+        sim_cfg = self.cfg.get("sim") or {}
         mass_rng = rand_cfg.get("mass_scale_range", [1.0, 1.0])
         fric_rng = rand_cfg.get("friction_range", [1.0, 1.0])
-        base_mass = self.cfg.get("sim", {}).get("mass", 3.0)
-        mass = base_mass * float(self._rng.uniform(mass_rng[0], mass_rng[1]))
-        friction = self.cfg.get("sim", {}).get("friction", 0.8) * float(self._rng.uniform(fric_rng[0], fric_rng[1]))
+        base_mass = sim_cfg.get("mass", 3.0)
+        # Store the *scales* (not absolute values) so they're surfaced in the
+        # observation as dimensionless multipliers centered on 1.0.
+        self._mass_scale = float(self._rng.uniform(mass_rng[0], mass_rng[1]))
+        self._friction_scale = float(self._rng.uniform(fric_rng[0], fric_rng[1]))
+        mass = base_mass * self._mass_scale
+        friction = sim_cfg.get("friction", 0.8) * self._friction_scale
         p.changeDynamics(self.robot_id, -1, mass=mass, lateralFriction=friction, physicsClientId=self._connection)
 
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
@@ -255,7 +274,10 @@ class WalkerBulletEnv(gym.Env):
         if seed is not None:
             self._rng = np.random.default_rng(seed)
 
-        self._build_world()
+        # Build the world once; subsequent resets just rewind state. Saves
+        # ~tens of ms per episode (no resetSimulation/loadURDF/createMultiBody).
+        if self.robot_id < 0:
+            self._build_world()
         self._apply_domain_randomization()
         self.step_count = 0
         # Reset action latency buffer: pre-fill with zero actions so the first
@@ -265,7 +287,7 @@ class WalkerBulletEnv(gym.Env):
         for _ in range(self._action_latency_steps):
             self._action_buffer.append(noop)
 
-        reset_cfg = self.cfg.get("reset_randomization", {})
+        reset_cfg = self.cfg.get("reset_randomization") or {}
         pos_noise = reset_cfg.get("position_xy_noise", 0.02)
         yaw_noise = reset_cfg.get("yaw_noise", 0.1)
         # +5 mm clearance avoids the knife-edge ground contact at z=0 (foot
@@ -278,6 +300,10 @@ class WalkerBulletEnv(gym.Env):
         yaw = float(self._rng.uniform(-yaw_noise, yaw_noise))
         quat = p.getQuaternionFromEuler([0.0, 0.0, yaw])
         p.resetBasePositionAndOrientation(self.robot_id, start_pos, quat, physicsClientId=self._connection)
+        # Zero out residual base velocity from the prior episode (resetBase­…
+        # does not touch velocity, so a mid-fall robot would carry over).
+        p.resetBaseVelocity(self.robot_id, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0],
+                            physicsClientId=self._connection)
         # Start in the slightly-crouched rest pose, not locked-straight pillars.
         for j in JOINT_INDICES:
             p.resetJointState(self.robot_id, j, targetValue=float(REST_POSE[j]),
@@ -320,7 +346,13 @@ class WalkerBulletEnv(gym.Env):
             linkIndexA=-1, physicsClientId=self._connection,
         ))
         terminated, truncated = self.termination.check(pos[2], self.step_count, torso_contact)
-        reward = self.reward_fn.compute(lin_vel[0], abs(roll) + abs(pitch), action, not terminated)
+        reward = self.reward_fn.compute(
+            lin_vel_x=lin_vel[0],
+            pitch_roll_penalty=abs(roll) + abs(pitch),
+            action=action,
+            alive=not terminated,
+            fell=terminated,  # any termination here is a fall (truncation is separate)
+        )
         info = {"x_position": pos[0], "lin_vel_x": lin_vel[0], "torso_contact": torso_contact}
         return obs, reward, terminated, truncated, info
 

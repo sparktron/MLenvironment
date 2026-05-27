@@ -129,11 +129,13 @@ def get_schema():
                     },
                 },
                 "reward": {
-                    "alive_bonus": {"value": 1.0, "type": "float", "desc": "Bonus for staying alive", "min": 0, "max": 10},
-                    "forward_velocity_weight": {"value": 2.0, "type": "float", "desc": "Weight on forward velocity reward", "min": 0, "max": 20},
-                    "target_velocity": {"value": 1.0, "type": "float", "desc": "Target velocity (m/s)", "min": 0, "max": 5},
-                    "orientation_penalty_weight": {"value": 1.0, "type": "float", "desc": "Penalty for tilting", "min": 0, "max": 10},
-                    "torque_penalty_weight": {"value": 0.01, "type": "float", "desc": "Penalty for torque usage", "min": 0, "max": 1},
+                    "alive_bonus": {"value": 5.0, "type": "float", "desc": "Bonus per step while alive (dominant)", "min": 0, "max": 20},
+                    "forward_velocity_weight": {"value": 1.5, "type": "float", "desc": "Peak weight of Gaussian velocity reward", "min": 0, "max": 20},
+                    "target_velocity": {"value": 1.0, "type": "float", "desc": "Target forward velocity (m/s)", "min": 0, "max": 5},
+                    "velocity_sigma": {"value": 0.5, "type": "float", "desc": "Sigma of velocity Gaussian (m/s)", "min": 0.05, "max": 5.0},
+                    "orientation_penalty_weight": {"value": 0.3, "type": "float", "desc": "Per-step tilt penalty (|roll|+|pitch|)", "min": 0, "max": 10},
+                    "torque_penalty_weight": {"value": 0.01, "type": "float", "desc": "Per-step torque-magnitude penalty", "min": 0, "max": 1},
+                    "fall_penalty": {"value": 10.0, "type": "float", "desc": "One-time penalty on fall (terminal step)", "min": 0, "max": 100},
                 },
                 "termination": {
                     "min_height": {"value": 0.18, "type": "float", "desc": "Torso COM height below which fall is detected (m)", "min": 0, "max": 1},
@@ -183,13 +185,21 @@ def get_schema():
 def _training_schema() -> dict[str, Any]:
     return {
         "policy": {"value": "MlpPolicy", "type": "choice", "choices": ["MlpPolicy", "CnnPolicy"], "desc": "Policy network type"},
-        "total_timesteps": {"value": 20000, "type": "int", "desc": "Total training timesteps", "min": 1000, "max": 10000000},
-        "learning_rate": {"value": 0.0003, "type": "float", "desc": "Learning rate", "min": 0.000001, "max": 0.1},
-        "n_steps": {"value": 1024, "type": "int", "desc": "Rollout buffer size", "min": 16, "max": 8192},
-        "batch_size": {"value": 256, "type": "int", "desc": "Minibatch size", "min": 8, "max": 4096},
-        "checkpoint_every": {"value": 5000, "type": "int", "desc": "Save checkpoint every N steps", "min": 100, "max": 1000000},
+        "total_timesteps": {"value": 2_000_000, "type": "int", "desc": "Total training timesteps", "min": 1000, "max": 50_000_000},
+        "num_envs": {"value": 8, "type": "int", "desc": "Parallel environments (SubprocVecEnv)", "min": 1, "max": 32},
+        "n_steps": {"value": 2048, "type": "int", "desc": "Steps per env per rollout", "min": 16, "max": 8192},
+        "batch_size": {"value": 512, "type": "int", "desc": "Minibatch size (must divide n_steps × num_envs)", "min": 8, "max": 8192},
+        "n_epochs": {"value": 10, "type": "int", "desc": "PPO update epochs per rollout", "min": 1, "max": 50},
+        "learning_rate": {"value": 0.0003, "type": "float", "desc": "Initial learning rate", "min": 0.000001, "max": 0.1},
+        "learning_rate_end": {"value": 0.00005, "type": "float", "desc": "Final LR (linear decay; omit for constant)", "min": 0.0, "max": 0.1},
+        "gamma": {"value": 0.99, "type": "float", "desc": "Discount factor", "min": 0.5, "max": 0.9999},
+        "gae_lambda": {"value": 0.95, "type": "float", "desc": "GAE-λ", "min": 0.5, "max": 1.0},
+        "clip_range": {"value": 0.2, "type": "float", "desc": "PPO clip range", "min": 0.05, "max": 1.0},
+        "ent_coef": {"value": 0.005, "type": "float", "desc": "Entropy bonus coefficient", "min": 0.0, "max": 0.1},
+        "vf_coef": {"value": 0.5, "type": "float", "desc": "Value-function loss coefficient", "min": 0.0, "max": 5.0},
+        "max_grad_norm": {"value": 0.5, "type": "float", "desc": "Gradient clipping norm", "min": 0.1, "max": 5.0},
+        "checkpoint_every": {"value": 50000, "type": "int", "desc": "Save checkpoint every N steps", "min": 100, "max": 1000000},
         "normalize_observations": {"value": True, "type": "bool", "desc": "Normalize observations with VecNormalize"},
-        "num_envs": {"value": 1, "type": "int", "desc": "Parallel environments", "min": 1, "max": 32},
         "device": {"value": "auto", "type": "choice", "choices": ["auto", "cpu", "cuda", "cuda:0"], "desc": "Training device"},
     }
 
@@ -231,7 +241,9 @@ def stop_training(run_id: str):
 @app.route("/api/train/status/<run_id>", methods=["GET"])
 def training_status(run_id: str):
     result = manager.get_status(run_id)
-    if "error" in result:
+    # get_status includes an "error" field in normal payloads (for failed runs),
+    # so only treat responses without run metadata as unknown run IDs.
+    if "run_id" not in result:
         return jsonify(result), 404
     return jsonify(result)
 
@@ -306,6 +318,9 @@ def list_outputs():
 # Entry point
 # ------------------------------------------------------------------
 
-def run_gui(host: str = "127.0.0.1", port: int = 5000, debug: bool = False) -> None:
+def run_gui(host: str = "127.0.0.1", port: int = 5000, debug: bool = True) -> None:
     print(f"\n  RL Experiment GUI running at http://{host}:{port}\n")
-    app.run(host=host, port=port, debug=debug, use_reloader=False)
+    # Reloader on: edits to .py files auto-restart the server. Note that this
+    # also kills any in-progress training (it lives in this process). Stop a
+    # run via the dashboard before editing if you want to preserve it.
+    app.run(host=host, port=port, debug=debug, use_reloader=True)
