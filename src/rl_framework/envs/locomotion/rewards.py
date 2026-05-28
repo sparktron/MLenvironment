@@ -21,6 +21,7 @@ class WalkerReward:
     - ``orientation_penalty_weight`` is scaled down to make the early
       bootstrap easier; raise it later via curriculum.
     """
+
     alive_bonus: float = 5.0
     forward_velocity_weight: float = 1.5
     target_velocity: float = 1.0

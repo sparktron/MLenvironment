@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import signal
 import subprocess
 import sys
 import tempfile
@@ -36,24 +34,6 @@ def _ts() -> str:
 def _dbg(enabled: bool, msg: str) -> None:
     if enabled:
         print(f"[debug {_ts()}] {msg}", flush=True)
-
-
-def _terminate_process_tree(proc: subprocess.Popen, debug: bool, reason: str) -> None:
-    """Best-effort terminate the spawned process and its children."""
-    if proc.poll() is not None:
-        return
-    try:
-        pgid = os.getpgid(proc.pid)
-        _dbg(debug, f"terminating process group pgid={pgid} reason={reason}")
-        os.killpg(pgid, signal.SIGTERM)
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            _dbg(debug, f"force killing process group pgid={pgid}")
-            os.killpg(pgid, signal.SIGKILL)
-            proc.wait(timeout=10)
-    except ProcessLookupError:
-        return
 
 
 def _run_regime(
@@ -93,7 +73,7 @@ def _run_regime(
         _dbg(debug, f"built command={' '.join(cmd)}")
         start = time.perf_counter()
         print(f"[exec] {' '.join(cmd)}", flush=True)
-        proc = subprocess.Popen(cmd, start_new_session=True)
+        proc = subprocess.Popen(cmd)
         print(f"[pid] {regime.name} pid={proc.pid}", flush=True)
         _dbg(debug, f"spawned process pid={proc.pid}")
         last_heartbeat = start
@@ -104,11 +84,8 @@ def _run_regime(
                 print(f"[heartbeat] {regime.name} running for {elapsed:.0f}s...", flush=True)
                 last_heartbeat = now
             if elapsed > inactivity_timeout_s:
-                _terminate_process_tree(
-                    proc,
-                    debug=debug,
-                    reason=f"timeout elapsed={elapsed:.1f}s (limit={inactivity_timeout_s:.1f}s)",
-                )
+                proc.kill()
+                _dbg(debug, f"killed process pid={proc.pid} due to timeout elapsed={elapsed:.1f}s")
                 raise RuntimeError(
                     f"Benchmark regime '{regime.name}' timed out after {inactivity_timeout_s:.0f}s."
                 )
@@ -185,8 +162,8 @@ def main() -> None:
     parser.add_argument(
         "--inactivity-timeout-s",
         type=float,
-        default=900.0,
-        help="Fail a regime if it runs longer than this many seconds (default: 900).",
+        default=300.0,
+        help="Fail a regime if it runs longer than this many seconds (default: 300).",
     )
     parser.add_argument(
         "--heartbeat-s",
