@@ -4,18 +4,6 @@ import argparse
 import json as _json
 from pathlib import Path
 
-import gymnasium as gym
-import yaml
-from gymnasium.wrappers import RecordVideo
-from stable_baselines3 import PPO
-
-from rl_framework.envs.registry import make_env
-from rl_framework.training.eval_runner import evaluate
-from rl_framework.training.multi_seed_runner import run_multi_seed
-from rl_framework.training.sb3_runner import train
-from rl_framework.training.sweep import run_sweep
-from rl_framework.utils.config import load_config, to_container, validate_experiment_config
-
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="RL experiment framework CLI")
@@ -27,6 +15,17 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-workers", type=int, default=None, help="Parallel worker processes for multi-seed runs (default: cpu_count)")
     parser.add_argument("--dry-run", action="store_true", help="Plan runs without executing training (sweep only)")
     parser.add_argument("--resume", default="", help="Path to a saved PPO model (.zip) to resume training from")
+    parser.add_argument(
+        "--total-timesteps",
+        type=int,
+        default=None,
+        help="Override training.total_timesteps for this run.",
+    )
+    parser.add_argument(
+        "--device",
+        default="",
+        help="Override training device for this run: auto | cpu | cuda | cuda:<N> (e.g. cuda:0)",
+    )
     parser.add_argument("--trials", type=int, default=5, help="Number of trials for morph-search (default: 5)")
     parser.add_argument("--host", default="127.0.0.1", help="GUI server host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=5000, help="GUI server port (default: 5000)")
@@ -35,6 +34,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Write the result as a single JSON line to stdout; suppresses human-readable output. "
              "Useful for scripting and CI pipelines.",
+    )
+    parser.add_argument(
+        "--json-out",
+        default="",
+        help="Optional path to write JSON result payload. Useful for robust automation without parsing stdout.",
     )
     return parser.parse_args()
 
@@ -60,7 +64,12 @@ def _save_frames_as_gif(frames: list, out_path: Path, fps: int = 30) -> None:
 
 def _render_replay(cfg: dict, model_path: str) -> dict:
     """Render a replay and return a result dict with saved path and frame count."""
+    import gymnasium as gym
+    from gymnasium.wrappers import RecordVideo
     from pettingzoo.utils.env import ParallelEnv
+    from stable_baselines3 import PPO
+
+    from rl_framework.envs.registry import make_env
 
     env_cfg = cfg["environment"]
     env_cfg["render_mode"] = "rgb_array"
@@ -112,22 +121,31 @@ def main() -> None:
         run_gui(host=args.host, port=args.port)
         return
 
+    from rl_framework.utils.config import load_config, to_container, validate_experiment_config
+
     if not args.config_name:
         raise SystemExit("--config-name is required for the '{}' command".format(args.command))
 
     cfg = load_config(args.config_name, args.config_dir)
     cfg_dict = to_container(cfg)
+    if args.device:
+        cfg_dict.setdefault("training", {})["device"] = args.device
+    if args.total_timesteps is not None:
+        cfg_dict.setdefault("training", {})["total_timesteps"] = args.total_timesteps
     validate_experiment_config(cfg_dict)
 
     result: dict = {}
 
     if args.command == "train":
+        from rl_framework.training.sb3_runner import train
         out = train(cfg_dict, resume_from=args.resume or None)
         result = {"saved_model": str(out)}
         if not args.json:
             print(f"saved_model={out}")
 
     elif args.command == "eval":
+        import yaml
+        from rl_framework.training.eval_runner import evaluate
         if not args.model_path:
             raise ValueError("--model-path is required for eval")
         metrics = evaluate(cfg_dict, args.model_path)
@@ -136,12 +154,14 @@ def main() -> None:
             print(yaml.dump(metrics, default_flow_style=False))
 
     elif args.command == "sweep":
+        from rl_framework.training.sweep import run_sweep
         planned = run_sweep(cfg_dict, dry_run=args.dry_run)
         result = {"planned_runs": len(planned), "dry_run": args.dry_run}
         if not args.json:
             print(f"planned_runs={len(planned)} dry_run={args.dry_run}")
 
     elif args.command == "multi-seed":
+        from rl_framework.training.multi_seed_runner import run_multi_seed
         seeds = [int(s) for s in args.seeds.split(",")] if args.seeds else None
         agg = run_multi_seed(cfg_dict, seeds=seeds, max_workers=args.max_workers)
         result = agg
@@ -167,6 +187,10 @@ def main() -> None:
 
     if args.json:
         print(_json.dumps(result))
+    if args.json_out:
+        out_path = Path(args.json_out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(_json.dumps(result), encoding="utf-8")
 
 
 if __name__ == "__main__":

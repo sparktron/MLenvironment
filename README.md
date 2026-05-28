@@ -183,6 +183,7 @@ python -m rl_framework.cli.main gui --port 8080   # custom port
 | `--model-path` | Eval/replay only | — | Path to trained model `.zip` |
 | `--seeds` | multi-seed only | — | Comma-separated: `0,1,2,3,4` |
 | `--max-workers` | multi-seed only | cpu count | Parallel worker processes (pass `1` for sequential) |
+| `--device` | No | config value | Override training device for this run: `auto`, `cpu`, `cuda`, `cuda:<N>` |
 | `--resume` | train only | — | Path to a saved PPO `.zip` to continue training from |
 | `--trials` | morph-search only | 5 | Number of morphology mutations to evaluate |
 
@@ -251,12 +252,84 @@ python -m rl_framework.cli.main multi-seed \
 python -m rl_framework.cli.main multi-seed \
   --config-name robot_walk_basic --seeds 0,1,2,3,4 --max-workers 4
 
+# Force CPU for this invocation (without editing YAML):
+python -m rl_framework.cli.main multi-seed \
+  --config-name robot_walk_basic --seeds 0,1,2,3,4 --max-workers 4 --device cpu
+
 # Force sequential (useful when training already saturates CPUs via num_envs):
 python -m rl_framework.cli.main multi-seed \
   --config-name robot_walk_basic --seeds 0,1,2 --max-workers 1
 ```
 
 Trains and evaluates **the same config** across multiple random seeds for statistical rigor. Seeds run in **parallel by default** using separate processes.
+
+### 🧪 Automated 4-run CPU/GPU benchmark matrix (CLI only)
+
+Run the fixed matrix:
+- `CPU-12workers`
+- `CPU-8workers`
+- `GPU-1worker`
+- `GPU-4workers`
+
+```bash
+python scripts/benchmark_device_matrix.py \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3
+```
+
+If your shell cannot find the script path, run the module entrypoint instead:
+
+```bash
+python -m rl_framework.benchmark_device_matrix \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3
+```
+
+By default, the benchmark overrides each run to `--total-timesteps 20000` so the matrix completes quickly.
+
+The script streams each regime's terminal output live, prints periodic heartbeats while waiting, measures wall-clock runtime, and prints a JSON summary plus a winner.
+
+**Decision rule (default):**
+- Find the best `mean_return_mean` across the 4 regimes.
+- Keep regimes within **3%** of that best reward.
+- Choose the **fastest** (lowest wall-clock time) among those.
+
+You can tighten/relax reward guardrails:
+
+```bash
+python scripts/benchmark_device_matrix.py \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3 \
+  --reward-tolerance-ratio 0.02
+```
+
+Run a longer benchmark:
+
+```bash
+python scripts/benchmark_device_matrix.py \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3 \
+  --total-timesteps 100000
+```
+
+If you suspect a stall, tune watchdogs:
+
+```bash
+python scripts/benchmark_device_matrix.py \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3 \
+  --inactivity-timeout-s 600 \
+  --heartbeat-s 15
+```
+
+Maximum debug tracing (default is already enabled):
+
+```bash
+python scripts/benchmark_device_matrix.py \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3 \
+  --debug
+```
 
 **Output:**
 
