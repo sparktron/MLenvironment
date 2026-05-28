@@ -12,7 +12,6 @@ from gymnasium import spaces
 from rl_framework.envs.locomotion.dynamics import (
     JOINT_INDICES,
     JOINT_SPECS,
-    NUM_JOINTS,
     REST_POSE,
     WalkerDynamics,
 )
@@ -52,9 +51,21 @@ class WalkerBulletEnv(gym.Env):
             # the first agent observation.
             self._settle_steps = int(sim_cfg.get("settle_steps", 30))
             reward_cfg = cfg.get("reward") or {}
-            self.reward_fn = WalkerReward(**{k: v for k, v in reward_cfg.items() if k in WalkerReward.__annotations__})
+            self.reward_fn = WalkerReward(
+                **{
+                    k: v
+                    for k, v in reward_cfg.items()
+                    if k in WalkerReward.__annotations__
+                }
+            )
             term_cfg = cfg.get("termination") or {}
-            self.termination = WalkerTermination(**{k: v for k, v in term_cfg.items() if k in WalkerTermination.__annotations__})
+            self.termination = WalkerTermination(
+                **{
+                    k: v
+                    for k, v in term_cfg.items()
+                    if k in WalkerTermination.__annotations__
+                }
+            )
 
             # obs: pos(3)+quat(4)+lin_vel(3)+ang_vel(3)+joint_pos(10)+joint_vel(10)
             #      +mass_scale(1)+friction_scale(1) = 35
@@ -62,8 +73,12 @@ class WalkerBulletEnv(gym.Env):
             # The DR scales make randomization observable to the policy; without
             # them, random mass/friction look like pure noise from the agent's
             # perspective and actively hurt training.
-            self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(35,), dtype=np.float32)
-            self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(10,), dtype=np.float32)
+            self.observation_space = spaces.Box(
+                low=-np.inf, high=np.inf, shape=(35,), dtype=np.float32
+            )
+            self.action_space = spaces.Box(
+                low=-1.0, high=1.0, shape=(10,), dtype=np.float32
+            )
 
             # Domain randomisation: sensor noise
             rand_cfg = cfg.get("domain_randomization") or {}
@@ -84,18 +99,20 @@ class WalkerBulletEnv(gym.Env):
             raise
 
     # Geometry constants (half-extents in metres)
-    _TORSO_H     = [0.14,  0.09,  0.17 ]
-    _THIGH_H     = [0.055, 0.055, 0.125]
-    _SHIN_H      = [0.045, 0.045, 0.115]
-    _FOOT_H      = [0.085, 0.05,  0.028]
-    _UPPER_ARM_H = [0.04,  0.04,  0.11 ]
-    _FORE_ARM_H  = [0.035, 0.035, 0.09 ]
-    _HEAD_H      = [0.08,  0.07,  0.10 ]
-    _LEG_DY      = 0.085  # lateral (Y) hip offset — legs are side-by-side along Y
+    _TORSO_H = [0.14, 0.09, 0.17]
+    _THIGH_H = [0.055, 0.055, 0.125]
+    _SHIN_H = [0.045, 0.045, 0.115]
+    _FOOT_H = [0.085, 0.05, 0.028]
+    _UPPER_ARM_H = [0.04, 0.04, 0.11]
+    _FORE_ARM_H = [0.035, 0.035, 0.09]
+    _HEAD_H = [0.08, 0.07, 0.10]
+    _LEG_DY = 0.085  # lateral (Y) hip offset — legs are side-by-side along Y
     # Torso COM height when both feet rest flat on the ground:
     #   ankle_z = foot_h[2], knee = ankle + 2*shin_h[2], hip = knee + 2*thigh_h[2]
     #   torso_z = hip + torso_h[2]
-    TORSO_STAND_Z = _FOOT_H[2] + 2*_SHIN_H[2] + 2*_THIGH_H[2] + _TORSO_H[2]  # ≈ 0.678 m
+    TORSO_STAND_Z = (
+        _FOOT_H[2] + 2 * _SHIN_H[2] + 2 * _THIGH_H[2] + _TORSO_H[2]
+    )  # ≈ 0.678 m
 
     def _build_world(self) -> None:
         cid = self._connection
@@ -113,19 +130,26 @@ class WalkerBulletEnv(gym.Env):
         th, sh, fh = self._THIGH_H, self._SHIN_H, self._FOOT_H
         ua, fa, hd = self._UPPER_ARM_H, self._FORE_ARM_H, self._HEAD_H
         leg_dy = self._LEG_DY
-        arm_dy = self._TORSO_H[1] + ua[1]          # torso half-width + upper-arm half-width
+        arm_dy = self._TORSO_H[1] + ua[1]  # torso half-width + upper-arm half-width
 
         def _col(half):
-            return p.createCollisionShape(p.GEOM_BOX, halfExtents=half, physicsClientId=cid)
+            return p.createCollisionShape(
+                p.GEOM_BOX, halfExtents=half, physicsClientId=cid
+            )
 
         def _vis(half, color, offset=(0, 0, 0)):
-            return p.createVisualShape(p.GEOM_BOX, halfExtents=half, rgbaColor=color,
-                                       visualFramePosition=list(offset), physicsClientId=cid)
+            return p.createVisualShape(
+                p.GEOM_BOX,
+                halfExtents=half,
+                rgbaColor=color,
+                visualFramePosition=list(offset),
+                physicsClientId=cid,
+            )
 
-        GRAY  = [0.45, 0.45, 0.45, 1.0]
-        LGRAY = [0.60, 0.60, 0.60, 1.0]   # lighter gray for head & forearms
-        RED   = [0.80, 0.15, 0.15, 1.0]
-        BLUE  = [0.15, 0.15, 0.80, 1.0]
+        GRAY = [0.45, 0.45, 0.45, 1.0]
+        LGRAY = [0.60, 0.60, 0.60, 1.0]  # lighter gray for head & forearms
+        RED = [0.80, 0.15, 0.15, 1.0]
+        BLUE = [0.15, 0.15, 0.80, 1.0]
         DGRAY = [0.30, 0.30, 0.30, 1.0]
 
         torso_col = _col(self._TORSO_H)
@@ -134,20 +158,20 @@ class WalkerBulletEnv(gym.Env):
         # ── Legs ──────────────────────────────────────────────────────────────
         # Thigh/shin visuals hang down from their joint (top of segment = joint).
         # Foot visuals are centered at ankle height, shifted 4 cm forward.
-        r_thigh_vis = _vis(th, RED,   (0,     0, -th[2]))
-        r_shin_vis  = _vis(sh, BLUE,  (0,     0, -sh[2]))
-        r_foot_col  = _col(fh)
-        r_foot_vis  = _vis(fh, DGRAY, (0.04,  0,  0    ))
-        l_thigh_vis = _vis(th, RED,   (0,     0, -th[2]))
-        l_shin_vis  = _vis(sh, BLUE,  (0,     0, -sh[2]))
-        l_foot_col  = _col(fh)
-        l_foot_vis  = _vis(fh, DGRAY, (0.04,  0,  0    ))
+        r_thigh_vis = _vis(th, RED, (0, 0, -th[2]))
+        r_shin_vis = _vis(sh, BLUE, (0, 0, -sh[2]))
+        r_foot_col = _col(fh)
+        r_foot_vis = _vis(fh, DGRAY, (0.04, 0, 0))
+        l_thigh_vis = _vis(th, RED, (0, 0, -th[2]))
+        l_shin_vis = _vis(sh, BLUE, (0, 0, -sh[2]))
+        l_foot_col = _col(fh)
+        l_foot_vis = _vis(fh, DGRAY, (0.04, 0, 0))
 
         # ── Arms ──────────────────────────────────────────────────────────────
         # Upper arms hang from shoulder joint; forearms hang from elbow joint.
-        r_ua_vis = _vis(ua, GRAY,  (0, 0, -ua[2]))
+        r_ua_vis = _vis(ua, GRAY, (0, 0, -ua[2]))
         r_fa_vis = _vis(fa, LGRAY, (0, 0, -fa[2]))
-        l_ua_vis = _vis(ua, GRAY,  (0, 0, -ua[2]))
+        l_ua_vis = _vis(ua, GRAY, (0, 0, -ua[2]))
         l_fa_vis = _vis(fa, LGRAY, (0, 0, -fa[2]))
 
         # ── Head ──────────────────────────────────────────────────────────────
@@ -155,7 +179,7 @@ class WalkerBulletEnv(gym.Env):
         head_vis = _vis(hd, LGRAY, (0, 0, hd[2]))
 
         ident = [0, 0, 0, 1]
-        shoulder_z = self._TORSO_H[2] - 0.04   # slightly below top of torso
+        shoulder_z = self._TORSO_H[2] - 0.04  # slightly below top of torso
 
         # Link order (11 total):
         #  0 rThigh  1 rShin  2 rFoot  3 lThigh  4 lShin  5 lFoot
@@ -172,49 +196,73 @@ class WalkerBulletEnv(gym.Env):
             #       + 7.4 (shins) + 4 (feet) + 6 (upper arms) + 5 (forearms)
             #       ≈ 65.9 kg (hardware Atlas is ~82 kg incl. battery/hands).
             linkMasses=[
-                7.0, 3.7, 2.0,              # right leg: thigh, shin, foot
-                7.0, 3.7, 2.0,              # left leg
-                3.0, 2.5,                   # right arm: upper, forearm
-                3.0, 2.5,                   # left arm
-                1.5,                        # head
+                7.0,
+                3.7,
+                2.0,  # right leg: thigh, shin, foot
+                7.0,
+                3.7,
+                2.0,  # left leg
+                3.0,
+                2.5,  # right arm: upper, forearm
+                3.0,
+                2.5,  # left arm
+                1.5,  # head
             ],
             linkCollisionShapeIndices=[
-                -1, -1, r_foot_col,         # right leg (only foot collides)
-                -1, -1, l_foot_col,         # left leg
-                -1, -1,                     # right arm (no collision)
-                -1, -1,                     # left arm
-                -1,                         # head
+                -1,
+                -1,
+                r_foot_col,  # right leg (only foot collides)
+                -1,
+                -1,
+                l_foot_col,  # left leg
+                -1,
+                -1,  # right arm (no collision)
+                -1,
+                -1,  # left arm
+                -1,  # head
             ],
             linkVisualShapeIndices=[
-                r_thigh_vis, r_shin_vis, r_foot_vis,
-                l_thigh_vis, l_shin_vis, l_foot_vis,
-                r_ua_vis, r_fa_vis,
-                l_ua_vis, l_fa_vis,
+                r_thigh_vis,
+                r_shin_vis,
+                r_foot_vis,
+                l_thigh_vis,
+                l_shin_vis,
+                l_foot_vis,
+                r_ua_vis,
+                r_fa_vis,
+                l_ua_vis,
+                l_fa_vis,
                 head_vis,
             ],
             linkPositions=[
                 # ── Legs: hips attach at bottom of torso, separated along ±Y ──
-                [0,  -leg_dy, -self._TORSO_H[2]],   # 0 right hip
-                [0,   0,      -2*th[2]          ],   # 1 right knee
-                [0,   0,      -2*sh[2]          ],   # 2 right ankle
-                [0,   leg_dy, -self._TORSO_H[2]],   # 3 left hip
-                [0,   0,      -2*th[2]          ],   # 4 left knee
-                [0,   0,      -2*sh[2]          ],   # 5 left ankle
+                [0, -leg_dy, -self._TORSO_H[2]],  # 0 right hip
+                [0, 0, -2 * th[2]],  # 1 right knee
+                [0, 0, -2 * sh[2]],  # 2 right ankle
+                [0, leg_dy, -self._TORSO_H[2]],  # 3 left hip
+                [0, 0, -2 * th[2]],  # 4 left knee
+                [0, 0, -2 * sh[2]],  # 5 left ankle
                 # ── Arms: shoulders attach at upper sides of torso, ±Y ──
-                [0,  -arm_dy,  shoulder_z],           # 6 right shoulder
-                [0,   0,      -2*ua[2]   ],           # 7 right elbow
-                [0,   arm_dy,  shoulder_z],           # 8 left shoulder
-                [0,   0,      -2*ua[2]   ],           # 9 left elbow
+                [0, -arm_dy, shoulder_z],  # 6 right shoulder
+                [0, 0, -2 * ua[2]],  # 7 right elbow
+                [0, arm_dy, shoulder_z],  # 8 left shoulder
+                [0, 0, -2 * ua[2]],  # 9 left elbow
                 # ── Head: neck at top of torso ──
-                [0,   0,       self._TORSO_H[2]],    # 10 neck/head
+                [0, 0, self._TORSO_H[2]],  # 10 neck/head
             ],
             linkOrientations=[ident] * 11,
             linkInertialFramePositions=[
-                [0, 0, -th[2]], [0, 0, -sh[2]], [0.04, 0, 0],   # right leg
-                [0, 0, -th[2]], [0, 0, -sh[2]], [0.04, 0, 0],   # left leg
-                [0, 0, -ua[2]], [0, 0, -fa[2]],                  # right arm
-                [0, 0, -ua[2]], [0, 0, -fa[2]],                  # left arm
-                [0, 0,  hd[2]],                                   # head
+                [0, 0, -th[2]],
+                [0, 0, -sh[2]],
+                [0.04, 0, 0],  # right leg
+                [0, 0, -th[2]],
+                [0, 0, -sh[2]],
+                [0.04, 0, 0],  # left leg
+                [0, 0, -ua[2]],
+                [0, 0, -fa[2]],  # right arm
+                [0, 0, -ua[2]],
+                [0, 0, -fa[2]],  # left arm
+                [0, 0, hd[2]],  # head
             ],
             linkInertialFrameOrientations=[ident] * 11,
             # 0=base, 1=link-0, 2=link-1, …
@@ -228,14 +276,19 @@ class WalkerBulletEnv(gym.Env):
 
         # Friction on base torso and both feet.
         p.changeDynamics(self.robot_id, -1, lateralFriction=fric, physicsClientId=cid)
-        p.changeDynamics(self.robot_id,  2, lateralFriction=fric, physicsClientId=cid)  # right foot
-        p.changeDynamics(self.robot_id,  5, lateralFriction=fric, physicsClientId=cid)  # left foot
+        p.changeDynamics(
+            self.robot_id, 2, lateralFriction=fric, physicsClientId=cid
+        )  # right foot
+        p.changeDynamics(
+            self.robot_id, 5, lateralFriction=fric, physicsClientId=cid
+        )  # left foot
         # Joint limits + light damping. Without limits, knees would hyperextend
         # backward, ankles would spin freely, etc. — the body becomes nonsensical.
         for j in JOINT_INDICES:
             spec = JOINT_SPECS[j]
             p.changeDynamics(
-                self.robot_id, j,
+                self.robot_id,
+                j,
                 jointLowerLimit=spec.low,
                 jointUpperLimit=spec.high,
                 jointDamping=0.5,
@@ -246,18 +299,34 @@ class WalkerBulletEnv(gym.Env):
         self.dynamics.disable_velocity_motors(self.robot_id, physicsClientId=cid)
 
     def _get_obs(self) -> np.ndarray:
-        pos, quat = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self._connection)
-        lin_vel, ang_vel = p.getBaseVelocity(self.robot_id, physicsClientId=self._connection)
-        joint_states = p.getJointStates(self.robot_id, JOINT_INDICES, physicsClientId=self._connection)
+        pos, quat = p.getBasePositionAndOrientation(
+            self.robot_id, physicsClientId=self._connection
+        )
+        lin_vel, ang_vel = p.getBaseVelocity(
+            self.robot_id, physicsClientId=self._connection
+        )
+        joint_states = p.getJointStates(
+            self.robot_id, JOINT_INDICES, physicsClientId=self._connection
+        )
         joint_pos = [s[0] for s in joint_states]
         joint_vel = [s[1] for s in joint_states]
         obs = np.array(
-            [*pos, *quat, *lin_vel, *ang_vel, *joint_pos, *joint_vel,
-             self._mass_scale, self._friction_scale],
+            [
+                *pos,
+                *quat,
+                *lin_vel,
+                *ang_vel,
+                *joint_pos,
+                *joint_vel,
+                self._mass_scale,
+                self._friction_scale,
+            ],
             dtype=np.float32,
         )
         if self._sensor_noise_std > 0.0:
-            obs = obs + self._rng.normal(0.0, self._sensor_noise_std, size=obs.shape).astype(np.float32)
+            obs = obs + self._rng.normal(
+                0.0, self._sensor_noise_std, size=obs.shape
+            ).astype(np.float32)
         return obs
 
     def _apply_domain_randomization(self) -> None:
@@ -272,7 +341,13 @@ class WalkerBulletEnv(gym.Env):
         self._friction_scale = float(self._rng.uniform(fric_rng[0], fric_rng[1]))
         mass = base_mass * self._mass_scale
         friction = sim_cfg.get("friction", 0.8) * self._friction_scale
-        p.changeDynamics(self.robot_id, -1, mass=mass, lateralFriction=friction, physicsClientId=self._connection)
+        p.changeDynamics(
+            self.robot_id,
+            -1,
+            mass=mass,
+            lateralFriction=friction,
+            physicsClientId=self._connection,
+        )
 
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
         super().reset(seed=seed)
@@ -304,23 +379,38 @@ class WalkerBulletEnv(gym.Env):
         ]
         yaw = float(self._rng.uniform(-yaw_noise, yaw_noise))
         quat = p.getQuaternionFromEuler([0.0, 0.0, yaw])
-        p.resetBasePositionAndOrientation(self.robot_id, start_pos, quat, physicsClientId=self._connection)
+        p.resetBasePositionAndOrientation(
+            self.robot_id, start_pos, quat, physicsClientId=self._connection
+        )
         # Zero out residual base velocity from the prior episode (resetBase­…
         # does not touch velocity, so a mid-fall robot would carry over).
-        p.resetBaseVelocity(self.robot_id, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0],
-                            physicsClientId=self._connection)
+        p.resetBaseVelocity(
+            self.robot_id,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            physicsClientId=self._connection,
+        )
         # Start in the slightly-crouched rest pose, not locked-straight pillars.
         for j in JOINT_INDICES:
-            p.resetJointState(self.robot_id, j, targetValue=float(REST_POSE[j]),
-                              targetVelocity=0.0, physicsClientId=self._connection)
+            p.resetJointState(
+                self.robot_id,
+                j,
+                targetValue=float(REST_POSE[j]),
+                targetVelocity=0.0,
+                physicsClientId=self._connection,
+            )
         # resetJointState re-engages the implicit motor; silence it again
         # before issuing any PD or torque command.
-        self.dynamics.disable_velocity_motors(self.robot_id, physicsClientId=self._connection)
+        self.dynamics.disable_velocity_motors(
+            self.robot_id, physicsClientId=self._connection
+        )
 
         # Settle phase: let the robot reach equilibrium under PD before the
         # first observation, so step 0 isn't mid-fall from a transient.
         if self._settle_steps > 0:
-            self.dynamics.hold_rest_pose(self.robot_id, physicsClientId=self._connection)
+            self.dynamics.hold_rest_pose(
+                self.robot_id, physicsClientId=self._connection
+            )
             for _ in range(self._settle_steps):
                 p.stepSimulation(physicsClientId=self._connection)
 
@@ -335,22 +425,32 @@ class WalkerBulletEnv(gym.Env):
             action = self._action_buffer.popleft()
         # Frame-skip: hold the same command across `frame_skip` physics ticks
         # so the policy operates at ~60 Hz while physics runs at ~240 Hz.
-        self.dynamics.apply_action(self.robot_id, action, physicsClientId=self._connection)
+        self.dynamics.apply_action(
+            self.robot_id, action, physicsClientId=self._connection
+        )
         for _ in range(max(1, self._frame_skip)):
             p.stepSimulation(physicsClientId=self._connection)
         self.step_count += 1
 
         obs = self._get_obs()
-        pos, quat = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self._connection)
+        pos, quat = p.getBasePositionAndOrientation(
+            self.robot_id, physicsClientId=self._connection
+        )
         roll, pitch, _ = p.getEulerFromQuaternion(quat)
         lin_vel, _ = p.getBaseVelocity(self.robot_id, physicsClientId=self._connection)
 
         # Torso (base, linkIndexA=-1) touching the floor = the robot has fallen.
-        torso_contact = bool(p.getContactPoints(
-            bodyA=self.robot_id, bodyB=self.plane_id,
-            linkIndexA=-1, physicsClientId=self._connection,
-        ))
-        terminated, truncated = self.termination.check(pos[2], self.step_count, torso_contact)
+        torso_contact = bool(
+            p.getContactPoints(
+                bodyA=self.robot_id,
+                bodyB=self.plane_id,
+                linkIndexA=-1,
+                physicsClientId=self._connection,
+            )
+        )
+        terminated, truncated = self.termination.check(
+            pos[2], self.step_count, torso_contact
+        )
         reward = self.reward_fn.compute(
             lin_vel_x=lin_vel[0],
             pitch_roll_penalty=abs(roll) + abs(pitch),
@@ -358,13 +458,19 @@ class WalkerBulletEnv(gym.Env):
             alive=not terminated,
             fell=terminated,  # any termination here is a fall (truncation is separate)
         )
-        info = {"x_position": pos[0], "lin_vel_x": lin_vel[0], "torso_contact": torso_contact}
+        info = {
+            "x_position": pos[0],
+            "lin_vel_x": lin_vel[0],
+            "torso_contact": torso_contact,
+        }
         return obs, reward, terminated, truncated, info
 
     def render(self):
         if self.render_mode == "rgb_array":
             if self.robot_id >= 0:
-                pos, _ = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self._connection)
+                pos, _ = p.getBasePositionAndOrientation(
+                    self.robot_id, physicsClientId=self._connection
+                )
                 # Follow robot's actual z so unusual behavior (jumping, falling)
                 # stays in frame; clamp low so we never look underground.
                 target = [pos[0], pos[1], max(0.35, pos[2] * 0.6)]
@@ -372,11 +478,22 @@ class WalkerBulletEnv(gym.Env):
                 target = [0.0, 0.0, 0.35]
             view = p.computeViewMatrixFromYawPitchRoll(
                 cameraTargetPosition=target,
-                distance=2.2, yaw=45, pitch=-20, roll=0, upAxisIndex=2,
+                distance=2.2,
+                yaw=45,
+                pitch=-20,
+                roll=0,
+                upAxisIndex=2,
             )
-            proj = p.computeProjectionMatrixFOV(fov=60, aspect=640 / 480, nearVal=0.1, farVal=100)
-            _, _, px, _, _ = p.getCameraImage(640, 480, viewMatrix=view,
-                                              projectionMatrix=proj, physicsClientId=self._connection)
+            proj = p.computeProjectionMatrixFOV(
+                fov=60, aspect=640 / 480, nearVal=0.1, farVal=100
+            )
+            _, _, px, _, _ = p.getCameraImage(
+                640,
+                480,
+                viewMatrix=view,
+                projectionMatrix=proj,
+                physicsClientId=self._connection,
+            )
             img = np.array(px, dtype=np.uint8).reshape(480, 640, 4)
             return img[:, :, :3]
         return None
