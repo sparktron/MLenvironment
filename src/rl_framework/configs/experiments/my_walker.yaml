@@ -40,9 +40,9 @@ environment:
     settle_steps: 30
     timestep: 0.004166666666666667
   termination:
+    max_height: 1.5
     max_steps: 800
     min_height: 0.18
-    max_height: 1.5            # prevents PD-jackhammer self-launching
 training:
   batch_size: 512
   checkpoint_every: 50000

@@ -274,7 +274,7 @@ Run the fixed matrix:
 ```bash
 python scripts/benchmark_device_matrix.py \
   --config-name robot_walk_basic \
-  --seeds 0,1,2,3,4,5,6,7,8,9,10,11
+  --seeds 0,1,2,3
 ```
 
 If your shell cannot find the script path, run the module entrypoint instead:
@@ -282,10 +282,10 @@ If your shell cannot find the script path, run the module entrypoint instead:
 ```bash
 python -m rl_framework.benchmark_device_matrix \
   --config-name robot_walk_basic \
-  --seeds 0,1,2,3,4,5,6,7,8,9,10,11
+  --seeds 0,1,2,3
 ```
 
-By default, the benchmark uses **12 seeds** (`0..11`) so the `CPU-12workers` regime has enough seed jobs to fill all 12 workers. It also overrides each run to `--total-timesteps 20000` so the matrix completes quickly.
+By default, the benchmark overrides each run to `--total-timesteps 20000` so the matrix completes quickly.
 
 The script streams each regime's terminal output live, prints periodic heartbeats while waiting, measures wall-clock runtime, and prints a JSON summary plus a winner.
 
@@ -299,7 +299,7 @@ You can tighten/relax reward guardrails:
 ```bash
 python scripts/benchmark_device_matrix.py \
   --config-name robot_walk_basic \
-  --seeds 0,1,2,3,4,5,6,7,8,9,10,11 \
+  --seeds 0,1,2,3 \
   --reward-tolerance-ratio 0.02
 ```
 
@@ -308,7 +308,7 @@ Run a longer benchmark:
 ```bash
 python scripts/benchmark_device_matrix.py \
   --config-name robot_walk_basic \
-  --seeds 0,1,2,3,4,5,6,7,8,9,10,11 \
+  --seeds 0,1,2,3 \
   --total-timesteps 100000
 ```
 
@@ -317,7 +317,7 @@ If you suspect a stall, tune watchdogs:
 ```bash
 python scripts/benchmark_device_matrix.py \
   --config-name robot_walk_basic \
-  --seeds 0,1,2,3,4,5,6,7,8,9,10,11 \
+  --seeds 0,1,2,3 \
   --inactivity-timeout-s 600 \
   --heartbeat-s 15
 ```
@@ -327,7 +327,7 @@ Maximum debug tracing (default is already enabled):
 ```bash
 python scripts/benchmark_device_matrix.py \
   --config-name robot_walk_basic \
-  --seeds 0,1,2,3,4,5,6,7,8,9,10,11 \
+  --seeds 0,1,2,3 \
   --debug
 ```
 
