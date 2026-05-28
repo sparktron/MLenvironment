@@ -1,4 +1,5 @@
 """Background training manager for the GUI."""
+
 from __future__ import annotations
 
 import atexit
@@ -57,7 +58,9 @@ class TrainingManager:
             state = _RunState(run_id=run_id, cfg=cfg)
             self._runs[run_id] = state
 
-        thread = threading.Thread(target=self._train_worker, args=(state,), daemon=False)
+        thread = threading.Thread(
+            target=self._train_worker, args=(state,), daemon=False
+        )
         self._active_thread = thread
         thread.start()
         return {"run_id": run_id, "status": "started"}
@@ -97,7 +100,11 @@ class TrainingManager:
     def list_runs(self) -> list[dict[str, Any]]:
         with self._lock:
             return [
-                {"run_id": s.run_id, "status": s.status, "experiment": s.cfg.get("experiment_name", "")}
+                {
+                    "run_id": s.run_id,
+                    "status": s.status,
+                    "experiment": s.cfg.get("experiment_name", ""),
+                }
                 for s in self._runs.values()
             ]
 
@@ -172,24 +179,31 @@ class TrainingManager:
             live_cb = LiveTuningCallback(
                 env_cfg=cfg["environment"],
                 pop_tuning_event=lambda: self._pop_tuning_event(state.run_id),
-                publish_status=lambda payload: self._publish_status(state.run_id, payload),
+                publish_status=lambda payload: self._publish_status(
+                    state.run_id, payload
+                ),
                 verbose=1,
             )
-            frame_cb = FrameCaptureCallback(capture_interval=50, max_frames=200, verbose=1)
+            frame_cb = FrameCaptureCallback(
+                capture_interval=50, max_frames=200, verbose=1
+            )
 
             with self._lock:
                 state.frame_capture_callback = frame_cb
 
-            model_path = train(cfg, extra_callbacks=[live_cb, frame_cb], stop_event=state.stop_event)
+            model_path = train(
+                cfg, extra_callbacks=[live_cb, frame_cb], stop_event=state.stop_event
+            )
             with self._lock:
                 state.status = "completed"
                 state.model_path = str(model_path)
                 state.finished_at = time.time()
-        except Exception:
+        except BaseException:
             with self._lock:
                 state.status = "failed"
                 state.error = traceback.format_exc()
                 state.finished_at = time.time()
+            raise
 
     def _pop_tuning_event(self, run_id: str) -> dict[str, Any] | None:
         """Atomically consume pending tuning events for *run_id*.

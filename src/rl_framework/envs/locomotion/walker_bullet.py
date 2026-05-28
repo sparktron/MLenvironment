@@ -341,13 +341,21 @@ class WalkerBulletEnv(gym.Env):
         self._friction_scale = float(self._rng.uniform(fric_rng[0], fric_rng[1]))
         mass = base_mass * self._mass_scale
         friction = sim_cfg.get("friction", 0.8) * self._friction_scale
+        scaled_friction = friction
         p.changeDynamics(
             self.robot_id,
             -1,
             mass=mass,
-            lateralFriction=friction,
+            lateralFriction=scaled_friction,
             physicsClientId=self._connection,
         )
+        for link_idx in (2, 5):
+            p.changeDynamics(
+                self.robot_id,
+                link_idx,
+                lateralFriction=scaled_friction,
+                physicsClientId=self._connection,
+            )
 
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
         super().reset(seed=seed)

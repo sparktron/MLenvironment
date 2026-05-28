@@ -1,0 +1,31 @@
+experiment_name: my_arena
+seed: 42
+environment:
+  type: organism_arena_parallel
+  seed: 42
+  battle_rules:
+    attack_range: 0.2
+    cooldown_steps: 3
+    damage: 0.06
+    max_steps: 400
+    win_health_threshold: 0
+  morphology:
+    base_size: 1
+    episode_growth_scale: 0
+    health: 1.2
+  sim:
+    arena_half_extent: 1.2
+training:
+  batch_size: 256
+  checkpoint_every: 5000
+  device: auto
+  learning_rate: 0.0003
+  n_steps: 1024
+  normalize_observations: true
+  num_envs: 1
+  policy: MlpPolicy
+  total_timesteps: 20000
+evaluation:
+  episodes: 5
+output:
+  base_dir: outputs

@@ -24,11 +24,22 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
     _require_keys(cfg, ["experiment_name", "seed", "output", "environment", "training"])
     _validate_experiment_name(cfg["experiment_name"])
     _require_keys(cfg["output"], ["base_dir"])
+    import pathlib
+
+    _ALLOWED_OUTPUT_ROOT = pathlib.Path("outputs").resolve()
+    _base_dir = cfg["output"]["base_dir"]
+    _resolved = pathlib.Path(_base_dir).resolve()
+    if not str(_resolved).startswith(str(_ALLOWED_OUTPUT_ROOT)):
+        raise ValueError(
+            f"output.base_dir must be within the outputs/ directory, got: {_base_dir}"
+        )
     _require_keys(cfg["environment"], ["type"])
     _require_keys(cfg["training"], ["total_timesteps"])
 
     _ensure_int(cfg["seed"], "seed")
-    _ensure_int(cfg["training"]["total_timesteps"], "training.total_timesteps", min_value=1)
+    _ensure_int(
+        cfg["training"]["total_timesteps"], "training.total_timesteps", min_value=1
+    )
 
     num_envs = cfg["training"].get("num_envs", 1)
     _ensure_int(num_envs, "training.num_envs", min_value=1)
@@ -37,13 +48,19 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
     _validate_device(device)
 
     if "learning_rate" in cfg["training"]:
-        _ensure_positive_number(cfg["training"]["learning_rate"], "training.learning_rate")
+        _ensure_positive_number(
+            cfg["training"]["learning_rate"], "training.learning_rate"
+        )
     if "n_steps" in cfg["training"]:
         _ensure_int(cfg["training"]["n_steps"], "training.n_steps", min_value=1)
     if "batch_size" in cfg["training"]:
         _ensure_int(cfg["training"]["batch_size"], "training.batch_size", min_value=1)
     if "checkpoint_every" in cfg["training"]:
-        _ensure_int(cfg["training"]["checkpoint_every"], "training.checkpoint_every", min_value=1)
+        _ensure_int(
+            cfg["training"]["checkpoint_every"],
+            "training.checkpoint_every",
+            min_value=1,
+        )
         ckpt_every = int(cfg["training"]["checkpoint_every"])
         total_ts = int(cfg["training"]["total_timesteps"])
         if ckpt_every > total_ts:
@@ -71,8 +88,16 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
 
     self_play_cfg = cfg.get("self_play", {})
     if self_play_cfg.get("enabled", False):
-        _ensure_int(self_play_cfg.get("snapshot_freq", 5000), "self_play.snapshot_freq", min_value=1)
-        _ensure_int(self_play_cfg.get("max_league_size", 10), "self_play.max_league_size", min_value=1)
+        _ensure_int(
+            self_play_cfg.get("snapshot_freq", 5000),
+            "self_play.snapshot_freq",
+            min_value=1,
+        )
+        _ensure_int(
+            self_play_cfg.get("max_league_size", 10),
+            "self_play.max_league_size",
+            min_value=1,
+        )
 
     repro_cfg = cfg.get("reproducibility", {})
     if "strict" in repro_cfg and not isinstance(repro_cfg["strict"], bool):
@@ -89,14 +114,10 @@ def _validate_experiment_name(name: Any) -> None:
     if not isinstance(name, str) or not name:
         raise ValueError("experiment_name must be a non-empty string")
     if ".." in name or name.startswith("/") or name.startswith("\\"):
-        raise ValueError(
-            f"experiment_name contains unsafe path components: {name!r}"
-        )
+        raise ValueError(f"experiment_name contains unsafe path components: {name!r}")
     # Block any OS path separator to keep names as simple directory segments.
-    if re.search(r'[/\\]', name):
-        raise ValueError(
-            f"experiment_name must not contain path separators: {name!r}"
-        )
+    if re.search(r"[/\\]", name):
+        raise ValueError(f"experiment_name must not contain path separators: {name!r}")
 
 
 def _validate_device(value: Any) -> None:
@@ -115,6 +136,7 @@ def _validate_device(value: Any) -> None:
         device_idx = int(value.split(":")[1])
         try:
             import torch  # noqa: PLC0415
+
             count = torch.cuda.device_count()
             if count > 0 and device_idx >= count:
                 warnings.warn(
@@ -142,7 +164,9 @@ def _ensure_int(value: Any, key: str, min_value: int | None = None) -> None:
 
 def _ensure_positive_number(value: Any, key: str) -> None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise TypeError(f"Config key '{key}' must be a number, got {type(value).__name__}")
+        raise TypeError(
+            f"Config key '{key}' must be a number, got {type(value).__name__}"
+        )
     if value <= 0:
         raise ValueError(f"Config key '{key}' must be > 0, got {value}")
 
@@ -154,10 +178,19 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
 
     if env_type == "walker_bullet":
         reward = env_cfg.get("reward", {})
-        for key in ("alive_bonus", "forward_velocity_weight", "orientation_penalty_weight", "torque_penalty_weight"):
+        for key in (
+            "alive_bonus",
+            "forward_velocity_weight",
+            "orientation_penalty_weight",
+            "torque_penalty_weight",
+        ):
             if key in reward:
                 val = reward[key]
-                if isinstance(val, bool) or not isinstance(val, (int, float)) or val < 0:
+                if (
+                    isinstance(val, bool)
+                    or not isinstance(val, (int, float))
+                    or val < 0
+                ):
                     raise ValueError(
                         f"environment.reward.{key} must be a non-negative number, got {val!r}"
                     )
@@ -167,7 +200,11 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
         for key in ("damage", "attack_range"):
             if key in battle:
                 val = battle[key]
-                if isinstance(val, bool) or not isinstance(val, (int, float)) or val <= 0:
+                if (
+                    isinstance(val, bool)
+                    or not isinstance(val, (int, float))
+                    or val <= 0
+                ):
                     raise ValueError(
                         f"environment.battle_rules.{key} must be a positive number, got {val!r}"
                     )

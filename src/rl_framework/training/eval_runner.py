@@ -20,13 +20,17 @@ def _was_truncated(infos: Any) -> bool:
 
 def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
     env_cfg = cfg["environment"]
-    paths = create_experiment_paths(cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"])
+    paths = create_experiment_paths(
+        cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"]
+    )
 
     if env_cfg["type"] == "organism_arena_parallel":
         # Multi-agent eval: wrap env the same way as training and load the shared PPO model.
         par_env = make_env(env_cfg["type"], env_cfg)
         vec_env = ss.pettingzoo_env_to_vec_env_v1(par_env)
-        vec_env = ss.concat_vec_envs_v1(vec_env, 1, num_cpus=1, base_class="stable_baselines3")
+        vec_env = ss.concat_vec_envs_v1(
+            vec_env, 1, num_cpus=1, base_class="stable_baselines3"
+        )
     else:
         vec_env = DummyVecEnv([lambda: make_env(env_cfg["type"], env_cfg)])
 
@@ -39,6 +43,7 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
     is_multiagent = env_cfg["type"] == "organism_arena_parallel"
     num_agents = vec_env.num_envs if is_multiagent else 1
 
+    metrics: dict[str, float] = {}
     try:
         model = PPO.load(model_path)
         episodes = cfg["evaluation"].get("episodes", 5)
@@ -58,7 +63,7 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
                 obs, reward, dones, infos = vec_env.step(action)
                 reward_arr = np.asarray(reward).flatten()
                 ep_ret += float(np.sum(reward_arr))
-                ep_agent_ret[:len(reward_arr)] += reward_arr.astype(np.float64)
+                ep_agent_ret[: len(reward_arr)] += reward_arr.astype(np.float64)
                 ep_len += 1
                 done = bool(np.any(dones))
             was_truncated = _was_truncated(infos)
