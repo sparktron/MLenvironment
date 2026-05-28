@@ -266,7 +266,7 @@ Trains and evaluates **the same config** across multiple random seeds for statis
 ### 🧪 Automated 4-run CPU/GPU benchmark matrix (CLI only)
 
 Run the fixed matrix:
-- `CPU-10workers`
+- `CPU-4workers`
 - `CPU-8workers`
 - `GPU-1worker`
 - `GPU-2workers`
@@ -287,7 +287,7 @@ python -m rl_framework.benchmark_device_matrix \
 
 By default, the benchmark overrides each run to `--total-timesteps 20000` so the matrix completes quickly.
 
-The script streams each regime's terminal output live, prints periodic heartbeats while waiting, measures wall-clock runtime, and prints a JSON summary plus a winner.
+The script runs regimes from smaller to larger worker counts (`CPU-4workers` → `CPU-8workers` → `GPU-1worker` → `GPU-2workers`). It streams each regime's terminal output live, prints periodic heartbeats while waiting, appends progress events to `outputs/benchmark_device_matrix_progress.jsonl`, measures wall-clock runtime, and prints a JSON summary plus a winner. If a later regime crashes, the progress log and `[partial-results]` output show which earlier regimes completed.
 
 **Decision rule (default):**
 - Find the best `mean_return_mean` across the 4 regimes.
