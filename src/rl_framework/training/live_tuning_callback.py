@@ -24,9 +24,20 @@ class LiveTuningCallback(BaseCallback):
     - ``domain_randomization.*`` (float)  – any key under env_cfg["domain_randomization"]
     - ``battle_rules.*``         (float)  – any key under env_cfg["battle_rules"]
 
+    ``reward.*`` and ``termination.*`` changes are propagated immediately to
+    each env's live objects via ``env_method("update_live_params")`` so that
+    the new values take effect without waiting for the next episode reset.
+
     """
 
-    ENV_SECTIONS = ("reward", "termination", "domain_randomization", "battle_rules", "morphology", "sim")
+    ENV_SECTIONS = (
+        "reward",
+        "termination",
+        "domain_randomization",
+        "battle_rules",
+        "morphology",
+        "sim",
+    )
 
     def __init__(
         self,
@@ -61,7 +72,9 @@ class LiveTuningCallback(BaseCallback):
                     if self.verbose >= 1:
                         print(f"[LiveTuning] learning_rate -> {lr}")
                 except (TypeError, ValueError) as exc:
-                    _log.warning("LiveTuning: could not apply 'learning_rate'=%r: %s", value, exc)
+                    _log.warning(
+                        "LiveTuning: could not apply 'learning_rate'=%r: %s", value, exc
+                    )
             else:
                 parts = key.split(".", 1)
                 if len(parts) == 2 and parts[0] in self.ENV_SECTIONS:
@@ -74,10 +87,24 @@ class LiveTuningCallback(BaseCallback):
                             if self.verbose >= 1:
                                 print(f"[LiveTuning] {key} -> {cast_val}")
                         except (TypeError, ValueError) as exc:
-                            _log.warning("LiveTuning: could not apply %r=%r: %s", key, value, exc)
+                            _log.warning(
+                                "LiveTuning: could not apply %r=%r: %s", key, value, exc
+                            )
 
         if applied:
             self._applied.append(applied)
+            # Push reward/termination changes to live env objects immediately so
+            # they take effect in the current episode, not just on the next reset.
+            env_params = {
+                k: v
+                for k, v in applied.items()
+                if k.split(".")[0] in ("reward", "termination")
+            }
+            if env_params and self.training_env is not None:
+                try:
+                    self.training_env.env_method("update_live_params", env_params)
+                except Exception:
+                    pass  # Non-walker env or env_method unavailable; cfg update suffices
 
         # Emit status snapshot for GUI polling.
         self._write_status()
@@ -92,10 +119,15 @@ class LiveTuningCallback(BaseCallback):
             }
             # Pull metrics from SB3 logger.
             if self.logger is not None:
-                for key in ("rollout/ep_rew_mean", "rollout/ep_len_mean",
-                            "train/loss", "train/policy_gradient_loss",
-                            "train/value_loss", "train/entropy_loss",
-                            "train/learning_rate"):
+                for key in (
+                    "rollout/ep_rew_mean",
+                    "rollout/ep_len_mean",
+                    "train/loss",
+                    "train/policy_gradient_loss",
+                    "train/value_loss",
+                    "train/entropy_loss",
+                    "train/learning_rate",
+                ):
                     try:
                         status[key] = float(self.logger.name_to_value[key])
                     except (KeyError, AttributeError, TypeError):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -46,9 +47,9 @@ class WalkerReward:
             reward += self.alive_bonus
         # Gaussian velocity reward: 1.0 at v=target, decays smoothly outside.
         diff = (lin_vel_x - self.target_velocity) / max(self.velocity_sigma, 1e-6)
-        reward += self.forward_velocity_weight * float(np.exp(-0.5 * diff * diff))
+        reward += self.forward_velocity_weight * math.exp(-0.5 * diff * diff)
         reward -= self.orientation_penalty_weight * pitch_roll_penalty
-        reward -= self.torque_penalty_weight * float(np.square(action).sum())
+        reward -= self.torque_penalty_weight * float(action @ action)
         if fell:
             reward -= self.fall_penalty
         return float(reward)

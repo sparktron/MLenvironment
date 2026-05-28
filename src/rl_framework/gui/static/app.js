@@ -130,7 +130,12 @@
     configs.forEach(function (c) {
       var btn = document.createElement("button");
       btn.className = "template-btn";
-      btn.innerHTML = c.name + '<span class="env-type">' + c.env_type + "</span>";
+      var nameText = document.createTextNode(c.name);
+      var envTypeSpan = document.createElement("span");
+      envTypeSpan.className = "env-type";
+      envTypeSpan.textContent = c.env_type;
+      btn.appendChild(nameText);
+      btn.appendChild(envTypeSpan);
       btn.addEventListener("click", async function () {
         var full = await api("GET", "/api/configs/" + c.name);
         selectedEnv = full.environment.type;
@@ -697,14 +702,26 @@
     outputs.forEach(function (o) {
       var item = document.createElement("div");
       item.className = "output-item";
-      var cps = o.checkpoints.map(function (c) {
-        var cls = c === "final_model.zip" ? "checkpoint-tag final" : "checkpoint-tag";
-        return '<span class="' + cls + '">' + c + "</span>";
-      }).join("");
-      item.innerHTML =
-        "<h3>" + o.experiment + " / " + o.seed + "</h3>" +
-        '<div class="meta">' + o.path + "</div>" +
-        '<div class="checkpoint-list">' + cps + "</div>";
+
+      var h3 = document.createElement("h3");
+      h3.textContent = o.experiment + " / " + o.seed;
+
+      var metaDiv = document.createElement("div");
+      metaDiv.className = "meta";
+      metaDiv.textContent = o.path;
+
+      var cpListDiv = document.createElement("div");
+      cpListDiv.className = "checkpoint-list";
+      o.checkpoints.forEach(function (c) {
+        var span = document.createElement("span");
+        span.className = c === "final_model.zip" ? "checkpoint-tag final" : "checkpoint-tag";
+        span.textContent = c;
+        cpListDiv.appendChild(span);
+      });
+
+      item.appendChild(h3);
+      item.appendChild(metaDiv);
+      item.appendChild(cpListDiv);
       container.appendChild(item);
     });
   }

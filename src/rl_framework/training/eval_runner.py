@@ -20,13 +20,17 @@ def _was_truncated(infos: Any) -> bool:
 
 def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
     env_cfg = cfg["environment"]
-    paths = create_experiment_paths(cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"])
+    paths = create_experiment_paths(
+        cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"]
+    )
 
     if env_cfg["type"] == "organism_arena_parallel":
         # Multi-agent eval: wrap env the same way as training and load the shared PPO model.
         par_env = make_env(env_cfg["type"], env_cfg)
         vec_env = ss.pettingzoo_env_to_vec_env_v1(par_env)
-        vec_env = ss.concat_vec_envs_v1(vec_env, 1, num_cpus=1, base_class="stable_baselines3")
+        vec_env = ss.concat_vec_envs_v1(
+            vec_env, 1, num_cpus=1, base_class="stable_baselines3"
+        )
     else:
         vec_env = DummyVecEnv([lambda: make_env(env_cfg["type"], env_cfg)])
 
@@ -58,7 +62,7 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
                 obs, reward, dones, infos = vec_env.step(action)
                 reward_arr = np.asarray(reward).flatten()
                 ep_ret += float(np.sum(reward_arr))
-                ep_agent_ret[:len(reward_arr)] += reward_arr.astype(np.float64)
+                ep_agent_ret[: len(reward_arr)] += reward_arr.astype(np.float64)
                 ep_len += 1
                 done = bool(np.any(dones))
             was_truncated = _was_truncated(infos)
@@ -83,8 +87,7 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
             for i in range(num_agents):
                 metrics[f"agent_{i}_mean_return"] = float(np.mean(per_agent_returns[i]))
                 metrics[f"agent_{i}_std_return"] = float(np.std(per_agent_returns[i]))
+        append_metrics_csv(paths.logs_dir / "eval_metrics.csv", metrics)
     finally:
         vec_env.close()
-
-    append_metrics_csv(paths.logs_dir / "eval_metrics.csv", metrics)
     return metrics

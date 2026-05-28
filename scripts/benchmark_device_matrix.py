@@ -46,7 +46,10 @@ def _run_regime(
     total_timesteps: int | None,
     debug: bool,
 ) -> dict:
-    _dbg(debug, f"enter _run_regime(name={regime.name}, device={regime.device}, workers={regime.max_workers})")
+    _dbg(
+        debug,
+        f"enter _run_regime(name={regime.name}, device={regime.device}, workers={regime.max_workers})",
+    )
     with tempfile.TemporaryDirectory(prefix="bench_matrix_") as tmpdir:
         result_path = Path(tmpdir) / f"{regime.name}.json"
         _dbg(debug, f"created tempdir={tmpdir} result_path={result_path}")
@@ -81,11 +84,30 @@ def _run_regime(
             now = time.perf_counter()
             elapsed = now - start
             if now - last_heartbeat >= heartbeat_s:
-                print(f"[heartbeat] {regime.name} running for {elapsed:.0f}s...", flush=True)
+                print(
+                    f"[heartbeat] {regime.name} running for {elapsed:.0f}s...",
+                    flush=True,
+                )
                 last_heartbeat = now
             if elapsed > inactivity_timeout_s:
                 proc.kill()
-                _dbg(debug, f"killed process pid={proc.pid} due to timeout elapsed={elapsed:.1f}s")
+                _dbg(
+                    debug,
+                    f"killed process pid={proc.pid} due to timeout elapsed={elapsed:.1f}s",
+                )
+                _append_progress_log(
+                    progress_log,
+                    {
+                        "event": "regime_timed_out",
+                        "ordinal": ordinal,
+                        "total_regimes": total_regimes,
+                        "name": regime.name,
+                        "device": regime.device,
+                        "max_workers": regime.max_workers,
+                        "elapsed_s": elapsed,
+                        "timeout_s": inactivity_timeout_s,
+                    },
+                )
                 raise RuntimeError(
                     f"Benchmark regime '{regime.name}' timed out after {inactivity_timeout_s:.0f}s."
                 )
@@ -112,8 +134,7 @@ def _run_regime(
         result = json.loads(result_path.read_text(encoding="utf-8"))
         _dbg(
             debug,
-            "parsed result keys="
-            + ",".join(sorted(result.keys())),
+            "parsed result keys=" + ",".join(sorted(result.keys())),
         )
         print(f"[done] {regime.name} elapsed={elapsed_s:.1f}s", flush=True)
     _dbg(debug, f"exit _run_regime(name={regime.name})")
@@ -129,7 +150,7 @@ def _run_regime(
 
 def _pick_winner(rows: list[dict], reward_tolerance_ratio: float) -> tuple[dict, str]:
     best_reward = max(row["mean_return_mean"] for row in rows)
-    reward_floor = best_reward * (1.0 - reward_tolerance_ratio)
+    reward_floor = best_reward - abs(best_reward) * reward_tolerance_ratio
     eligible = [row for row in rows if row["mean_return_mean"] >= reward_floor]
     winner = min(eligible, key=lambda row: row["elapsed_s"])
     rule = (
@@ -144,9 +165,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run a fixed 4-regime benchmark matrix and pick the fastest acceptable regime."
     )
-    parser.add_argument("--config-name", required=True, help="Experiment config name (without .yaml).")
+    parser.add_argument(
+        "--config-name", required=True, help="Experiment config name (without .yaml)."
+    )
     parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
-    parser.add_argument("--seeds", default="0,1,2,3", help="Comma-separated seeds to use for all regimes.")
+    parser.add_argument(
+        "--seeds",
+        default="0,1,2,3",
+        help="Comma-separated seeds to use for all regimes.",
+    )
     parser.add_argument(
         "--total-timesteps",
         type=int,
@@ -171,7 +198,20 @@ def main() -> None:
         default=30.0,
         help="Print a heartbeat while waiting for output (default: 30).",
     )
-    parser.add_argument("--debug", action=argparse.BooleanOptionalAction, default=True, help="Enable debug logs.")
+    parser.add_argument(
+        "--debug",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable debug logs.",
+    )
+    parser.add_argument(
+        "--progress-log",
+        default="outputs/benchmark_device_matrix_progress.jsonl",
+        help=(
+            "Append JSONL progress events to this path so completed regimes are visible after a crash "
+            "(default: outputs/benchmark_device_matrix_progress.jsonl; pass an empty string to disable)."
+        ),
+    )
     args = parser.parse_args()
 
     if not (0.0 <= args.reward_tolerance_ratio < 1.0):
@@ -189,7 +229,10 @@ def main() -> None:
         f"benchmark start config={args.config_name} seeds={args.seeds} total_timesteps={args.total_timesteps}",
     )
     for regime in REGIMES:
-        print(f"[run] {regime.name}  device={regime.device}  max_workers={regime.max_workers}", flush=True)
+        print(
+            f"[run] {regime.name}  device={regime.device}  max_workers={regime.max_workers}",
+            flush=True,
+        )
         rows.append(
             _run_regime(
                 args.config_name,
@@ -204,7 +247,9 @@ def main() -> None:
         )
         _dbg(args.debug, f"collected row for {regime.name}: {rows[-1]}")
 
-    winner, rule = _pick_winner(rows, reward_tolerance_ratio=args.reward_tolerance_ratio)
+    winner, rule = _pick_winner(
+        rows, reward_tolerance_ratio=args.reward_tolerance_ratio
+    )
     _dbg(args.debug, f"winner={winner['name']} rule={rule}")
     payload = {"results": rows, "winner": winner, "decision_rule": rule}
     print(json.dumps(payload, indent=2))

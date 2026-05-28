@@ -1,4 +1,5 @@
 """Flask web application for the RL Experiment GUI."""
+
 from __future__ import annotations
 
 import uuid
@@ -6,9 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, abort, jsonify, render_template, request
 
 from rl_framework.gui.training_manager import TrainingManager
+from rl_framework.utils.config import validate_experiment_config
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs" / "experiments"
 CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -18,18 +20,55 @@ def _is_safe_config_name(name: str) -> bool:
     """Reject config names that could escape CONFIGS_DIR via path traversal."""
     return bool(name) and ".." not in name and "/" not in name and "\\" not in name
 
+
 app = Flask(
     __name__,
     template_folder=str(Path(__file__).resolve().parent / "templates"),
     static_folder=str(Path(__file__).resolve().parent / "static"),
 )
-app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB — guard against oversized JSON payloads
+app.config["MAX_CONTENT_LENGTH"] = (
+    5 * 1024 * 1024
+)  # 5 MB — guard against oversized JSON payloads
 manager = TrainingManager()
+
+
+# ------------------------------------------------------------------
+# CSRF protection — lightweight Origin/Referer check (no new deps).
+# Rejects state-changing requests (non-GET/HEAD) whose Origin or
+# Referer header does not match the server's own host:port, blocking
+# cross-site form/fetch attacks from other origins.
+# ------------------------------------------------------------------
+
+
+@app.before_request
+def _csrf_origin_check() -> None:
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return
+    server_host = request.host  # e.g. "127.0.0.1:5001"
+    origin = request.headers.get("Origin")
+    referer = request.headers.get("Referer")
+    # Prefer Origin (exact); fall back to Referer (URL prefix).
+    if origin is not None:
+        # Origin is scheme+host[:port], e.g. "http://127.0.0.1:5001"
+        from urllib.parse import urlparse
+
+        parsed = urlparse(origin)
+        if parsed.netloc != server_host:
+            abort(403)
+    elif referer is not None:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(referer)
+        if parsed.netloc != server_host:
+            abort(403)
+    # If neither header is present (e.g. same-origin curl / non-browser
+    # clients), allow through — the GUI is a local tool, not a public service.
 
 
 # ------------------------------------------------------------------
 # Pages
 # ------------------------------------------------------------------
+
 
 @app.route("/")
 def index():
@@ -40,6 +79,7 @@ def index():
 # Config API
 # ------------------------------------------------------------------
 
+
 @app.route("/api/configs", methods=["GET"])
 def list_configs():
     """List available experiment YAML configs."""
@@ -48,13 +88,17 @@ def list_configs():
         try:
             with open(p, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
-            configs.append({
-                "name": p.stem,
-                "experiment_name": data.get("experiment_name", p.stem),
-                "env_type": data.get("environment", {}).get("type", "unknown"),
-            })
+            configs.append(
+                {
+                    "name": p.stem,
+                    "experiment_name": data.get("experiment_name", p.stem),
+                    "env_type": data.get("environment", {}).get("type", "unknown"),
+                }
+            )
         except Exception:
-            configs.append({"name": p.stem, "experiment_name": p.stem, "env_type": "unknown"})
+            configs.append(
+                {"name": p.stem, "experiment_name": p.stem, "env_type": "unknown"}
+            )
     return jsonify(configs)
 
 
@@ -79,6 +123,10 @@ def save_config(name: str):
     data = request.get_json(force=True)
     if not data:
         return jsonify({"error": "Empty payload"}), 400
+    try:
+        validate_experiment_config(data)
+    except (KeyError, TypeError, ValueError) as exc:
+        return jsonify({"error": f"Validation error: {exc}"}), 400
     path = CONFIGS_DIR / f"{name}.yaml"
     with open(path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
@@ -95,15 +143,20 @@ def create_config():
     # Reject unsafe names.
     if ".." in name or "/" in name or "\\" in name:
         return jsonify({"error": "Invalid experiment name"}), 400
+    try:
+        validate_experiment_config(data)
+    except (KeyError, TypeError, ValueError) as exc:
+        return jsonify({"error": f"Validation error: {exc}"}), 400
     path = CONFIGS_DIR / f"{name}.yaml"
     with open(path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-    return jsonify({"saved": name, "path": str(path)})
+    return jsonify({"saved": name, "path": path.name})
 
 
 # ------------------------------------------------------------------
 # Schema API (for the wizard to know what fields are available)
 # ------------------------------------------------------------------
+
 
 @app.route("/api/schema", methods=["GET"])
 def get_schema():
@@ -114,43 +167,202 @@ def get_schema():
                 "type": {"value": "walker_bullet", "type": "fixed"},
                 "seed": {"value": 42, "type": "int", "desc": "Environment random seed"},
                 "sim": {
-                    "gravity": {"value": -9.81, "type": "float", "desc": "Gravity (m/s^2)", "min": -20, "max": 0},
-                    "mass": {"value": 28.0, "type": "float", "desc": "Torso mass (kg) — Atlas DRC: 28", "min": 0.1, "max": 200},
-                    "friction": {"value": 0.9, "type": "float", "desc": "Ground friction", "min": 0.0, "max": 2.0},
-                    "max_force": {"value": 35.0, "type": "float", "desc": "Global torque scale (legacy; 35 = 1.0× of per-joint Atlas caps)", "min": 1, "max": 500},
-                    "body_half_extents": {"value": [0.2, 0.1, 0.08], "type": "list_float", "desc": "Body size [x, y, z]"},
-                    "timestep": {"value": 1.0 / 240.0, "type": "float", "desc": "Physics timestep (s)", "min": 0.0005, "max": 0.05},
-                    "frame_skip": {"value": 4, "type": "int", "desc": "Physics ticks per agent step", "min": 1, "max": 16},
-                    "settle_steps": {"value": 30, "type": "int", "desc": "Sim ticks holding rest pose after reset", "min": 0, "max": 240},
+                    "gravity": {
+                        "value": -9.81,
+                        "type": "float",
+                        "desc": "Gravity (m/s^2)",
+                        "min": -20,
+                        "max": 0,
+                    },
+                    "mass": {
+                        "value": 28.0,
+                        "type": "float",
+                        "desc": "Torso mass (kg) — Atlas DRC: 28",
+                        "min": 0.1,
+                        "max": 200,
+                    },
+                    "friction": {
+                        "value": 0.9,
+                        "type": "float",
+                        "desc": "Ground friction",
+                        "min": 0.0,
+                        "max": 2.0,
+                    },
+                    "max_force": {
+                        "value": 35.0,
+                        "type": "float",
+                        "desc": "Global torque scale (legacy; 35 = 1.0× of per-joint Atlas caps)",
+                        "min": 1,
+                        "max": 500,
+                    },
+                    "body_half_extents": {
+                        "value": [0.2, 0.1, 0.08],
+                        "type": "list_float",
+                        "desc": "Body size [x, y, z]",
+                    },
+                    "timestep": {
+                        "value": 1.0 / 240.0,
+                        "type": "float",
+                        "desc": "Physics timestep (s)",
+                        "min": 0.0005,
+                        "max": 0.05,
+                    },
+                    "frame_skip": {
+                        "value": 4,
+                        "type": "int",
+                        "desc": "Physics ticks per agent step",
+                        "min": 1,
+                        "max": 16,
+                    },
+                    "settle_steps": {
+                        "value": 30,
+                        "type": "int",
+                        "desc": "Sim ticks holding rest pose after reset",
+                        "min": 0,
+                        "max": 240,
+                    },
                     "control": {
-                        "mode": {"value": "pd", "type": "choice", "choices": ["pd", "torque"], "desc": "Actuator mode: PD position targets or raw torque"},
-                        "position_gain": {"value": 0.1, "type": "float", "desc": "PD position gain (Kp)", "min": 0.0, "max": 10.0},
-                        "velocity_gain": {"value": 1.0, "type": "float", "desc": "PD velocity gain (Kd)", "min": 0.0, "max": 10.0},
+                        "mode": {
+                            "value": "pd",
+                            "type": "choice",
+                            "choices": ["pd", "torque"],
+                            "desc": "Actuator mode: PD position targets or raw torque",
+                        },
+                        "position_gain": {
+                            "value": 0.1,
+                            "type": "float",
+                            "desc": "PD position gain (Kp)",
+                            "min": 0.0,
+                            "max": 10.0,
+                        },
+                        "velocity_gain": {
+                            "value": 1.0,
+                            "type": "float",
+                            "desc": "PD velocity gain (Kd)",
+                            "min": 0.0,
+                            "max": 10.0,
+                        },
                     },
                 },
                 "reward": {
-                    "alive_bonus": {"value": 5.0, "type": "float", "desc": "Bonus per step while alive (dominant)", "min": 0, "max": 20},
-                    "forward_velocity_weight": {"value": 1.5, "type": "float", "desc": "Peak weight of Gaussian velocity reward", "min": 0, "max": 20},
-                    "target_velocity": {"value": 1.0, "type": "float", "desc": "Target forward velocity (m/s)", "min": 0, "max": 5},
-                    "velocity_sigma": {"value": 0.5, "type": "float", "desc": "Sigma of velocity Gaussian (m/s)", "min": 0.05, "max": 5.0},
-                    "orientation_penalty_weight": {"value": 0.3, "type": "float", "desc": "Per-step tilt penalty (|roll|+|pitch|)", "min": 0, "max": 10},
-                    "torque_penalty_weight": {"value": 0.01, "type": "float", "desc": "Per-step torque-magnitude penalty", "min": 0, "max": 1},
-                    "fall_penalty": {"value": 10.0, "type": "float", "desc": "One-time penalty on fall (terminal step)", "min": 0, "max": 100},
+                    "alive_bonus": {
+                        "value": 5.0,
+                        "type": "float",
+                        "desc": "Bonus per step while alive (dominant)",
+                        "min": 0,
+                        "max": 20,
+                    },
+                    "forward_velocity_weight": {
+                        "value": 1.5,
+                        "type": "float",
+                        "desc": "Peak weight of Gaussian velocity reward",
+                        "min": 0,
+                        "max": 20,
+                    },
+                    "target_velocity": {
+                        "value": 1.0,
+                        "type": "float",
+                        "desc": "Target forward velocity (m/s)",
+                        "min": 0,
+                        "max": 5,
+                    },
+                    "velocity_sigma": {
+                        "value": 0.5,
+                        "type": "float",
+                        "desc": "Sigma of velocity Gaussian (m/s)",
+                        "min": 0.05,
+                        "max": 5.0,
+                    },
+                    "orientation_penalty_weight": {
+                        "value": 0.3,
+                        "type": "float",
+                        "desc": "Per-step tilt penalty (|roll|+|pitch|)",
+                        "min": 0,
+                        "max": 10,
+                    },
+                    "torque_penalty_weight": {
+                        "value": 0.01,
+                        "type": "float",
+                        "desc": "Per-step torque-magnitude penalty",
+                        "min": 0,
+                        "max": 1,
+                    },
+                    "fall_penalty": {
+                        "value": 10.0,
+                        "type": "float",
+                        "desc": "One-time penalty on fall (terminal step)",
+                        "min": 0,
+                        "max": 100,
+                    },
                 },
                 "termination": {
-                    "min_height": {"value": 0.18, "type": "float", "desc": "Torso COM height below which fall is detected (m)", "min": 0, "max": 1},
-                    "max_height": {"value": 1.5, "type": "float", "desc": "Torso COM height above which 'flying' is detected (m)", "min": 0.5, "max": 10},
-                    "max_steps": {"value": 800, "type": "int", "desc": "Max steps per episode (truncation)", "min": 50, "max": 10000},
+                    "min_height": {
+                        "value": 0.18,
+                        "type": "float",
+                        "desc": "Torso COM height below which fall is detected (m)",
+                        "min": 0,
+                        "max": 1,
+                    },
+                    "max_height": {
+                        "value": 1.5,
+                        "type": "float",
+                        "desc": "Torso COM height above which 'flying' is detected (m)",
+                        "min": 0.5,
+                        "max": 10,
+                    },
+                    "max_steps": {
+                        "value": 800,
+                        "type": "int",
+                        "desc": "Max steps per episode (truncation)",
+                        "min": 50,
+                        "max": 10000,
+                    },
                 },
                 "reset_randomization": {
-                    "position_xy_noise": {"value": 0.02, "type": "float", "desc": "XY position noise at reset", "min": 0, "max": 1},
-                    "yaw_noise": {"value": 0.08, "type": "float", "desc": "Yaw noise at reset (rad)", "min": 0, "max": 1},
+                    "position_xy_noise": {
+                        "value": 0.02,
+                        "type": "float",
+                        "desc": "XY position noise at reset",
+                        "min": 0,
+                        "max": 1,
+                    },
+                    "yaw_noise": {
+                        "value": 0.08,
+                        "type": "float",
+                        "desc": "Yaw noise at reset (rad)",
+                        "min": 0,
+                        "max": 1,
+                    },
                 },
                 "domain_randomization": {
-                    "mass_scale_range": {"value": [0.95, 1.05], "type": "range", "desc": "Mass scale randomization [lo, hi]", "min": 0.5, "max": 2.0},
-                    "friction_range": {"value": [0.9, 1.1], "type": "range", "desc": "Friction randomization [lo, hi]", "min": 0.1, "max": 3.0},
-                    "sensor_noise_std": {"value": 0.0, "type": "float", "desc": "Gaussian sensor noise std", "min": 0, "max": 1},
-                    "action_latency_steps": {"value": 0, "type": "int", "desc": "Action latency (steps)", "min": 0, "max": 10},
+                    "mass_scale_range": {
+                        "value": [0.95, 1.05],
+                        "type": "range",
+                        "desc": "Mass scale randomization [lo, hi]",
+                        "min": 0.5,
+                        "max": 2.0,
+                    },
+                    "friction_range": {
+                        "value": [0.9, 1.1],
+                        "type": "range",
+                        "desc": "Friction randomization [lo, hi]",
+                        "min": 0.1,
+                        "max": 3.0,
+                    },
+                    "sensor_noise_std": {
+                        "value": 0.0,
+                        "type": "float",
+                        "desc": "Gaussian sensor noise std",
+                        "min": 0,
+                        "max": 1,
+                    },
+                    "action_latency_steps": {
+                        "value": 0,
+                        "type": "int",
+                        "desc": "Action latency (steps)",
+                        "min": 0,
+                        "max": 10,
+                    },
                 },
             },
             "training": _training_schema(),
@@ -161,19 +373,73 @@ def get_schema():
                 "type": {"value": "organism_arena_parallel", "type": "fixed"},
                 "seed": {"value": 11, "type": "int", "desc": "Environment random seed"},
                 "sim": {
-                    "arena_half_extent": {"value": 1.2, "type": "float", "desc": "Arena half-size", "min": 0.5, "max": 5},
+                    "arena_half_extent": {
+                        "value": 1.2,
+                        "type": "float",
+                        "desc": "Arena half-size",
+                        "min": 0.5,
+                        "max": 5,
+                    },
                 },
                 "morphology": {
-                    "base_size": {"value": 1.0, "type": "float", "desc": "Base organism size", "min": 0.1, "max": 5},
-                    "episode_growth_scale": {"value": 0.0, "type": "float", "desc": "Size growth per step", "min": 0, "max": 0.1},
-                    "health": {"value": 1.2, "type": "float", "desc": "Initial health (scaled by size)", "min": 0.1, "max": 10},
+                    "base_size": {
+                        "value": 1.0,
+                        "type": "float",
+                        "desc": "Base organism size",
+                        "min": 0.1,
+                        "max": 5,
+                    },
+                    "episode_growth_scale": {
+                        "value": 0.0,
+                        "type": "float",
+                        "desc": "Size growth per step",
+                        "min": 0,
+                        "max": 0.1,
+                    },
+                    "health": {
+                        "value": 1.2,
+                        "type": "float",
+                        "desc": "Initial health (scaled by size)",
+                        "min": 0.1,
+                        "max": 10,
+                    },
                 },
                 "battle_rules": {
-                    "damage": {"value": 0.06, "type": "float", "desc": "Damage per hit", "min": 0.01, "max": 1},
-                    "attack_range": {"value": 0.2, "type": "float", "desc": "Attack range", "min": 0.05, "max": 2},
-                    "cooldown_steps": {"value": 3, "type": "int", "desc": "Cooldown between attacks", "min": 0, "max": 20},
-                    "max_steps": {"value": 400, "type": "int", "desc": "Max steps per episode", "min": 50, "max": 10000},
-                    "win_health_threshold": {"value": 0.0, "type": "float", "desc": "Health below which opponent loses", "min": 0, "max": 1},
+                    "damage": {
+                        "value": 0.06,
+                        "type": "float",
+                        "desc": "Damage per hit",
+                        "min": 0.01,
+                        "max": 1,
+                    },
+                    "attack_range": {
+                        "value": 0.2,
+                        "type": "float",
+                        "desc": "Attack range",
+                        "min": 0.05,
+                        "max": 2,
+                    },
+                    "cooldown_steps": {
+                        "value": 3,
+                        "type": "int",
+                        "desc": "Cooldown between attacks",
+                        "min": 0,
+                        "max": 20,
+                    },
+                    "max_steps": {
+                        "value": 400,
+                        "type": "int",
+                        "desc": "Max steps per episode",
+                        "min": 50,
+                        "max": 10000,
+                    },
+                    "win_health_threshold": {
+                        "value": 0.0,
+                        "type": "float",
+                        "desc": "Health below which opponent loses",
+                        "min": 0,
+                        "max": 1,
+                    },
                 },
             },
             "training": _training_schema(),
@@ -185,35 +451,140 @@ def get_schema():
 
 def _training_schema() -> dict[str, Any]:
     return {
-        "policy": {"value": "MlpPolicy", "type": "choice", "choices": ["MlpPolicy", "CnnPolicy"], "desc": "Policy network type"},
-        "total_timesteps": {"value": 2_000_000, "type": "int", "desc": "Total training timesteps", "min": 1000, "max": 50_000_000},
-        "num_envs": {"value": 8, "type": "int", "desc": "Parallel environments (SubprocVecEnv)", "min": 1, "max": 32},
-        "n_steps": {"value": 2048, "type": "int", "desc": "Steps per env per rollout", "min": 16, "max": 8192},
-        "batch_size": {"value": 512, "type": "int", "desc": "Minibatch size (must divide n_steps × num_envs)", "min": 8, "max": 8192},
-        "n_epochs": {"value": 10, "type": "int", "desc": "PPO update epochs per rollout", "min": 1, "max": 50},
-        "learning_rate": {"value": 0.0003, "type": "float", "desc": "Initial learning rate", "min": 0.000001, "max": 0.1},
-        "learning_rate_end": {"value": 0.00005, "type": "float", "desc": "Final LR (linear decay; omit for constant)", "min": 0.0, "max": 0.1},
-        "gamma": {"value": 0.99, "type": "float", "desc": "Discount factor", "min": 0.5, "max": 0.9999},
-        "gae_lambda": {"value": 0.95, "type": "float", "desc": "GAE-λ", "min": 0.5, "max": 1.0},
-        "clip_range": {"value": 0.2, "type": "float", "desc": "PPO clip range", "min": 0.05, "max": 1.0},
-        "ent_coef": {"value": 0.005, "type": "float", "desc": "Entropy bonus coefficient", "min": 0.0, "max": 0.1},
-        "vf_coef": {"value": 0.5, "type": "float", "desc": "Value-function loss coefficient", "min": 0.0, "max": 5.0},
-        "max_grad_norm": {"value": 0.5, "type": "float", "desc": "Gradient clipping norm", "min": 0.1, "max": 5.0},
-        "checkpoint_every": {"value": 50000, "type": "int", "desc": "Save checkpoint every N steps", "min": 100, "max": 1000000},
-        "normalize_observations": {"value": True, "type": "bool", "desc": "Normalize observations with VecNormalize"},
-        "device": {"value": "auto", "type": "choice", "choices": ["auto", "cpu", "cuda", "cuda:0"], "desc": "Training device"},
+        "policy": {
+            "value": "MlpPolicy",
+            "type": "choice",
+            "choices": ["MlpPolicy", "CnnPolicy"],
+            "desc": "Policy network type",
+        },
+        "total_timesteps": {
+            "value": 2_000_000,
+            "type": "int",
+            "desc": "Total training timesteps",
+            "min": 1000,
+            "max": 50_000_000,
+        },
+        "num_envs": {
+            "value": 8,
+            "type": "int",
+            "desc": "Parallel environments (SubprocVecEnv)",
+            "min": 1,
+            "max": 32,
+        },
+        "n_steps": {
+            "value": 2048,
+            "type": "int",
+            "desc": "Steps per env per rollout",
+            "min": 16,
+            "max": 8192,
+        },
+        "batch_size": {
+            "value": 512,
+            "type": "int",
+            "desc": "Minibatch size (must divide n_steps × num_envs)",
+            "min": 8,
+            "max": 8192,
+        },
+        "n_epochs": {
+            "value": 10,
+            "type": "int",
+            "desc": "PPO update epochs per rollout",
+            "min": 1,
+            "max": 50,
+        },
+        "learning_rate": {
+            "value": 0.0003,
+            "type": "float",
+            "desc": "Initial learning rate",
+            "min": 0.000001,
+            "max": 0.1,
+        },
+        "learning_rate_end": {
+            "value": 0.00005,
+            "type": "float",
+            "desc": "Final LR (linear decay; omit for constant)",
+            "min": 0.0,
+            "max": 0.1,
+        },
+        "gamma": {
+            "value": 0.99,
+            "type": "float",
+            "desc": "Discount factor",
+            "min": 0.5,
+            "max": 0.9999,
+        },
+        "gae_lambda": {
+            "value": 0.95,
+            "type": "float",
+            "desc": "GAE-λ",
+            "min": 0.5,
+            "max": 1.0,
+        },
+        "clip_range": {
+            "value": 0.2,
+            "type": "float",
+            "desc": "PPO clip range",
+            "min": 0.05,
+            "max": 1.0,
+        },
+        "ent_coef": {
+            "value": 0.005,
+            "type": "float",
+            "desc": "Entropy bonus coefficient",
+            "min": 0.0,
+            "max": 0.1,
+        },
+        "vf_coef": {
+            "value": 0.5,
+            "type": "float",
+            "desc": "Value-function loss coefficient",
+            "min": 0.0,
+            "max": 5.0,
+        },
+        "max_grad_norm": {
+            "value": 0.5,
+            "type": "float",
+            "desc": "Gradient clipping norm",
+            "min": 0.1,
+            "max": 5.0,
+        },
+        "checkpoint_every": {
+            "value": 50000,
+            "type": "int",
+            "desc": "Save checkpoint every N steps",
+            "min": 100,
+            "max": 1000000,
+        },
+        "normalize_observations": {
+            "value": True,
+            "type": "bool",
+            "desc": "Normalize observations with VecNormalize",
+        },
+        "device": {
+            "value": "auto",
+            "type": "choice",
+            "choices": ["auto", "cpu", "cuda", "cuda:0"],
+            "desc": "Training device",
+        },
     }
 
 
 def _eval_schema() -> dict[str, Any]:
     return {
-        "episodes": {"value": 5, "type": "int", "desc": "Evaluation episodes", "min": 1, "max": 100},
+        "episodes": {
+            "value": 5,
+            "type": "int",
+            "desc": "Evaluation episodes",
+            "min": 1,
+            "max": 100,
+        },
     }
 
 
 # ------------------------------------------------------------------
 # Training API
 # ------------------------------------------------------------------
+
 
 @app.route("/api/train/start", methods=["POST"])
 def start_training():
@@ -302,16 +673,28 @@ def list_outputs():
         if not exp_dir.is_dir() or exp_dir.is_symlink():
             continue
         for seed_dir in sorted(exp_dir.iterdir()):
-            if not seed_dir.is_dir() or seed_dir.is_symlink() or not seed_dir.name.startswith("seed_"):
+            if (
+                not seed_dir.is_dir()
+                or seed_dir.is_symlink()
+                or not seed_dir.name.startswith("seed_")
+            ):
                 continue
-            checkpoints = list((seed_dir / "checkpoints").glob("*.zip")) if (seed_dir / "checkpoints").exists() else []
-            results.append({
-                "experiment": exp_dir.name,
-                "seed": seed_dir.name,
-                "path": str(seed_dir),
-                "checkpoints": [p.name for p in sorted(checkpoints)],
-                "has_final_model": (seed_dir / "checkpoints" / "final_model.zip").exists(),
-            })
+            checkpoints = (
+                list((seed_dir / "checkpoints").glob("*.zip"))
+                if (seed_dir / "checkpoints").exists()
+                else []
+            )
+            results.append(
+                {
+                    "experiment": exp_dir.name,
+                    "seed": seed_dir.name,
+                    "path": str(seed_dir.relative_to(outputs_dir)),
+                    "checkpoints": [p.name for p in sorted(checkpoints)],
+                    "has_final_model": (
+                        seed_dir / "checkpoints" / "final_model.zip"
+                    ).exists(),
+                }
+            )
     return jsonify(results)
 
 
@@ -319,7 +702,8 @@ def list_outputs():
 # Entry point
 # ------------------------------------------------------------------
 
-def run_gui(host: str = "127.0.0.1", port: int = 5000, debug: bool = True) -> None:
+
+def run_gui(host: str = "127.0.0.1", port: int = 5001, debug: bool = False) -> None:
     print(f"\n  RL Experiment GUI running at http://{host}:{port}\n")
     # Reloader on: edits to .py files auto-restart the server. Note that this
     # also kills any in-progress training (it lives in this process). Stop a

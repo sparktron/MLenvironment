@@ -47,7 +47,7 @@ training:
   batch_size: 512
   checkpoint_every: 50000
   clip_range: 0.2
-  device: auto
+  device: cpu
   ent_coef: 0.005
   gae_lambda: 0.95
   gamma: 0.99

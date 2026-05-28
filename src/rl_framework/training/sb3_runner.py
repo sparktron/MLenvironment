@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -19,11 +20,22 @@ from rl_framework.utils.reproducibility import write_run_metadata
 
 def _validate_resume_path(resume_from: Path, normalize: bool) -> None:
     """Raise FileNotFoundError early with a clear message if resume files are missing."""
-    model_path = resume_from if str(resume_from).endswith(".zip") else Path(str(resume_from) + ".zip")
+    import zipfile
+
+    model_path = (
+        resume_from
+        if str(resume_from).endswith(".zip")
+        else Path(str(resume_from) + ".zip")
+    )
     if not model_path.exists():
         raise FileNotFoundError(
             f"resume_from model not found: {model_path}. "
             "Check that the checkpoint path is correct."
+        )
+    if not zipfile.is_zipfile(model_path):
+        raise ValueError(
+            f"Checkpoint {model_path} appears corrupt (not a valid zip file). "
+            "The file may have been truncated by an interrupted write."
         )
     if normalize:
         vecnorm = model_path.with_name("vecnormalize.pkl")
@@ -49,7 +61,9 @@ class StopOnEvent(BaseCallback):
         return not self._stop_event.is_set()
 
 
-def _build_single_env(env_cfg: dict[str, Any], monitor_dir: Path | None = None, rank: int = 0):
+def _build_single_env(
+    env_cfg: dict[str, Any], monitor_dir: Path | None = None, rank: int = 0
+):
     """Return a factory that creates one gym env wrapped in SB3's ``Monitor``.
 
     The Monitor wrapper is what makes ``rollout/ep_rew_mean`` and
@@ -58,10 +72,16 @@ def _build_single_env(env_cfg: dict[str, Any], monitor_dir: Path | None = None, 
     Without it, the rollout/* tags are silently empty and the dashboard
     counters stay at ``--``.
     """
+
     def _make():
         env = make_env(env_cfg["type"], env_cfg)
-        filename = str(monitor_dir / f"monitor_env{rank}.csv") if monitor_dir is not None else None
+        filename = (
+            str(monitor_dir / f"monitor_env{rank}.csv")
+            if monitor_dir is not None
+            else None
+        )
         return Monitor(env, filename=filename)
+
     return _make
 
 
@@ -71,9 +91,11 @@ def _make_lr_schedule(start: float, end: float | None):
     if end is None:
         return float(start)
     start_f, end_f = float(start), float(end)
+
     def schedule(progress_remaining: float) -> float:
         # SB3 passes progress_remaining ∈ [1.0, 0.0]
         return end_f + (start_f - end_f) * float(progress_remaining)
+
     return schedule
 
 
@@ -108,7 +130,9 @@ def train(
             cfg["training"].get("normalize_observations", True),
         )
 
-    paths = create_experiment_paths(cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"])
+    paths = create_experiment_paths(
+        cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"]
+    )
     repro_cfg = cfg.get("reproducibility", {})
     write_run_metadata(
         paths.run_dir,
@@ -124,7 +148,10 @@ def train(
         par_env = make_env(env_cfg["type"], env_cfg)
         vec_env = ss.pettingzoo_env_to_vec_env_v1(par_env)
         vec_env = ss.concat_vec_envs_v1(
-            vec_env, max(num_envs, 1), num_cpus=max(num_envs, 1), base_class="stable_baselines3",
+            vec_env,
+            max(num_envs, 1),
+            num_cpus=max(num_envs, 1),
+            base_class="stable_baselines3",
         )
     else:
         env_fns = [
@@ -132,6 +159,10 @@ def train(
             for i in range(max(num_envs, 1))
         ]
         if num_envs > 1:
+            os.environ.setdefault("OMP_NUM_THREADS", "1")
+            os.environ.setdefault("MKL_NUM_THREADS", "1")
+            os.environ.setdefault("BLAS_NUM_THREADS", "1")
+            os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
             vec_env = SubprocVecEnv(env_fns)
         else:
             vec_env = DummyVecEnv(env_fns)
@@ -206,16 +237,23 @@ def train(
 
         # Self-play league: periodically freeze policy snapshots as past opponents.
         self_play_cfg = cfg.get("self_play", {})
-        if self_play_cfg.get("enabled", False) and env_cfg["type"] == "organism_arena_parallel":
-            callbacks.append(SelfPlayCallback(
-                snapshot_dir=paths.checkpoints_dir / "league",
-                snapshot_freq=int(self_play_cfg.get("snapshot_freq", 5000)),
-                max_league_size=int(self_play_cfg.get("max_league_size", 10)),
-                sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
-                recent_bias_alpha=float(self_play_cfg.get("recent_bias_alpha", 1.0)),
-                seed=cfg["seed"],
-                verbose=1,
-            ))
+        if (
+            self_play_cfg.get("enabled", False)
+            and env_cfg["type"] == "organism_arena_parallel"
+        ):
+            callbacks.append(
+                SelfPlayCallback(
+                    snapshot_dir=paths.checkpoints_dir / "league",
+                    snapshot_freq=int(self_play_cfg.get("snapshot_freq", 5000)),
+                    max_league_size=int(self_play_cfg.get("max_league_size", 10)),
+                    sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
+                    recent_bias_alpha=float(
+                        self_play_cfg.get("recent_bias_alpha", 1.0)
+                    ),
+                    seed=cfg["seed"],
+                    verbose=1,
+                )
+            )
 
         model.learn(
             total_timesteps=cfg["training"]["total_timesteps"],
@@ -228,4 +266,5 @@ def train(
             vec_env.save(str(paths.checkpoints_dir / "vecnormalize.pkl"))
         return final_path
     finally:
-        vec_env.close()
+        if "vec_env" in locals():
+            vec_env.close()

@@ -19,7 +19,11 @@ class BattleRules:
 
 
 class OrganismArenaParallelEnv(ParallelEnv):
-    metadata = {"name": "organism_arena_v0", "render_modes": ["human", "rgb_array"], "render_fps": 30}
+    metadata = {
+        "name": "organism_arena_v0",
+        "render_modes": ["human", "rgb_array"],
+        "render_fps": 30,
+    }
 
     def __init__(self, cfg: dict[str, Any], render_mode: str | None = None):
         self.cfg = cfg
@@ -28,7 +32,13 @@ class OrganismArenaParallelEnv(ParallelEnv):
         self.agents = []
         self._rng = np.random.default_rng(cfg.get("seed", 0))
         self.bounds = float(cfg.get("sim", {}).get("arena_half_extent", 1.0))
-        self.rules = BattleRules(**{k: v for k, v in cfg.get("battle_rules", {}).items() if k in BattleRules.__annotations__})
+        self.rules = BattleRules(
+            **{
+                k: v
+                for k, v in cfg.get("battle_rules", {}).items()
+                if k in BattleRules.__annotations__
+            }
+        )
         self.morphology = cfg.get("morphology", {})
         self.state: dict[str, dict[str, Any]] = {}
         self.step_count = 0
@@ -51,6 +61,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
         return {
             "pos": np.array([0.6 * sign, 0.0], dtype=np.float32),
             "health": health,
+            "max_health": health,
             "cooldown": 0,
             "size": size,
         }
@@ -58,7 +69,9 @@ class OrganismArenaParallelEnv(ParallelEnv):
     def _current_size(self, agent: str) -> float:
         """Compute agent's current size including episode growth."""
         base_size = float(self.morphology.get("base_size", 1.0))
-        growth = float(self.morphology.get("episode_growth_scale", 0.0)) * self.step_count
+        growth = (
+            float(self.morphology.get("episode_growth_scale", 0.0)) * self.step_count
+        )
         return float(np.clip(base_size + growth, 0.5, 2.0))
 
     def reset(self, seed: int | None = None, options: dict[str, Any] | None = None):
@@ -78,10 +91,18 @@ class OrganismArenaParallelEnv(ParallelEnv):
         opp = "agent_1" if agent == "agent_0" else "agent_0"
         me, other = self.state[agent], self.state[opp]
         rel = other["pos"] - me["pos"]
-        return np.array([
-            me["pos"][0], me["pos"][1], me["health"],
-            rel[0], rel[1], other["health"], float(me["cooldown"])
-        ], dtype=np.float32)
+        return np.array(
+            [
+                me["pos"][0],
+                me["pos"][1],
+                me["health"],
+                rel[0],
+                rel[1],
+                other["health"],
+                float(me["cooldown"]),
+            ],
+            dtype=np.float32,
+        )
 
     def step(self, actions: dict[str, np.ndarray]):
         self.step_count += 1
@@ -89,14 +110,20 @@ class OrganismArenaParallelEnv(ParallelEnv):
         active_agents = list(self.agents)
         rewards = {agent: 0.0 for agent in active_agents}
         terminations = {agent: False for agent in active_agents}
-        truncations = {agent: self.step_count >= self.rules.max_steps for agent in active_agents}
+        truncations = {
+            agent: self.step_count >= self.rules.max_steps for agent in active_agents
+        }
 
         for agent, action in actions.items():
             if agent not in self.state:
                 continue
             move = np.asarray(action[:2], dtype=np.float32) * 0.05
-            self.state[agent]["pos"] = np.clip(self.state[agent]["pos"] + move, -self.bounds, self.bounds)
-            self.state[agent]["cooldown"] = max(0, int(self.state[agent]["cooldown"]) - 1)
+            self.state[agent]["pos"] = np.clip(
+                self.state[agent]["pos"] + move, -self.bounds, self.bounds
+            )
+            self.state[agent]["cooldown"] = max(
+                0, int(self.state[agent]["cooldown"]) - 1
+            )
             # Apply growth: update size each step so episode_growth_scale takes effect.
             self.state[agent]["size"] = self._current_size(agent)
 
@@ -107,10 +134,14 @@ class OrganismArenaParallelEnv(ParallelEnv):
             trigger = float(actions[attacker][2]) > 0.5
             if not trigger or self.state[attacker]["cooldown"] > 0:
                 continue
-            dist = np.linalg.norm(self.state[attacker]["pos"] - self.state[defender]["pos"])
+            dist = np.linalg.norm(
+                self.state[attacker]["pos"] - self.state[defender]["pos"]
+            )
             if dist <= self.rules.attack_range:
                 damage = self.rules.damage * self.state[attacker]["size"]
-                self.state[defender]["health"] = max(0.0, self.state[defender]["health"] - damage)
+                self.state[defender]["health"] = max(
+                    0.0, self.state[defender]["health"] - damage
+                )
                 rewards[attacker] += damage
                 rewards[defender] -= damage
                 self.state[attacker]["cooldown"] = self.rules.cooldown_steps
@@ -160,8 +191,13 @@ class OrganismArenaParallelEnv(ParallelEnv):
 
         # Arena border
         border = mpatches.FancyBboxPatch(
-            (-self.bounds, -self.bounds), 2 * self.bounds, 2 * self.bounds,
-            boxstyle="square,pad=0", linewidth=2, edgecolor="#888", fill=False,
+            (-self.bounds, -self.bounds),
+            2 * self.bounds,
+            2 * self.bounds,
+            boxstyle="square,pad=0",
+            linewidth=2,
+            edgecolor="#888",
+            fill=False,
         )
         ax.add_patch(border)
 
@@ -175,7 +211,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
             pos = s["pos"]
             size = s["size"]
             health = s["health"]
-            max_health = float(self.morphology.get("health", 1.0)) * size
+            max_health = s["max_health"]
             frac = np.clip(health / max_health, 0.0, 1.0) if max_health > 0 else 0.0
             fill_color, edge_color = _colors[agent]
 
@@ -183,14 +219,23 @@ class OrganismArenaParallelEnv(ParallelEnv):
             radius = 0.07 * size
             circle = plt.Circle(pos, radius, color=fill_color, zorder=3)
             ax.add_patch(circle)
-            circle_edge = plt.Circle(pos, radius, fill=False, edgecolor=edge_color, linewidth=2, zorder=4)
+            circle_edge = plt.Circle(
+                pos, radius, fill=False, edgecolor=edge_color, linewidth=2, zorder=4
+            )
             ax.add_patch(circle_edge)
 
             # Attack range indicator (faint ring) when off cooldown
             if s["cooldown"] == 0:
-                atk_ring = plt.Circle(pos, self.rules.attack_range, fill=False,
-                                      edgecolor=edge_color, linewidth=0.8, linestyle="--",
-                                      alpha=0.4, zorder=2)
+                atk_ring = plt.Circle(
+                    pos,
+                    self.rules.attack_range,
+                    fill=False,
+                    edgecolor=edge_color,
+                    linewidth=0.8,
+                    linestyle="--",
+                    alpha=0.4,
+                    zorder=2,
+                )
                 ax.add_patch(atk_ring)
 
             # Health bar above agent
@@ -199,22 +244,44 @@ class OrganismArenaParallelEnv(ParallelEnv):
             bar_x = pos[0] - bar_w / 2
             bar_y = pos[1] + radius + 0.03
             # Background
-            ax.add_patch(mpatches.Rectangle((bar_x, bar_y), bar_w, bar_h,
-                                            color="#333", zorder=5))
+            ax.add_patch(
+                mpatches.Rectangle((bar_x, bar_y), bar_w, bar_h, color="#333", zorder=5)
+            )
             # Fill
-            ax.add_patch(mpatches.Rectangle((bar_x, bar_y), bar_w * frac, bar_h,
-                                            color=fill_color, zorder=6))
+            ax.add_patch(
+                mpatches.Rectangle(
+                    (bar_x, bar_y), bar_w * frac, bar_h, color=fill_color, zorder=6
+                )
+            )
 
             # Cooldown pip
             if s["cooldown"] > 0:
-                ax.text(pos[0], pos[1] - radius - 0.06, f"cd:{s['cooldown']}",
-                        color=edge_color, fontsize=6, ha="center", va="top", zorder=7)
+                ax.text(
+                    pos[0],
+                    pos[1] - radius - 0.06,
+                    f"cd:{s['cooldown']}",
+                    color=edge_color,
+                    fontsize=6,
+                    ha="center",
+                    va="top",
+                    zorder=7,
+                )
 
-            ax.text(pos[0], pos[1], _labels[agent],
-                    color="white", fontsize=7, ha="center", va="center",
-                    fontweight="bold", zorder=8)
+            ax.text(
+                pos[0],
+                pos[1],
+                _labels[agent],
+                color="white",
+                fontsize=7,
+                ha="center",
+                va="center",
+                fontweight="bold",
+                zorder=8,
+            )
 
-        ax.set_title(f"Organism Arena  step={self.step_count}", color="white", fontsize=9, pad=4)
+        ax.set_title(
+            f"Organism Arena  step={self.step_count}", color="white", fontsize=9, pad=4
+        )
 
         if self.render_mode == "human":
             plt.pause(1.0 / self.metadata["render_fps"])
@@ -231,6 +298,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
     def close(self):
         if self._fig is not None:
             import matplotlib.pyplot as plt
+
             plt.close(self._fig)
             self._fig = None
             self._ax = None
