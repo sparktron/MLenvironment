@@ -12,6 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+MATRIX_VERSION = "2026-05-28-small-first-v2"
+
+
 @dataclass(frozen=True)
 class Regime:
     name: str
@@ -34,6 +37,18 @@ def _ts() -> str:
 def _dbg(enabled: bool, msg: str) -> None:
     if enabled:
         print(f"[debug {_ts()}] {msg}", flush=True)
+
+
+def _matrix_order() -> list[str]:
+    return [regime.name for regime in REGIMES]
+
+
+def _matrix_metadata() -> dict:
+    return {
+        "matrix_version": MATRIX_VERSION,
+        "script_path": str(Path(__file__).resolve()),
+        "order": _matrix_order(),
+    }
 
 
 def _append_progress_log(progress_log: Path | None, event: dict) -> None:
@@ -266,11 +281,15 @@ def main() -> None:
 
     rows: list[dict] = []
     progress_log = Path(args.progress_log) if args.progress_log else None
-    order = [regime.name for regime in REGIMES]
+    metadata = _matrix_metadata()
+    order = metadata["order"]
     _dbg(
         args.debug,
-        f"benchmark start config={args.config_name} seeds={args.seeds} total_timesteps={args.total_timesteps}",
+        f"benchmark start config={args.config_name} seeds={args.seeds} total_timesteps={args.total_timesteps} "
+        f"matrix_version={metadata['matrix_version']} script_path={metadata['script_path']}",
     )
+    print(f"[matrix] version: {metadata['matrix_version']}", flush=True)
+    print(f"[matrix] script: {metadata['script_path']}", flush=True)
     print(f"[matrix] order: {' -> '.join(order)}", flush=True)
     if progress_log is not None:
         print(f"[progress-log] {progress_log}", flush=True)
@@ -278,6 +297,8 @@ def main() -> None:
         progress_log,
         {
             "event": "matrix_started",
+            "matrix_version": metadata["matrix_version"],
+            "script_path": metadata["script_path"],
             "config_name": args.config_name,
             "config_dir": args.config_dir,
             "seeds": args.seeds,
