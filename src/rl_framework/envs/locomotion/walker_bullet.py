@@ -12,7 +12,6 @@ from gymnasium import spaces
 from rl_framework.envs.locomotion.dynamics import (
     JOINT_INDICES,
     JOINT_SPECS,
-    NUM_JOINTS,
     REST_POSE,
     WalkerDynamics,
 )
