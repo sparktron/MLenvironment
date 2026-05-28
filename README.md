@@ -266,10 +266,10 @@ Trains and evaluates **the same config** across multiple random seeds for statis
 ### 🧪 Automated 4-run CPU/GPU benchmark matrix (CLI only)
 
 Run the fixed matrix:
-- `CPU-12workers`
+- `CPU-10workers`
 - `CPU-8workers`
 - `GPU-1worker`
-- `GPU-4workers`
+- `GPU-2workers`
 
 ```bash
 python scripts/benchmark_device_matrix.py \

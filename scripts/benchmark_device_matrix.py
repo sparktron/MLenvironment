@@ -20,10 +20,10 @@ class Regime:
 
 
 REGIMES = (
-    Regime(name="CPU-12workers", device="cpu", max_workers=12),
+    Regime(name="CPU-10workers", device="cpu", max_workers=10),
     Regime(name="CPU-8workers", device="cpu", max_workers=8),
     Regime(name="GPU-1worker", device="cuda", max_workers=1),
-    Regime(name="GPU-4workers", device="cuda", max_workers=4),
+    Regime(name="GPU-2workers", device="cuda", max_workers=2),
 )
 
 
