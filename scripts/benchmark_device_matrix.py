@@ -12,6 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+MATRIX_VERSION = "2026-05-28-small-first-v2"
+
+
 @dataclass(frozen=True)
 class Regime:
     name: str
@@ -20,10 +23,10 @@ class Regime:
 
 
 REGIMES = (
-    Regime(name="CPU-12workers", device="cpu", max_workers=12),
+    Regime(name="CPU-4workers", device="cpu", max_workers=4),
     Regime(name="CPU-8workers", device="cpu", max_workers=8),
     Regime(name="GPU-1worker", device="cuda", max_workers=1),
-    Regime(name="GPU-4workers", device="cuda", max_workers=4),
+    Regime(name="GPU-2workers", device="cuda", max_workers=2),
 )
 
 
@@ -36,6 +39,32 @@ def _dbg(enabled: bool, msg: str) -> None:
         print(f"[debug {_ts()}] {msg}", flush=True)
 
 
+def _matrix_order() -> list[str]:
+    return [regime.name for regime in REGIMES]
+
+
+def _matrix_metadata() -> dict:
+    return {
+        "matrix_version": MATRIX_VERSION,
+        "script_path": str(Path(__file__).resolve()),
+        "order": _matrix_order(),
+    }
+
+
+def _write_progress_event(progress_log: Path | None, event: dict) -> None:
+    if progress_log is None:
+        return
+    progress_log.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"ts": _ts(), **event}
+    with progress_log.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _append_progress_log(progress_log: Path | None, event: dict) -> None:
+    """Backward-compatible alias for older tests/imports."""
+    _write_progress_event(progress_log, event)
+
+
 def _run_regime(
     config_name: str,
     seeds: str,
@@ -45,6 +74,9 @@ def _run_regime(
     heartbeat_s: float,
     total_timesteps: int | None,
     debug: bool,
+    progress_log: Path | None,
+    ordinal: int,
+    total_regimes: int,
 ) -> dict:
     _dbg(
         debug,
@@ -74,6 +106,18 @@ def _run_regime(
             str(result_path),
         ]
         _dbg(debug, f"built command={' '.join(cmd)}")
+        _write_progress_event(
+            progress_log,
+            {
+                "event": "regime_started",
+                "ordinal": ordinal,
+                "total_regimes": total_regimes,
+                "name": regime.name,
+                "device": regime.device,
+                "max_workers": regime.max_workers,
+                "command": cmd,
+            },
+        )
         start = time.perf_counter()
         print(f"[exec] {' '.join(cmd)}", flush=True)
         proc = subprocess.Popen(cmd)
@@ -95,6 +139,7 @@ def _run_regime(
                     debug,
                     f"killed process pid={proc.pid} due to timeout elapsed={elapsed:.1f}s",
                 )
+                _write_progress_event(
                 _append_progress_log(
                     progress_log,
                     {
@@ -120,6 +165,19 @@ def _run_regime(
         elapsed_s = time.perf_counter() - start
         _dbg(debug, f"regime elapsed_s={elapsed_s:.3f}")
         if return_code != 0:
+            _write_progress_event(
+                progress_log,
+                {
+                    "event": "regime_failed",
+                    "ordinal": ordinal,
+                    "total_regimes": total_regimes,
+                    "name": regime.name,
+                    "device": regime.device,
+                    "max_workers": regime.max_workers,
+                    "elapsed_s": elapsed_s,
+                    "exit_code": return_code,
+                },
+            )
             raise RuntimeError(
                 f"Benchmark regime '{regime.name}' failed (exit={return_code}).\n"
                 f"Command: {' '.join(cmd)}\n"
@@ -127,6 +185,19 @@ def _run_regime(
             )
         if not result_path.exists():
             _dbg(debug, f"result json missing path={result_path}")
+            _write_progress_event(
+                progress_log,
+                {
+                    "event": "regime_missing_result",
+                    "ordinal": ordinal,
+                    "total_regimes": total_regimes,
+                    "name": regime.name,
+                    "device": regime.device,
+                    "max_workers": regime.max_workers,
+                    "elapsed_s": elapsed_s,
+                    "result_path": str(result_path),
+                },
+            )
             raise RuntimeError(
                 f"Benchmark regime '{regime.name}' succeeded but did not write JSON result file: {result_path}"
             )
@@ -136,16 +207,43 @@ def _run_regime(
             debug,
             "parsed result keys=" + ",".join(sorted(result.keys())),
         )
+        row = {
+            "name": regime.name,
+            "device": regime.device,
+            "max_workers": regime.max_workers,
+            "elapsed_s": elapsed_s,
+            "mean_return_mean": float(result["mean_return_mean"]),
+            "mean_return_std": float(result["mean_return_std"]),
+        }
+        _append_progress_log(
+            progress_log,
+            {
+                "event": "regime_completed",
+                "ordinal": ordinal,
+                "total_regimes": total_regimes,
+                **row,
+            },
+        )
+        row = {
+            "name": regime.name,
+            "device": regime.device,
+            "max_workers": regime.max_workers,
+            "elapsed_s": elapsed_s,
+            "mean_return_mean": float(result["mean_return_mean"]),
+            "mean_return_std": float(result["mean_return_std"]),
+        }
+        _write_progress_event(
+            progress_log,
+            {
+                "event": "regime_completed",
+                "ordinal": ordinal,
+                "total_regimes": total_regimes,
+                **row,
+            },
+        )
         print(f"[done] {regime.name} elapsed={elapsed_s:.1f}s", flush=True)
     _dbg(debug, f"exit _run_regime(name={regime.name})")
-    return {
-        "name": regime.name,
-        "device": regime.device,
-        "max_workers": regime.max_workers,
-        "elapsed_s": elapsed_s,
-        "mean_return_mean": float(result["mean_return_mean"]),
-        "mean_return_std": float(result["mean_return_std"]),
-    }
+    return row
 
 
 def _pick_winner(rows: list[dict], reward_tolerance_ratio: float) -> tuple[dict, str]:
@@ -224,10 +322,37 @@ def main() -> None:
         raise SystemExit("--total-timesteps must be > 0.")
 
     rows: list[dict] = []
+    progress_log = Path(args.progress_log) if args.progress_log else None
+    metadata = _matrix_metadata()
+    order = metadata["order"]
     _dbg(
         args.debug,
-        f"benchmark start config={args.config_name} seeds={args.seeds} total_timesteps={args.total_timesteps}",
+        f"benchmark start config={args.config_name} seeds={args.seeds} total_timesteps={args.total_timesteps} "
+        f"matrix_version={metadata['matrix_version']} script_path={metadata['script_path']}",
     )
+    print(f"[matrix] version: {metadata['matrix_version']}", flush=True)
+    print(f"[matrix] script: {metadata['script_path']}", flush=True)
+    print(f"[matrix] order: {' -> '.join(order)}", flush=True)
+    if progress_log is not None:
+        print(f"[progress-log] {progress_log}", flush=True)
+    _write_progress_event(
+        progress_log,
+        {
+            "event": "matrix_started",
+            "matrix_version": metadata["matrix_version"],
+            "script_path": metadata["script_path"],
+            "config_name": args.config_name,
+            "config_dir": args.config_dir,
+            "seeds": args.seeds,
+            "total_timesteps": args.total_timesteps,
+            "order": order,
+        },
+    )
+    for ordinal, regime in enumerate(REGIMES, start=1):
+        print(
+            f"[run {ordinal}/{len(REGIMES)}] {regime.name}  "
+            f"device={regime.device}  max_workers={regime.max_workers}",
+            flush=True,
     for regime in REGIMES:
         print(
             f"[run] {regime.name}  device={regime.device}  max_workers={regime.max_workers}",
@@ -245,6 +370,36 @@ def main() -> None:
                 debug=args.debug,
             )
         )
+        try:
+            rows.append(
+                _run_regime(
+                    args.config_name,
+                    args.seeds,
+                    args.config_dir,
+                    regime,
+                    inactivity_timeout_s=args.inactivity_timeout_s,
+                    heartbeat_s=args.heartbeat_s,
+                    total_timesteps=args.total_timesteps,
+                    debug=args.debug,
+                    progress_log=progress_log,
+                    ordinal=ordinal,
+                    total_regimes=len(REGIMES),
+                )
+            )
+        except Exception as exc:
+            _write_progress_event(
+                progress_log,
+                {
+                    "event": "matrix_failed",
+                    "failed_regime": regime.name,
+                    "completed_regimes": [row["name"] for row in rows],
+                    "error": str(exc),
+                },
+            )
+            if rows:
+                print("[partial-results] completed regimes before failure:", flush=True)
+                print(json.dumps(rows, indent=2), flush=True)
+            raise
         _dbg(args.debug, f"collected row for {regime.name}: {rows[-1]}")
 
     winner, rule = _pick_winner(
@@ -252,6 +407,7 @@ def main() -> None:
     )
     _dbg(args.debug, f"winner={winner['name']} rule={rule}")
     payload = {"results": rows, "winner": winner, "decision_rule": rule}
+    _write_progress_event(progress_log, {"event": "matrix_completed", **payload})
     print(json.dumps(payload, indent=2))
 
 
