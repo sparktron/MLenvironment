@@ -1,8 +1,10 @@
 """Background training manager for the GUI."""
+
 from __future__ import annotations
 
 import atexit
 import copy
+import signal
 import threading
 import time
 import traceback
@@ -38,6 +40,12 @@ class TrainingManager:
         self._lock = threading.Lock()
         self._active_thread: threading.Thread | None = None
         atexit.register(self._shutdown)
+        # atexit does not fire on SIGTERM; register an explicit handler so that
+        # container shutdowns and Werkzeug reloads also drain in-progress runs.
+        try:
+            signal.signal(signal.SIGTERM, self._sigterm_handler)
+        except (OSError, ValueError):
+            pass  # non-main thread or unsupported platform
 
     # ------------------------------------------------------------------
     # Public API
@@ -55,9 +63,12 @@ class TrainingManager:
                 return {"error": "A training run is already active. Stop it first."}
 
             state = _RunState(run_id=run_id, cfg=cfg)
+            state.status = "running"
             self._runs[run_id] = state
 
-        thread = threading.Thread(target=self._train_worker, args=(state,), daemon=False)
+        thread = threading.Thread(
+            target=self._train_worker, args=(state,), daemon=False
+        )
         self._active_thread = thread
         thread.start()
         return {"run_id": run_id, "status": "started"}
@@ -97,7 +108,11 @@ class TrainingManager:
     def list_runs(self) -> list[dict[str, Any]]:
         with self._lock:
             return [
-                {"run_id": s.run_id, "status": s.status, "experiment": s.cfg.get("experiment_name", "")}
+                {
+                    "run_id": s.run_id,
+                    "status": s.status,
+                    "experiment": s.cfg.get("experiment_name", ""),
+                }
                 for s in self._runs.values()
             ]
 
@@ -132,6 +147,9 @@ class TrainingManager:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    def _sigterm_handler(self, signum: int, frame: object) -> None:
+        self._shutdown()
+
     def _shutdown(self) -> None:
         """Signal any active run to stop and wait up to 30 s for the thread to finish.
 
@@ -163,7 +181,6 @@ class TrainingManager:
         cfg.setdefault("environment", {})["render_mode"] = "rgb_array"
 
         with self._lock:
-            state.status = "running"
             state.started_at = time.time()
             state.latest_metrics = {}
             state.pending_tuning_events = []
@@ -172,15 +189,21 @@ class TrainingManager:
             live_cb = LiveTuningCallback(
                 env_cfg=cfg["environment"],
                 pop_tuning_event=lambda: self._pop_tuning_event(state.run_id),
-                publish_status=lambda payload: self._publish_status(state.run_id, payload),
+                publish_status=lambda payload: self._publish_status(
+                    state.run_id, payload
+                ),
                 verbose=1,
             )
-            frame_cb = FrameCaptureCallback(capture_interval=50, max_frames=200, verbose=1)
+            frame_cb = FrameCaptureCallback(
+                capture_interval=50, max_frames=200, verbose=1
+            )
 
             with self._lock:
                 state.frame_capture_callback = frame_cb
 
-            model_path = train(cfg, extra_callbacks=[live_cb, frame_cb], stop_event=state.stop_event)
+            model_path = train(
+                cfg, extra_callbacks=[live_cb, frame_cb], stop_event=state.stop_event
+            )
             with self._lock:
                 state.status = "completed"
                 state.model_path = str(model_path)
@@ -190,6 +213,11 @@ class TrainingManager:
                 state.status = "failed"
                 state.error = traceback.format_exc()
                 state.finished_at = time.time()
+        finally:
+            with self._lock:
+                if state.status in ("running", "stopping"):
+                    state.status = "failed"
+                    state.finished_at = time.time()
 
     def _pop_tuning_event(self, run_id: str) -> dict[str, Any] | None:
         """Atomically consume pending tuning events for *run_id*.

@@ -31,22 +31,25 @@ class CurriculumCallback(BaseCallback):
             level_params:
               1:
                 reward.target_velocity: 1.0
-                termination.max_tilt_radians: 0.9
+                termination.min_height: 0.35
               2:
                 reward.target_velocity: 1.5
-                termination.max_tilt_radians: 0.7
+                termination.min_height: 0.30
               3:
                 reward.target_velocity: 2.0
-                termination.max_tilt_radians: 0.5
+                termination.min_height: 0.25
 
     env_cfg:
         A *mutable* reference to the environment config dict so that changes
-        take effect on the next ``env.reset()``.
+        are reflected on subsequent ``env.reset()`` calls.  Live env objects
+        are also updated immediately via ``env_method("update_live_params")``.
     verbose:
         Verbosity level (0 = silent, 1 = level-up messages).
     """
 
-    def __init__(self, curriculum_cfg: dict[str, Any], env_cfg: dict[str, Any], verbose: int = 0):
+    def __init__(
+        self, curriculum_cfg: dict[str, Any], env_cfg: dict[str, Any], verbose: int = 0
+    ):
         super().__init__(verbose)
         self._cur_cfg = curriculum_cfg
         self._env_cfg = env_cfg
@@ -81,14 +84,26 @@ class CurriculumCallback(BaseCallback):
             self._cur_cfg["level"] = self._level
             self._apply_level_params(self._level)
             if self.verbose >= 1:
-                print(f"[CurriculumCallback] Level up -> {self._level}  (mean_reward={mean_reward:.2f})")
+                print(
+                    f"[CurriculumCallback] Level up -> {self._level}  (mean_reward={mean_reward:.2f})"
+                )
 
     # ------------------------------------------------------------------
     def _apply_level_params(self, level: int) -> None:
-        """Write the parameter overrides for *level* into the live env config."""
+        """Write the parameter overrides for *level* into the live env config and
+        propagate them directly to each env's reward/termination objects."""
         overrides = self._level_params.get(level, {})
+        if not overrides:
+            return
         for dotted_key, value in overrides.items():
             set_nested(self._env_cfg, dotted_key, value, strict=False)
+        # Push changes to live env instances so they take effect immediately,
+        # not just on the next reset.
+        if self.training_env is not None:
+            try:
+                self.training_env.env_method("update_live_params", overrides)
+            except Exception:
+                pass  # env_method unavailable (e.g. non-walker env); cfg update suffices
 
     @property
     def current_level(self) -> int:
@@ -99,11 +114,10 @@ class CurriculumCallback(BaseCallback):
 # Helpers
 # ------------------------------------------------------------------
 
+
 def _safe_logger_value(logger: Any, key: str) -> float | None:
     """Extract a value from the SB3 logger's name-to-value map, if present."""
     try:
         return float(logger.name_to_value[key])
     except (KeyError, AttributeError, TypeError):
         return None
-
-

@@ -7,14 +7,46 @@ from pathlib import Path
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="RL experiment framework CLI")
-    parser.add_argument("command", choices=["train", "eval", "sweep", "multi-seed", "render-replay", "gui", "morph-search"])
-    parser.add_argument("--config-name", default="", help="YAML file name without extension (required for all commands except gui)")
+    parser.add_argument(
+        "command",
+        choices=[
+            "train",
+            "eval",
+            "sweep",
+            "multi-seed",
+            "render-replay",
+            "gui",
+            "morph-search",
+        ],
+    )
+    parser.add_argument(
+        "--config-name",
+        default="",
+        help="YAML file name without extension (required for all commands except gui)",
+    )
     parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
     parser.add_argument("--model-path", default="")
-    parser.add_argument("--seeds", default="", help="Comma-separated seeds for multi-seed runs (e.g. 0,1,2,3,4)")
-    parser.add_argument("--max-workers", type=int, default=None, help="Parallel worker processes for multi-seed runs (default: cpu_count)")
-    parser.add_argument("--dry-run", action="store_true", help="Plan runs without executing training (sweep only)")
-    parser.add_argument("--resume", default="", help="Path to a saved PPO model (.zip) to resume training from")
+    parser.add_argument(
+        "--seeds",
+        default="",
+        help="Comma-separated seeds for multi-seed runs (e.g. 0,1,2,3,4)",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Parallel worker processes for multi-seed runs (default: cpu_count)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Plan runs without executing training (sweep only)",
+    )
+    parser.add_argument(
+        "--resume",
+        default="",
+        help="Path to a saved PPO model (.zip) to resume training from",
+    )
     parser.add_argument(
         "--total-timesteps",
         type=int,
@@ -26,14 +58,23 @@ def _parse_args() -> argparse.Namespace:
         default="",
         help="Override training device for this run: auto | cpu | cuda | cuda:<N> (e.g. cuda:0)",
     )
-    parser.add_argument("--trials", type=int, default=5, help="Number of trials for morph-search (default: 5)")
-    parser.add_argument("--host", default="127.0.0.1", help="GUI server host (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=5000, help="GUI server port (default: 5000)")
+    parser.add_argument(
+        "--trials",
+        type=int,
+        default=5,
+        help="Number of trials for morph-search (default: 5)",
+    )
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="GUI server host (default: 127.0.0.1)"
+    )
+    parser.add_argument(
+        "--port", type=int, default=5001, help="GUI server port (default: 5001)"
+    )
     parser.add_argument(
         "--json",
         action="store_true",
         help="Write the result as a single JSON line to stdout; suppresses human-readable output. "
-             "Useful for scripting and CI pipelines.",
+        "Useful for scripting and CI pipelines.",
     )
     parser.add_argument(
         "--json-out",
@@ -74,43 +115,56 @@ def _render_replay(cfg: dict, model_path: str) -> dict:
     env_cfg = cfg["environment"]
     env_cfg["render_mode"] = "rgb_array"
     env = make_env(env_cfg["type"], env_cfg)
-    out_dir = Path(cfg["output"]["base_dir"]) / cfg["experiment_name"] / f"seed_{cfg['seed']}" / "videos"
+    out_dir = (
+        Path(cfg["output"]["base_dir"])
+        / cfg["experiment_name"]
+        / f"seed_{cfg['seed']}"
+        / "videos"
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     model = PPO.load(model_path)
 
     if isinstance(env, ParallelEnv):
-        frames = []
-        observations, _ = env.reset(seed=cfg["seed"])
-        while env.agents:
-            actions = {}
-            for agent, obs in observations.items():
-                action, _ = model.predict(obs, deterministic=True)
-                actions[agent] = action
-            observations, _, _, _, _ = env.step(actions)
-            frame = env.render()
-            if frame is not None:
-                frames.append(frame)
-        env.close()
-        gif_path = out_dir / "replay.gif"
-        _save_frames_as_gif(frames, gif_path, fps=env.metadata.get("render_fps", 30))
-        return {"saved_replay": str(gif_path), "frames": len(frames)}
+        try:
+            frames = []
+            observations, _ = env.reset(seed=cfg["seed"])
+            while env.agents:
+                actions = {}
+                for agent, obs in observations.items():
+                    action, _ = model.predict(obs, deterministic=True)
+                    actions[agent] = action
+                observations, _, _, _, _ = env.step(actions)
+                frame = env.render()
+                if frame is not None:
+                    frames.append(frame)
+            gif_path = out_dir / "replay.gif"
+            _save_frames_as_gif(
+                frames, gif_path, fps=env.metadata.get("render_fps", 30)
+            )
+            return {"saved_replay": str(gif_path), "frames": len(frames)}
+        finally:
+            env.close()
 
     if not isinstance(env, gym.Env):
         raise ValueError(f"Unsupported env type for replay: {type(env).__name__}")
-    wrapped = RecordVideo(env, video_folder=str(out_dir), episode_trigger=lambda idx: idx == 0)
-    obs, _ = wrapped.reset(seed=cfg["seed"])
-    done = False
-    frame_count = 0
-    while not done:
-        action, _ = model.predict(obs, deterministic=True)
-        obs, _, term, trunc, _ = wrapped.step(action)
-        done = bool(term or trunc)
-        frame_count += 1
-    wrapped.close()
-    # RecordVideo writes an mp4; find it for the result dict.
-    mp4_files = list(out_dir.glob("*.mp4"))
-    saved = str(mp4_files[0]) if mp4_files else str(out_dir)
-    return {"saved_replay": saved, "frames": frame_count}
+    wrapped = RecordVideo(
+        env, video_folder=str(out_dir), episode_trigger=lambda idx: idx == 0
+    )
+    try:
+        obs, _ = wrapped.reset(seed=cfg["seed"])
+        done = False
+        frame_count = 0
+        while not done:
+            action, _ = model.predict(obs, deterministic=True)
+            obs, _, term, trunc, _ = wrapped.step(action)
+            done = bool(term or trunc)
+            frame_count += 1
+        # RecordVideo writes an mp4; find it for the result dict.
+        mp4_files = list(out_dir.glob("*.mp4"))
+        saved = str(mp4_files[0]) if mp4_files else str(out_dir)
+        return {"saved_replay": saved, "frames": frame_count}
+    finally:
+        wrapped.close()
 
 
 def main() -> None:
@@ -118,13 +172,20 @@ def main() -> None:
 
     if args.command == "gui":
         from rl_framework.gui.app import run_gui
+
         run_gui(host=args.host, port=args.port)
         return
 
-    from rl_framework.utils.config import load_config, to_container, validate_experiment_config
+    from rl_framework.utils.config import (
+        load_config,
+        to_container,
+        validate_experiment_config,
+    )
 
     if not args.config_name:
-        raise SystemExit("--config-name is required for the '{}' command".format(args.command))
+        raise SystemExit(
+            "--config-name is required for the '{}' command".format(args.command)
+        )
 
     cfg = load_config(args.config_name, args.config_dir)
     cfg_dict = to_container(cfg)
@@ -138,6 +199,7 @@ def main() -> None:
 
     if args.command == "train":
         from rl_framework.training.sb3_runner import train
+
         out = train(cfg_dict, resume_from=args.resume or None)
         result = {"saved_model": str(out)}
         if not args.json:
@@ -146,6 +208,7 @@ def main() -> None:
     elif args.command == "eval":
         import yaml
         from rl_framework.training.eval_runner import evaluate
+
         if not args.model_path:
             raise ValueError("--model-path is required for eval")
         metrics = evaluate(cfg_dict, args.model_path)
@@ -155,6 +218,7 @@ def main() -> None:
 
     elif args.command == "sweep":
         from rl_framework.training.sweep import run_sweep
+
         planned = run_sweep(cfg_dict, dry_run=args.dry_run)
         result = {"planned_runs": len(planned), "dry_run": args.dry_run}
         if not args.json:
@@ -162,11 +226,14 @@ def main() -> None:
 
     elif args.command == "multi-seed":
         from rl_framework.training.multi_seed_runner import run_multi_seed
+
         seeds = [int(s) for s in args.seeds.split(",")] if args.seeds else None
         agg = run_multi_seed(cfg_dict, seeds=seeds, max_workers=args.max_workers)
         result = agg
         if not args.json:
-            print(f"mean={agg['mean_return_mean']:.4f}  std={agg['mean_return_std']:.4f}")
+            print(
+                f"mean={agg['mean_return_mean']:.4f}  std={agg['mean_return_std']:.4f}"
+            )
 
     elif args.command == "render-replay":
         if not args.model_path:
@@ -177,7 +244,10 @@ def main() -> None:
 
     elif args.command == "morph-search":
         from rl_framework.training.morphology_search import run_morphology_search
-        result = run_morphology_search(cfg_dict, trials=args.trials, seed=cfg_dict["seed"])
+
+        result = run_morphology_search(
+            cfg_dict, trials=args.trials, seed=cfg_dict["seed"]
+        )
         if not args.json:
             print(
                 f"best_trial={result['best_trial']}  "

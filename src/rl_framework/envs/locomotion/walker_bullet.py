@@ -94,6 +94,9 @@ class WalkerBulletEnv(gym.Env):
             # DR scales — overwritten on each reset.
             self._mass_scale = 1.0
             self._friction_scale = 1.0
+            # Pre-allocated obs buffer; _get_obs() writes in-place and returns
+            # a copy so VecEnv cannot mutate the buffer through the returned array.
+            self._obs_buf = np.zeros(35, dtype=np.float32)
         except Exception:
             p.disconnect(self._connection)
             raise
@@ -298,35 +301,45 @@ class WalkerBulletEnv(gym.Env):
         # Under POSITION_CONTROL (our default) it's harmless but cheap to do.
         self.dynamics.disable_velocity_motors(self.robot_id, physicsClientId=cid)
 
-    def _get_obs(self) -> np.ndarray:
-        pos, quat = p.getBasePositionAndOrientation(
-            self.robot_id, physicsClientId=self._connection
-        )
-        lin_vel, ang_vel = p.getBaseVelocity(
-            self.robot_id, physicsClientId=self._connection
-        )
+    def _get_obs(
+        self,
+        pos=None,
+        quat=None,
+        lin_vel=None,
+        ang_vel=None,
+    ) -> np.ndarray:
+        # Callers that have already queried PyBullet (e.g. step()) pass the
+        # values in to avoid a second round-trip; reset() and render() let them
+        # default to None and we query here for backward compatibility.
+        if pos is None or quat is None:
+            pos, quat = p.getBasePositionAndOrientation(
+                self.robot_id, physicsClientId=self._connection
+            )
+        if lin_vel is None or ang_vel is None:
+            lin_vel, ang_vel = p.getBaseVelocity(
+                self.robot_id, physicsClientId=self._connection
+            )
         joint_states = p.getJointStates(
             self.robot_id, JOINT_INDICES, physicsClientId=self._connection
         )
-        joint_pos = [s[0] for s in joint_states]
-        joint_vel = [s[1] for s in joint_states]
-        obs = np.array(
-            [
-                *pos,
-                *quat,
-                *lin_vel,
-                *ang_vel,
-                *joint_pos,
-                *joint_vel,
-                self._mass_scale,
-                self._friction_scale,
-            ],
-            dtype=np.float32,
-        )
+        # obs layout: pos(3)+quat(4)+lin_vel(3)+ang_vel(3)+joint_pos(10)+joint_vel(10)
+        #             +mass_scale(1)+friction_scale(1) = 35
+        self._obs_buf[0:3] = pos
+        self._obs_buf[3:7] = quat
+        self._obs_buf[7:10] = lin_vel
+        self._obs_buf[10:13] = ang_vel
+        self._obs_buf[13:23] = [s[0] for s in joint_states]
+        self._obs_buf[23:33] = [s[1] for s in joint_states]
+        self._obs_buf[33] = self._mass_scale
+        self._obs_buf[34] = self._friction_scale
         if self._sensor_noise_std > 0.0:
-            obs = obs + self._rng.normal(
-                0.0, self._sensor_noise_std, size=obs.shape
+            obs = self._obs_buf + self._rng.normal(
+                0.0, self._sensor_noise_std, size=35
             ).astype(np.float32)
+        else:
+            obs = self._obs_buf.copy()
+        # Guard against PyBullet solver divergence poisoning VecNormalize stats.
+        obs = np.nan_to_num(obs, nan=0.0, posinf=1e6, neginf=-1e6)
         return obs
 
     def _apply_domain_randomization(self) -> None:
@@ -341,13 +354,22 @@ class WalkerBulletEnv(gym.Env):
         self._friction_scale = float(self._rng.uniform(fric_rng[0], fric_rng[1]))
         mass = base_mass * self._mass_scale
         friction = sim_cfg.get("friction", 0.8) * self._friction_scale
-        p.changeDynamics(
-            self.robot_id,
-            -1,
-            mass=mass,
-            lateralFriction=friction,
-            physicsClientId=self._connection,
-        )
+        # NOTE (FIX #25 — advisory): mass_scale is applied only to the torso
+        # base body (link -1) and both feet (links 2, 5), not to all 11 links.
+        # The total robot mass is ~65.9 kg; torso+feet account for ~32 kg, so
+        # the effective inertia variation is roughly half what the obs signal
+        # implies.  Extending DR to all links would be a behaviour change that
+        # requires re-tuning trained policies.  When that is warranted, add
+        # `apply_mass_scale_to_all_links: true` to the YAML and loop over all
+        # JOINT_INDICES links here in addition to the base body.
+        for link_id in [-1, 2, 5]:
+            p.changeDynamics(
+                self.robot_id,
+                link_id,
+                mass=mass,
+                lateralFriction=friction,
+                physicsClientId=self._connection,
+            )
 
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
         super().reset(seed=seed)
@@ -432,12 +454,14 @@ class WalkerBulletEnv(gym.Env):
             p.stepSimulation(physicsClientId=self._connection)
         self.step_count += 1
 
-        obs = self._get_obs()
         pos, quat = p.getBasePositionAndOrientation(
             self.robot_id, physicsClientId=self._connection
         )
+        lin_vel, ang_vel = p.getBaseVelocity(
+            self.robot_id, physicsClientId=self._connection
+        )
+        obs = self._get_obs(pos=pos, quat=quat, lin_vel=lin_vel, ang_vel=ang_vel)
         roll, pitch, _ = p.getEulerFromQuaternion(quat)
-        lin_vel, _ = p.getBaseVelocity(self.robot_id, physicsClientId=self._connection)
 
         # Torso (base, linkIndexA=-1) touching the floor = the robot has fallen.
         torso_contact = bool(
@@ -456,7 +480,7 @@ class WalkerBulletEnv(gym.Env):
             pitch_roll_penalty=abs(roll) + abs(pitch),
             action=action,
             alive=not terminated,
-            fell=terminated,  # any termination here is a fall (truncation is separate)
+            fell=torso_contact,  # only ground contact is a fall; max-height ceiling hits must not trigger fall_penalty
         )
         info = {
             "x_position": pos[0],
@@ -497,6 +521,40 @@ class WalkerBulletEnv(gym.Env):
             img = np.array(px, dtype=np.uint8).reshape(480, 640, 4)
             return img[:, :, :3]
         return None
+
+    def update_live_params(self, params: dict[str, Any]) -> None:
+        """Apply dotted-key parameter overrides to live reward/termination objects.
+
+        Called by CurriculumCallback and LiveTuningCallback via
+        ``VecEnv.env_method("update_live_params", params)`` so that changes take
+        effect immediately rather than waiting for the next env reset.
+
+        Supported prefixes mirror the env config sections:
+        - ``reward.*``       → ``self.reward_fn.<attr>``
+        - ``termination.*``  → ``self.termination.<attr>``
+
+        The underlying ``self.cfg`` dict is also updated so that future resets
+        reconstruct objects with the same values.
+        """
+        _SECTION_OBJ_MAP = {
+            "reward": self.reward_fn,
+            "termination": self.termination,
+        }
+        for dotted_key, value in params.items():
+            parts = dotted_key.split(".", 1)
+            if len(parts) != 2:
+                continue
+            section, attr = parts
+            live_obj = _SECTION_OBJ_MAP.get(section)
+            if live_obj is not None and hasattr(live_obj, attr):
+                try:
+                    cast_val = type(getattr(live_obj, attr))(value)
+                    setattr(live_obj, attr, cast_val)
+                    # Mirror into cfg so resets rebuild with the updated value.
+                    section_cfg = self.cfg.setdefault(section, {})
+                    section_cfg[attr] = cast_val
+                except (TypeError, ValueError):
+                    pass
 
     def close(self) -> None:
         if p.isConnected(self._connection):

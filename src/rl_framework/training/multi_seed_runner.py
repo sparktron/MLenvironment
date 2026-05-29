@@ -13,9 +13,15 @@ from rl_framework.training.eval_runner import evaluate
 from rl_framework.training.sb3_runner import train
 
 
-def _run_one_seed(args: tuple[int, dict[str, Any]]) -> tuple[int, str, dict[str, float]]:
+def _run_one_seed(
+    args: tuple[int, dict[str, Any]],
+) -> tuple[int, str, dict[str, float]]:
     """Train + evaluate a single seed. Runs in a subprocess when parallelised."""
     seed, cfg = args
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("BLAS_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
     model_path = train(cfg)
     metrics = evaluate(cfg, str(model_path) + ".zip")
     return seed, str(model_path), metrics
@@ -76,7 +82,9 @@ def run_multi_seed(
                 print(f"[MultiSeed] seed={seed}  FAILED: {exc}")
     else:
         with ProcessPoolExecutor(max_workers=max_workers) as exe:
-            future_to_seed = {exe.submit(_run_one_seed, args): args[0] for args in seed_args}
+            future_to_seed = {
+                exe.submit(_run_one_seed, args): args[0] for args in seed_args
+            }
             for future in as_completed(future_to_seed):
                 seed = future_to_seed[future]
                 try:
@@ -96,7 +104,9 @@ def run_multi_seed(
     # Collect only successful seeds for aggregation.
     successful_seeds = [s for s in seeds if s in per_seed_metrics]
     ordered_metrics = [per_seed_metrics[s] for s in successful_seeds]
-    all_returns = [m.get("mean_return", m.get("mean_reward", 0.0)) for m in ordered_metrics]
+    all_returns = [
+        m.get("mean_return", m.get("mean_reward", 0.0)) for m in ordered_metrics
+    ]
     aggregate: dict[str, Any] = {
         "mean_return_mean": float(np.mean(all_returns)),
         "mean_return_std": float(np.std(all_returns)),
@@ -122,8 +132,12 @@ def run_multi_seed(
         writer.writerow(["aggregate_mean", aggregate["mean_return_mean"]])
         writer.writerow(["aggregate_std", aggregate["mean_return_std"]])
 
-    print(f"[MultiSeed] Aggregate: {aggregate['mean_return_mean']:.4f} +/- {aggregate['mean_return_std']:.4f}")
+    print(
+        f"[MultiSeed] Aggregate: {aggregate['mean_return_mean']:.4f} +/- {aggregate['mean_return_std']:.4f}"
+    )
     if failed_seeds:
-        print(f"[MultiSeed] WARNING: {len(failed_seeds)} seed(s) failed: {list(failed_seeds.keys())}")
+        print(
+            f"[MultiSeed] WARNING: {len(failed_seeds)} seed(s) failed: {list(failed_seeds.keys())}"
+        )
     print(f"[MultiSeed] Summary written to {summary_path}")
     return aggregate
