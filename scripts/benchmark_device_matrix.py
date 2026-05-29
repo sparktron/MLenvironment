@@ -140,6 +140,7 @@ def _run_regime(
                     f"killed process pid={proc.pid} due to timeout elapsed={elapsed:.1f}s",
                 )
                 _write_progress_event(
+                _append_progress_log(
                     progress_log,
                     {
                         "event": "regime_timed_out",
@@ -352,6 +353,22 @@ def main() -> None:
             f"[run {ordinal}/{len(REGIMES)}] {regime.name}  "
             f"device={regime.device}  max_workers={regime.max_workers}",
             flush=True,
+    for regime in REGIMES:
+        print(
+            f"[run] {regime.name}  device={regime.device}  max_workers={regime.max_workers}",
+            flush=True,
+        )
+        rows.append(
+            _run_regime(
+                args.config_name,
+                args.seeds,
+                args.config_dir,
+                regime,
+                inactivity_timeout_s=args.inactivity_timeout_s,
+                heartbeat_s=args.heartbeat_s,
+                total_timesteps=args.total_timesteps,
+                debug=args.debug,
+            )
         )
         try:
             rows.append(
