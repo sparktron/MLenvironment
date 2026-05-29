@@ -51,13 +51,18 @@ def _matrix_metadata() -> dict:
     }
 
 
-def _append_progress_log(progress_log: Path | None, event: dict) -> None:
+def _write_progress_event(progress_log: Path | None, event: dict) -> None:
     if progress_log is None:
         return
     progress_log.parent.mkdir(parents=True, exist_ok=True)
     payload = {"ts": _ts(), **event}
     with progress_log.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _append_progress_log(progress_log: Path | None, event: dict) -> None:
+    """Backward-compatible alias for older tests/imports."""
+    _write_progress_event(progress_log, event)
 
 
 def _run_regime(
@@ -98,7 +103,7 @@ def _run_regime(
             str(result_path),
         ]
         _dbg(debug, f"built command={' '.join(cmd)}")
-        _append_progress_log(
+        _write_progress_event(
             progress_log,
             {
                 "event": "regime_started",
@@ -125,7 +130,7 @@ def _run_regime(
             if elapsed > inactivity_timeout_s:
                 proc.kill()
                 _dbg(debug, f"killed process pid={proc.pid} due to timeout elapsed={elapsed:.1f}s")
-                _append_progress_log(
+                _write_progress_event(
                     progress_log,
                     {
                         "event": "regime_timed_out",
@@ -150,7 +155,7 @@ def _run_regime(
         elapsed_s = time.perf_counter() - start
         _dbg(debug, f"regime elapsed_s={elapsed_s:.3f}")
         if return_code != 0:
-            _append_progress_log(
+            _write_progress_event(
                 progress_log,
                 {
                     "event": "regime_failed",
@@ -170,7 +175,7 @@ def _run_regime(
             )
         if not result_path.exists():
             _dbg(debug, f"result json missing path={result_path}")
-            _append_progress_log(
+            _write_progress_event(
                 progress_log,
                 {
                     "event": "regime_missing_result",
@@ -201,7 +206,7 @@ def _run_regime(
             "mean_return_mean": float(result["mean_return_mean"]),
             "mean_return_std": float(result["mean_return_std"]),
         }
-        _append_progress_log(
+        _write_progress_event(
             progress_log,
             {
                 "event": "regime_completed",
@@ -293,7 +298,7 @@ def main() -> None:
     print(f"[matrix] order: {' -> '.join(order)}", flush=True)
     if progress_log is not None:
         print(f"[progress-log] {progress_log}", flush=True)
-    _append_progress_log(
+    _write_progress_event(
         progress_log,
         {
             "event": "matrix_started",
@@ -329,7 +334,7 @@ def main() -> None:
                 )
             )
         except Exception as exc:
-            _append_progress_log(
+            _write_progress_event(
                 progress_log,
                 {
                     "event": "matrix_failed",
@@ -347,7 +352,7 @@ def main() -> None:
     winner, rule = _pick_winner(rows, reward_tolerance_ratio=args.reward_tolerance_ratio)
     _dbg(args.debug, f"winner={winner['name']} rule={rule}")
     payload = {"results": rows, "winner": winner, "decision_rule": rule}
-    _append_progress_log(progress_log, {"event": "matrix_completed", **payload})
+    _write_progress_event(progress_log, {"event": "matrix_completed", **payload})
     print(json.dumps(payload, indent=2))
 
 
