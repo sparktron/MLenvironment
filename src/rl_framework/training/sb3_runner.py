@@ -1,69 +1,35 @@
 from __future__ import annotations
 
-import copy
 import os
 import threading
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import supersuit as ss
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
-from stable_baselines3.common.vec_env.base_vec_env import VecEnvWrapper
 
 from rl_framework.envs.registry import make_env
+from rl_framework.training.arena_metrics_callback import ArenaMetricsCallback
 from rl_framework.training.curriculum_callback import CurriculumCallback
 from rl_framework.training.reward_annealing_callback import RewardAnnealingCallback
 from rl_framework.training.self_play_callback import SelfPlayCallback
-from rl_framework.training.self_play_env_wrapper import (
-    LeagueSampler,
-    SelfPlayEnvWrapper,
-    SingleAgentArenaEnv,
-)
+from rl_framework.training.self_play_env_wrapper import SelfPlayEnvWrapper
 from rl_framework.utils.logging_utils import create_experiment_paths
-from rl_framework.utils.reproducibility import (
-    check_resume_provenance,
-    write_run_metadata,
-)
-
-
-def _model_zip_path(path: str | Path) -> Path:
-    path = Path(path)
-    return path if str(path).endswith(".zip") else Path(str(path) + ".zip")
-
-
-def _vecnormalize_path_for_model(model_path: str | Path) -> Path:
-    """Return the model-specific VecNormalize sidecar path.
-
-    Periodic checkpoints need their own normaliser snapshot because a shared
-    ``vecnormalize.pkl`` can drift after the model was written.
-    """
-    path = _model_zip_path(model_path)
-    return path.with_name(path.stem + "_vecnormalize.pkl")
-
-
-def _legacy_vecnormalize_path_for_model(model_path: str | Path) -> Path:
-    return _model_zip_path(model_path).with_name("vecnormalize.pkl")
-
-
-def _find_vecnormalize_path_for_model(model_path: str | Path) -> Path | None:
-    specific = _vecnormalize_path_for_model(model_path)
-    if specific.exists():
-        return specific
-    legacy = _legacy_vecnormalize_path_for_model(model_path)
-    if legacy.exists():
-        return legacy
-    return None
+from rl_framework.utils.reproducibility import write_run_metadata
 
 
 def _validate_resume_path(resume_from: Path, normalize: bool) -> None:
     """Raise FileNotFoundError early with a clear message if resume files are missing."""
     import zipfile
 
-    model_path = _model_zip_path(resume_from)
+    model_path = (
+        resume_from
+        if str(resume_from).endswith(".zip")
+        else Path(str(resume_from) + ".zip")
+    )
     if not model_path.exists():
         raise FileNotFoundError(
             f"resume_from model not found: {model_path}. "
@@ -75,13 +41,11 @@ def _validate_resume_path(resume_from: Path, normalize: bool) -> None:
             "The file may have been truncated by an interrupted write."
         )
     if normalize:
-        if _find_vecnormalize_path_for_model(model_path) is None:
+        vecnorm = model_path.with_name("vecnormalize.pkl")
+        if not vecnorm.exists():
             raise FileNotFoundError(
-                f"VecNormalize sidecar not found for model {model_path}. "
-                f"Expected {_vecnormalize_path_for_model(model_path).name} "
-                f"(or legacy {_legacy_vecnormalize_path_for_model(model_path).name}). "
-                "Move the model and normalizer together, or set "
-                "normalize_observations: false."
+                f"vecnormalize.pkl not found alongside model {model_path}. "
+                "Move both files together, or set normalize_observations: false."
             )
 
 
@@ -98,143 +62,6 @@ class StopOnEvent(BaseCallback):
 
     def _on_step(self) -> bool:
         return not self._stop_event.is_set()
-
-
-class _ArenaVecEnvAdapter(VecEnvWrapper):
-    """Adapt SuperSuit's SB3 arena vec env to SB3's expectations.
-
-    Two SuperSuit 3.10 ↔ Stable-Baselines3 incompatibilities are patched here:
-
-    1. **Missing ``seed()``.** SuperSuit's ``ConcatVecEnv`` only supports seeding
-       through ``reset(seed=)`` and exposes no ``seed()`` method, yet SB3's
-       ``set_random_seed`` calls ``env.seed(seed)`` during ``PPO`` construction —
-       otherwise raising ``AttributeError`` before training can start. Routing
-       through SuperSuit's ``reset(seed=)`` is not viable: its
-       ``SB3VecEnvWrapper.reset`` re-enters the same broken ``seed()`` and
-       recurses. The arena env's RNG is already seeded from ``cfg["seed"]`` at
-       construction (and preserved across ``reset(seed=None)``), so ``seed()``
-       only needs to seed the action/observation spaces for reproducible
-       sampling.
-
-    2. **``uint8`` dones.** SuperSuit returns the ``dones`` array as ``uint8``.
-       ``VecNormalize.step_wait`` does ``self.returns[dones] = 0``, which numpy
-       interprets as *integer fancy-indexing* rather than a boolean mask — at
-       ``num_envs == 1`` (single-agent self-play) ``returns[[1]]`` is out of
-       bounds and crashes; at higher counts it silently resets the wrong slots.
-       Casting ``dones`` to ``bool`` restores mask semantics.
-    """
-
-    def reset(self):  # type: ignore[override]
-        return self.venv.reset()
-
-    def step_wait(self):
-        obs, rewards, dones, infos = self.venv.step_wait()
-        return obs, rewards, np.asarray(dones, dtype=bool), infos
-
-    def seed(self, seed: int | None = None):
-        if seed is not None:
-            self.action_space.seed(seed)
-            self.observation_space.seed(seed)
-        return [seed] * self.num_envs
-
-    def _arena_envs(self) -> list:
-        """Reach the live arena ``ParallelEnv`` instances inside the chain.
-
-        SuperSuit's ``ConcatVecEnv`` is a gymnasium vector env and does not
-        implement SB3's ``env_method``, so curriculum / reward-annealing updates
-        cannot propagate natively. We walk the structure
-        (``SB3VecEnvWrapper.venv`` → ``ConcatVecEnv.vec_envs`` →
-        ``MarkovVectorEnv.par_env`` → ``.unwrapped``) to the underlying arena
-        envs, unwrapping any SelfPlayEnvWrapper.
-        """
-        envs: list = []
-        concat = getattr(self.venv, "venv", None)  # SB3VecEnvWrapper -> ConcatVecEnv
-        for markov in getattr(concat, "vec_envs", []):
-            par_env = getattr(markov, "par_env", None)
-            if par_env is not None:
-                envs.append(par_env.unwrapped)
-        return envs
-
-    def env_method(self, method_name, *args, indices=None, **kwargs):
-        """Call a method on each underlying arena env (SB3 ``env_method`` shim)."""
-        return [
-            getattr(env, method_name)(*args, **kwargs) for env in self._arena_envs()
-        ]
-
-
-class VecNormalizeCheckpointCallback(CheckpointCallback):
-    """Checkpoint callback that writes model-specific VecNormalize sidecars."""
-
-    def __init__(self, save_freq: int, save_path: str, name_prefix: str) -> None:
-        super().__init__(
-            save_freq=save_freq,
-            save_path=save_path,
-            name_prefix=name_prefix,
-        )
-
-    def _on_step(self) -> bool:
-        should_save = self.n_calls % self.save_freq == 0
-        result = super()._on_step()
-        if should_save:
-            vecnorm = self.model.get_vec_normalize_env()
-            if vecnorm is not None:
-                model_path = Path(self._checkpoint_path(extension="zip"))
-                vecnorm.save(str(_vecnormalize_path_for_model(model_path)))
-        return result
-
-
-class ArenaMetricsCallback(BaseCallback):
-    """Log per-episode arena outcomes (win rates, timeouts) to TensorBoard.
-
-    The arena env is wrapped through SuperSuit rather than SB3's ``Monitor``,
-    so ``rollout/ep_rew_mean`` is unavailable. This callback instead reads the
-    ``episode_outcome`` annotation that ``OrganismArenaParallelEnv.step()``
-    attaches to ``infos`` on terminal/truncated steps and records aggregate
-    win rates at the end of each rollout.
-
-    Note: SuperSuit's vec-env conversion surfaces one ``info`` per agent slot,
-    so each finished episode contributes its outcome from both perspectives.
-    Win rates are therefore computed as a fraction of *outcome observations*,
-    which keeps the ratios correct even though the raw count is doubled.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(verbose=0)
-        self._wins = {"agent_0": 0, "agent_1": 0}
-        self._timeouts = 0
-        self._draws = 0
-        self._outcomes = 0
-
-    def _on_step(self) -> bool:
-        for info in self.locals.get("infos", []):
-            outcome = info.get("episode_outcome")
-            if not outcome:
-                continue
-            self._outcomes += 1
-            kind = outcome.get("outcome")
-            if kind == "timeout":
-                self._timeouts += 1
-            elif kind == "draw":
-                self._draws += 1
-            else:
-                winner = outcome.get("winner")
-                if winner in self._wins:
-                    self._wins[winner] += 1
-        return True
-
-    def _on_rollout_end(self) -> None:
-        if self._outcomes == 0:
-            return
-        total = self._outcomes
-        self.logger.record("arena/agent_0_win_rate", self._wins["agent_0"] / total)
-        self.logger.record("arena/agent_1_win_rate", self._wins["agent_1"] / total)
-        self.logger.record("arena/timeout_rate", self._timeouts / total)
-        self.logger.record("arena/draw_rate", self._draws / total)
-        self.logger.record("arena/episode_outcomes", total)
-        self._wins = {"agent_0": 0, "agent_1": 0}
-        self._timeouts = 0
-        self._draws = 0
-        self._outcomes = 0
 
 
 def _build_single_env(
@@ -256,51 +83,6 @@ def _build_single_env(
             if monitor_dir is not None
             else None
         )
-        return Monitor(env, filename=filename)
-
-    return _make
-
-
-def _build_arena_selfplay_env(
-    env_cfg: dict[str, Any],
-    self_play_cfg: dict[str, Any],
-    league_dir: Path,
-    base_seed: int,
-    monitor_dir: Path | None = None,
-    rank: int = 0,
-):
-    """Factory for one self-play arena env on SB3's native vec-env path.
-
-    The arena ``ParallelEnv`` is wrapped in a :class:`SelfPlayEnvWrapper`
-    (frozen opponent in the second slot) and then a :class:`SingleAgentArenaEnv`
-    Gymnasium adapter, so it behaves like any single-agent env under
-    ``DummyVecEnv``/``SubprocVecEnv`` — no SuperSuit, working ``env_method``,
-    and a ``Monitor`` for ``rollout/ep_rew_mean``.
-
-    Each rank is seeded independently (env construction + league sampler) so
-    parallel workers explore distinct spawns and sample distinct opponent
-    sequences rather than running identical episodes.
-    """
-
-    def _make():
-        rank_cfg = copy.deepcopy(env_cfg)
-        # Spread per-worker seeds so spawn jitter and the RNG differ by rank.
-        rank_cfg["seed"] = base_seed + 1000 * rank
-        par_env = make_env(rank_cfg["type"], rank_cfg)
-        sampler = LeagueSampler(
-            league_dir,
-            sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
-            recent_bias_alpha=float(self_play_cfg.get("recent_bias_alpha", 1.0)),
-            seed=base_seed + 1000 * rank,
-        )
-        env = SingleAgentArenaEnv(SelfPlayEnvWrapper(par_env, sampler))
-        filename = (
-            str(monitor_dir / f"monitor_env{rank}.csv")
-            if monitor_dir is not None
-            else None
-        )
-        # info_keywords persists the per-episode arena outcome into the Monitor
-        # CSV; the live agent's info carries it on terminal/timeout steps.
         return Monitor(env, filename=filename)
 
     return _make
@@ -345,22 +127,16 @@ def train(
         training continues from the saved timestep counter.  If a sibling
         ``vecnormalize.pkl`` exists, its running statistics are also restored.
     """
-    repro_cfg = cfg.get("reproducibility", {})
     if resume_from is not None:
         _validate_resume_path(
             Path(resume_from),
             cfg["training"].get("normalize_observations", True),
         )
-        check_resume_provenance(
-            resume_from, cfg, strict=bool(repro_cfg.get("strict", False))
-        )
 
     paths = create_experiment_paths(
-        cfg["output"]["base_dir"],
-        cfg["experiment_name"],
-        cfg["seed"],
-        run_id=cfg["output"].get("run_id"),
+        cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"]
     )
+    repro_cfg = cfg.get("reproducibility", {})
     write_run_metadata(
         paths.run_dir,
         cfg,
@@ -371,73 +147,32 @@ def train(
 
     num_envs = int(cfg["training"].get("num_envs", 1))
 
-    # Self-play league config — used both to wrap the env (opponent routing) and
-    # to register the snapshot-saving callback later. The snapshot directory is
-    # the shared channel between them (survives cloudpickle cloning into workers).
-    self_play_cfg = cfg.get("self_play", {})
-    self_play_enabled = bool(self_play_cfg.get("enabled", False)) and (
-        env_cfg["type"] == "organism_arena_parallel"
-    )
-    league_dir = paths.checkpoints_dir / "league"
-
-    # The *shared-policy* arena path (no self-play) must stay single-process.
-    # It needs SuperSuit's multi-agent vec conversion, and SuperSuit's
-    # concat_vec_envs_v1(num_cpus=num_envs) forks the envs at num_envs > 1, which
-    #   * empties the in-process chain _ArenaVecEnvAdapter.env_method() walks, so
-    #     reward annealing / curriculum updates become silent no-ops, and
-    #   * is unstable in SuperSuit 3.10 at num_cpus >= 2.
-    # The self-play path does NOT use SuperSuit (single-agent view + native SB3
-    # vec env), so it parallelizes safely — only guard the shared-policy path.
-    if (
-        env_cfg["type"] == "organism_arena_parallel"
-        and num_envs > 1
-        and not self_play_enabled
-    ):
-        raise ValueError(
-            "Shared-policy organism_arena_parallel training (self_play.enabled: "
-            f"false) requires training.num_envs == 1 (got {num_envs}). It runs "
-            "single-process via SuperSuit; num_envs > 1 forks into subprocesses, "
-            "silently disabling live env_method updates (reward annealing, "
-            "curriculum) and is unstable in SuperSuit 3.10. Either set "
-            "training.num_envs: 1, or enable self_play to use the parallel path."
-        )
-
-    if env_cfg["type"] == "organism_arena_parallel" and self_play_enabled:
-        # Self-play exposes a single live agent, so skip SuperSuit entirely and
-        # use SB3's native vec-env path (parallel-safe, working env_method,
-        # Monitor metrics). The opponent is sampled per-episode from the on-disk
-        # league inside each worker.
-        env_fns = [
-            _build_arena_selfplay_env(
-                env_cfg,
-                self_play_cfg,
-                league_dir,
-                base_seed=int(cfg["seed"]),
-                monitor_dir=paths.logs_dir,
-                rank=i,
-            )
-            for i in range(max(num_envs, 1))
-        ]
-        if num_envs > 1:
-            os.environ.setdefault("OMP_NUM_THREADS", "1")
-            os.environ.setdefault("MKL_NUM_THREADS", "1")
-            os.environ.setdefault("BLAS_NUM_THREADS", "1")
-            os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-            vec_env = SubprocVecEnv(env_fns)
-        else:
-            vec_env = DummyVecEnv(env_fns)
-    elif env_cfg["type"] == "organism_arena_parallel":
-        # Shared-policy arena: SuperSuit multi-agent conversion, single process.
+    self_play_cb: SelfPlayCallback | None = None
+    if env_cfg["type"] == "organism_arena_parallel":
         par_env = make_env(env_cfg["type"], env_cfg)
+        self_play_cfg = cfg.get("self_play", {})
+        if self_play_cfg.get("enabled", False):
+            self_play_cb = SelfPlayCallback(
+                snapshot_dir=paths.checkpoints_dir / "league",
+                snapshot_freq=int(self_play_cfg.get("snapshot_freq", 5000)),
+                max_league_size=int(self_play_cfg.get("max_league_size", 10)),
+                sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
+                recent_bias_alpha=float(self_play_cfg.get("recent_bias_alpha", 1.0)),
+                seed=cfg["seed"],
+                verbose=1,
+            )
+            par_env = SelfPlayEnvWrapper(par_env, self_play_cb)
         vec_env = ss.pettingzoo_env_to_vec_env_v1(par_env)
         vec_env = ss.concat_vec_envs_v1(
             vec_env,
-            1,
-            num_cpus=1,
+            max(num_envs, 1),
+            num_cpus=max(num_envs, 1),
             base_class="stable_baselines3",
         )
-        # Patch SuperSuit↔SB3 incompatibilities (missing seed(), uint8 dones).
-        vec_env = _ArenaVecEnvAdapter(vec_env)
+        # SuperSuit's ConcatVecEnv doesn't implement seed(); add a no-op so
+        # SB3's set_random_seed() doesn't crash during model setup.
+        if hasattr(vec_env, "venv") and not hasattr(vec_env.venv, "seed"):
+            vec_env.venv.seed = lambda seed=None: [None] * vec_env.num_envs
     else:
         env_fns = [
             _build_single_env(env_cfg, monitor_dir=paths.logs_dir, rank=i)
@@ -454,10 +189,16 @@ def train(
 
     try:
         normalize = cfg["training"].get("normalize_observations", True)
+        # SuperSuit's ConcatVecEnv doesn't implement seed(), which SB3's VecNormalize
+        # calls during setup.  Skip normalization for the arena path.
+        if env_cfg["type"] == "organism_arena_parallel":
+            normalize = False
         if normalize:
             vecnorm_path = None
             if resume_from is not None:
-                vecnorm_path = _find_vecnormalize_path_for_model(resume_from)
+                candidate = Path(resume_from).with_name("vecnormalize.pkl")
+                if candidate.exists():
+                    vecnorm_path = candidate
             if vecnorm_path is not None:
                 vec_env = VecNormalize.load(str(vecnorm_path), vec_env)
                 # Keep updating stats and continue training.
@@ -498,7 +239,7 @@ def train(
                 verbose=1,
             )
 
-        checkpoint_cb = VecNormalizeCheckpointCallback(
+        checkpoint_cb = CheckpointCallback(
             save_freq=cfg["training"].get("checkpoint_every", 10000),
             save_path=str(paths.checkpoints_dir),
             name_prefix="ppo_model",
@@ -513,46 +254,23 @@ def train(
         if extra_callbacks:
             callbacks.extend(extra_callbacks)
 
-        # Arena training has no Monitor wrapper; surface win/loss metrics instead.
-        # (Recorded before CurriculumCallback so a win-rate gate can read them.)
-        if env_cfg["type"] == "organism_arena_parallel":
-            callbacks.append(ArenaMetricsCallback())
-
-        # Dense-to-sparse reward annealing for the arena: ramp the per-hit reward
-        # down so the terminal win/loss signal eventually dominates.
-        anneal_cfg = cfg.get("reward_annealing", {})
-        if (
-            anneal_cfg.get("enabled", False)
-            and env_cfg["type"] == "organism_arena_parallel"
-        ):
-            callbacks.append(
-                RewardAnnealingCallback(
-                    anneal_steps=int(anneal_cfg.get("anneal_steps", 500_000)),
-                    verbose=1,
-                )
-            )
-
         # Curriculum learning: bump env difficulty when performance exceeds threshold.
         curriculum_cfg = cfg.get("curriculum", {})
         if curriculum_cfg.get("enabled", False):
             callbacks.append(CurriculumCallback(curriculum_cfg, env_cfg, verbose=1))
 
-        # Self-play league: periodically freeze policy snapshots as past
-        # opponents. Writes to the same league_dir the env's LeagueSampler reads.
-        if self_play_enabled:
-            callbacks.append(
-                SelfPlayCallback(
-                    snapshot_dir=league_dir,
-                    snapshot_freq=int(self_play_cfg.get("snapshot_freq", 5000)),
-                    max_league_size=int(self_play_cfg.get("max_league_size", 10)),
-                    sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
-                    recent_bias_alpha=float(
-                        self_play_cfg.get("recent_bias_alpha", 1.0)
-                    ),
-                    seed=cfg["seed"],
-                    verbose=1,
+        # Arena-specific callbacks (metrics, self-play league, reward annealing).
+        if env_cfg["type"] == "organism_arena_parallel":
+            callbacks.append(ArenaMetricsCallback())
+            if self_play_cb is not None:
+                callbacks.append(self_play_cb)
+            reward_anneal_cfg = cfg.get("reward_annealing", {})
+            if reward_anneal_cfg.get("enabled", False):
+                callbacks.append(
+                    RewardAnnealingCallback(
+                        anneal_steps=int(reward_anneal_cfg.get("anneal_steps", 500_000))
+                    )
                 )
-            )
 
         model.learn(
             total_timesteps=cfg["training"]["total_timesteps"],
@@ -562,7 +280,6 @@ def train(
         final_path = paths.checkpoints_dir / "final_model"
         model.save(str(final_path))
         if isinstance(vec_env, VecNormalize):
-            vec_env.save(str(_vecnormalize_path_for_model(final_path)))
             vec_env.save(str(paths.checkpoints_dir / "vecnormalize.pkl"))
         return final_path
     finally:

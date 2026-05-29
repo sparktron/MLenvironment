@@ -19,6 +19,7 @@ def _parse_args() -> argparse.Namespace:
             "render-replay",
             "gui",
             "morph-search",
+            "arena-eval",
         ],
     )
     parser.add_argument(
@@ -119,6 +120,20 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--port", type=int, default=5001, help="GUI server port (default: 5001)"
+    )
+    parser.add_argument(
+        "--policy", default="", help="Policy checkpoint path for arena-eval"
+    )
+    parser.add_argument(
+        "--opponent",
+        default="random",
+        help="Opponent checkpoint path for arena-eval, or 'random'",
+    )
+    parser.add_argument(
+        "--n-episodes", type=int, default=100, help="Episodes for arena-eval"
+    )
+    parser.add_argument(
+        "--output", default="", help="Output JSON path for arena-eval results"
     )
     parser.add_argument(
         "--json",
@@ -379,6 +394,26 @@ def main() -> None:
                 f"best_trial={result['best_trial']}  "
                 f"best_score={result['best_score']:.4f}  "
                 f"best_params={result['best_params']}"
+            )
+
+    elif args.command == "arena-eval":
+        from rl_framework.training.arena_eval import run_arena_eval
+
+        if not args.policy:
+            raise ValueError("--policy is required for arena-eval")
+        result = run_arena_eval(
+            policy_path=args.policy,
+            opponent_path=args.opponent,
+            cfg=cfg_dict,
+            n_episodes=args.n_episodes,
+            output_path=args.output or None,
+        )
+        if not args.json:
+            print(
+                f"policy_win_rate={result['policy_win_rate']:.3f}  "
+                f"opponent_win_rate={result['opponent_win_rate']:.3f}  "
+                f"timeout_rate={result['timeout_rate']:.3f}  "
+                f"n_episodes={result['n_episodes']}"
             )
 
     if args.json:

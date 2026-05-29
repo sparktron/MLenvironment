@@ -16,6 +16,7 @@ environment:
     damage: 0.04
     attack_range: 0.25
     cooldown_steps: 2
+    sensing_radius: 2.0
     max_steps: 300
     win_health_threshold: 0.0
 
