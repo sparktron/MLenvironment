@@ -24,7 +24,11 @@ def test_walker_env_api() -> None:
 
 
 def test_organism_env_api() -> None:
-    cfg = {"type": "organism_arena_parallel", "seed": 1, "sim": {"arena_half_extent": 1.0}}
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 1,
+        "sim": {"arena_half_extent": 1.0},
+    }
     env = make_env("organism_arena_parallel", cfg)
     observations, infos = env.reset(seed=1)
     assert "agent_0" in observations and "agent_1" in observations
@@ -52,7 +56,9 @@ def test_organism_env_obs_shape() -> None:
     env = make_env("organism_arena_parallel", cfg)
     observations, _ = env.reset(seed=1)
     for agent, obs in observations.items():
-        assert obs.shape == env.observation_space(agent).shape, f"{agent} obs shape mismatch"
+        assert obs.shape == env.observation_space(agent).shape, (
+            f"{agent} obs shape mismatch"
+        )
 
 
 def test_organism_env_terminates_when_health_depleted() -> None:
@@ -60,7 +66,12 @@ def test_organism_env_terminates_when_health_depleted() -> None:
     cfg = {
         "type": "organism_arena_parallel",
         "seed": 0,
-        "battle_rules": {"damage": 10.0, "attack_range": 5.0, "cooldown_steps": 0, "max_steps": 400},
+        "battle_rules": {
+            "damage": 10.0,
+            "attack_range": 5.0,
+            "cooldown_steps": 0,
+            "max_steps": 400,
+        },
     }
     env = make_env("organism_arena_parallel", cfg)
     env.reset(seed=0)
@@ -71,7 +82,9 @@ def test_organism_env_terminates_when_health_depleted() -> None:
     no_attack = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     attack = np.array([0.0, 0.0, 1.0], dtype=np.float32)
     _, rewards, terminations, _, _ = env.step({"agent_0": no_attack, "agent_1": attack})
-    assert terminations["agent_0"], "agent_0 should be terminated after health reaches 0"
+    assert terminations["agent_0"], (
+        "agent_0 should be terminated after health reaches 0"
+    )
     assert rewards["agent_1"] > 0, "winner (agent_1) should receive a positive reward"
     assert env.agents == [], "agents list should be cleared after termination"
 
@@ -87,7 +100,9 @@ def test_organism_env_truncates_at_max_steps() -> None:
     env.reset(seed=0)
     noop = np.zeros(3, dtype=np.float32)
     for step in range(3):
-        _, _, terminations, truncations, _ = env.step({"agent_0": noop, "agent_1": noop})
+        _, _, terminations, truncations, _ = env.step(
+            {"agent_0": noop, "agent_1": noop}
+        )
     # On the final step both agents should be truncated, not terminated.
     assert all(truncations.values()), "all agents should be truncated at max_steps"
     assert not any(terminations.values()), "no agent should be terminated on truncation"
@@ -96,9 +111,104 @@ def test_organism_env_truncates_at_max_steps() -> None:
 
 def test_organism_env_agents_cleared_after_game_over() -> None:
     """self.agents must be empty after any terminal/truncated step."""
-    cfg = {"type": "organism_arena_parallel", "seed": 0, "battle_rules": {"max_steps": 1}}
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "battle_rules": {"max_steps": 1},
+    }
     env = make_env("organism_arena_parallel", cfg)
     env.reset(seed=0)
     noop = np.zeros(3, dtype=np.float32)
     env.step({"agent_0": noop, "agent_1": noop})
     assert env.agents == []
+
+
+def test_organism_env_obs_reports_self_velocity() -> None:
+    """Feature 4: the first two obs components are displacement since last step."""
+    cfg = {"type": "organism_arena_parallel", "seed": 0}
+    env = make_env("organism_arena_parallel", cfg)
+    observations, _ = env.reset(seed=0)
+    # Velocity reads zero on the first observation after reset.
+    assert observations["agent_0"][0] == 0.0 and observations["agent_0"][1] == 0.0
+    # Move agent_0 by a known amount: action[:2] is scaled by 0.05 internally.
+    move = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+    noop = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+    observations, _, _, _, _ = env.step({"agent_0": move, "agent_1": noop})
+    assert abs(observations["agent_0"][0] - 0.05) < 1e-5, "vel_x should be +0.05"
+    assert abs(observations["agent_0"][1]) < 1e-6, "vel_y should be 0"
+
+
+def test_organism_env_obs_hides_opponent_beyond_sensing_radius() -> None:
+    """Feature 4: opponent relative pos/health zeroed past sensing_radius."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "battle_rules": {"sensing_radius": 0.5},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    env.state["agent_0"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
+    env.state["agent_1"]["pos"] = np.array([5.0, 0.0], dtype=np.float32)
+    obs = env._obs("agent_0")
+    # rel_opp_x, rel_opp_y, opp_health are obs[3:6].
+    assert obs[3] == 0.0 and obs[4] == 0.0 and obs[5] == 0.0
+
+
+def test_organism_env_attack_damage_scales_with_distance() -> None:
+    """Feature 6: linear falloff deals ~50% damage at half attack_range."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "battle_rules": {"damage": 0.1, "attack_range": 0.4, "cooldown_steps": 0},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    env.state["agent_0"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
+    env.state["agent_1"]["pos"] = np.array([0.2, 0.0], dtype=np.float32)  # half range
+    env.state["agent_0"]["cooldown"] = 0
+    attack = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    noop = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+    _, rewards, _, _, _ = env.step({"agent_0": attack, "agent_1": noop})
+    expected = 0.1 * 0.5  # linear falloff at half range, size == 1.0
+    assert abs(rewards["agent_0"] - expected) < 0.01
+
+
+def test_organism_env_attack_zero_damage_beyond_range() -> None:
+    """Feature 6: no damage when the defender sits past attack_range."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "battle_rules": {"damage": 0.1, "attack_range": 0.2, "cooldown_steps": 0},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    env.state["agent_0"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
+    env.state["agent_1"]["pos"] = np.array([0.3, 0.0], dtype=np.float32)
+    env.state["agent_0"]["cooldown"] = 0
+    attack = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    noop = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+    _, rewards, _, _, _ = env.step({"agent_0": attack, "agent_1": noop})
+    assert rewards["agent_0"] == 0.0
+
+
+def test_organism_env_attack_binary_mode_is_a_cliff() -> None:
+    """Feature 6: binary mode deals full damage inside range, none outside."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "battle_rules": {
+            "damage": 0.1,
+            "attack_range": 0.2,
+            "cooldown_steps": 0,
+            "attack_falloff": "binary",
+        },
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    env.state["agent_0"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
+    env.state["agent_1"]["pos"] = np.array([0.19, 0.0], dtype=np.float32)  # inside
+    env.state["agent_0"]["cooldown"] = 0
+    attack = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    noop = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+    _, rewards, _, _, _ = env.step({"agent_0": attack, "agent_1": noop})
+    assert abs(rewards["agent_0"] - 0.1) < 1e-6, "full damage inside range"

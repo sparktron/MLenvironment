@@ -16,6 +16,9 @@ class BattleRules:
     sensing_radius: float = 2.0
     max_steps: int = 400
     win_health_threshold: float = 0.0
+    attack_falloff: str = (
+        "linear"  # "linear" (distance-graded) or "binary" (hard cliff)
+    )
 
 
 class OrganismArenaParallelEnv(ParallelEnv):
@@ -41,12 +44,21 @@ class OrganismArenaParallelEnv(ParallelEnv):
         )
         self.morphology = cfg.get("morphology", {})
         self.state: dict[str, dict[str, Any]] = {}
+        # Previous-step positions, used to derive each agent's velocity for the
+        # egocentric observation. Repopulated on reset and updated each step.
+        self._prev_positions: dict[str, np.ndarray] = {}
         self.step_count = 0
         self._fig = None
         self._ax = None
 
     def observation_space(self, agent: str):
-        # self x,y,health + opp relative x,y,health + cooldown
+        # Egocentric, slot-symmetric obs (7D):
+        #   [self_vel_x, self_vel_y, health,
+        #    rel_opp_x, rel_opp_y, opp_health, cooldown]
+        # Self position is expressed as velocity (displacement since last step)
+        # rather than absolute coords so the shared policy sees the same input
+        # distribution regardless of which spawn slot it is filling. Opponent
+        # components are relative and gated by sensing_radius.
         return spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32)
 
     def action_space(self, agent: str):
@@ -83,26 +95,60 @@ class OrganismArenaParallelEnv(ParallelEnv):
             "agent_0": self._spawn_agent("agent_0", -1.0),
             "agent_1": self._spawn_agent("agent_1", 1.0),
         }
+        # Seed previous positions so velocity reads zero on the first observation.
+        self._prev_positions = {
+            agent: self.state[agent]["pos"].copy() for agent in self.agents
+        }
         observations = {agent: self._obs(agent) for agent in self.agents}
         infos = {agent: {} for agent in self.agents}
         return observations, infos
 
     def _obs(self, agent: str) -> np.ndarray:
+        """Build the egocentric observation for *agent* (pure read — no state mutation).
+
+        Self position is reported as velocity (displacement since the previous
+        step) so both spawn slots share one input distribution. Opponent
+        components are relative and zeroed when the opponent is beyond
+        ``sensing_radius``.
+        """
         opp = "agent_1" if agent == "agent_0" else "agent_0"
         me, other = self.state[agent], self.state[opp]
+        prev = self._prev_positions.get(agent, me["pos"])
+        vel = me["pos"] - prev
         rel = other["pos"] - me["pos"]
+        rel_x, rel_y, opp_health = float(rel[0]), float(rel[1]), other["health"]
+        if float(np.linalg.norm(rel)) > self.rules.sensing_radius:
+            # Opponent out of sensing range — hide its relative position/health.
+            rel_x, rel_y, opp_health = 0.0, 0.0, 0.0
         return np.array(
             [
-                me["pos"][0],
-                me["pos"][1],
+                vel[0],
+                vel[1],
                 me["health"],
-                rel[0],
-                rel[1],
-                other["health"],
+                rel_x,
+                rel_y,
+                opp_health,
                 float(me["cooldown"]),
             ],
             dtype=np.float32,
         )
+
+    def _attack_falloff(self, dist: float) -> float:
+        """Return the damage multiplier in ``[0, 1]`` for an attack at *dist*.
+
+        ``"linear"`` (default) grades damage with distance: full damage at
+        ``dist == 0``, half at ``attack_range / 2``, zero at ``dist >=
+        attack_range``. This gives the policy a continuous gradient that
+        rewards closing distance rather than the hard hit/miss cliff of the
+        ``"binary"`` mode, which deals full damage inside ``attack_range`` and
+        nothing beyond it.
+        """
+        rng = self.rules.attack_range
+        if self.rules.attack_falloff == "binary":
+            return 1.0 if dist <= rng else 0.0
+        if rng <= 0.0:
+            return 1.0 if dist <= 0.0 else 0.0
+        return max(0.0, 1.0 - dist / rng)
 
     def step(self, actions: dict[str, np.ndarray]):
         self.step_count += 1
@@ -134,11 +180,14 @@ class OrganismArenaParallelEnv(ParallelEnv):
             trigger = float(actions[attacker][2]) > 0.5
             if not trigger or self.state[attacker]["cooldown"] > 0:
                 continue
-            dist = np.linalg.norm(
-                self.state[attacker]["pos"] - self.state[defender]["pos"]
+            dist = float(
+                np.linalg.norm(
+                    self.state[attacker]["pos"] - self.state[defender]["pos"]
+                )
             )
-            if dist <= self.rules.attack_range:
-                damage = self.rules.damage * self.state[attacker]["size"]
+            falloff = self._attack_falloff(dist)
+            if falloff > 0.0:
+                damage = self.rules.damage * falloff * self.state[attacker]["size"]
                 self.state[defender]["health"] = max(
                     0.0, self.state[defender]["health"] - damage
                 )
@@ -160,6 +209,10 @@ class OrganismArenaParallelEnv(ParallelEnv):
         # All five dicts must have identical keys (active_agents) per PettingZoo Parallel API.
         observations = {agent: self._obs(agent) for agent in active_agents}
         infos = {agent: {"step": self.step_count} for agent in active_agents}
+        # Record positions *after* building observations so the next step's
+        # velocity reflects the displacement that occurs during that step.
+        for agent in active_agents:
+            self._prev_positions[agent] = self.state[agent]["pos"].copy()
         return observations, rewards, terminations, truncations, infos
 
     def render(self):
