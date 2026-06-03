@@ -15,6 +15,7 @@ from stable_baselines3.common.vec_env.base_vec_env import VecEnvWrapper
 
 from rl_framework.envs.registry import make_env
 from rl_framework.training.curriculum_callback import CurriculumCallback
+from rl_framework.training.reward_annealing_callback import RewardAnnealingCallback
 from rl_framework.training.self_play_callback import SelfPlayCallback
 from rl_framework.training.self_play_env_wrapper import (
     LeagueSampler,
@@ -103,6 +104,30 @@ class _ArenaVecEnvAdapter(VecEnvWrapper):
             self.action_space.seed(seed)
             self.observation_space.seed(seed)
         return [seed] * self.num_envs
+
+    def _arena_envs(self) -> list:
+        """Reach the live arena ``ParallelEnv`` instances inside the chain.
+
+        SuperSuit's ``ConcatVecEnv`` is a gymnasium vector env and does not
+        implement SB3's ``env_method``, so curriculum / reward-annealing updates
+        cannot propagate natively. We walk the structure
+        (``SB3VecEnvWrapper.venv`` → ``ConcatVecEnv.vec_envs`` →
+        ``MarkovVectorEnv.par_env`` → ``.unwrapped``) to the underlying arena
+        envs, unwrapping any SelfPlayEnvWrapper.
+        """
+        envs: list = []
+        concat = getattr(self.venv, "venv", None)  # SB3VecEnvWrapper -> ConcatVecEnv
+        for markov in getattr(concat, "vec_envs", []):
+            par_env = getattr(markov, "par_env", None)
+            if par_env is not None:
+                envs.append(par_env.unwrapped)
+        return envs
+
+    def env_method(self, method_name, *args, indices=None, **kwargs):
+        """Call a method on each underlying arena env (SB3 ``env_method`` shim)."""
+        return [
+            getattr(env, method_name)(*args, **kwargs) for env in self._arena_envs()
+        ]
 
 
 class ArenaMetricsCallback(BaseCallback):
@@ -350,8 +375,23 @@ def train(
             callbacks.extend(extra_callbacks)
 
         # Arena training has no Monitor wrapper; surface win/loss metrics instead.
+        # (Recorded before CurriculumCallback so a win-rate gate can read them.)
         if env_cfg["type"] == "organism_arena_parallel":
             callbacks.append(ArenaMetricsCallback())
+
+        # Dense-to-sparse reward annealing for the arena: ramp the per-hit reward
+        # down so the terminal win/loss signal eventually dominates.
+        anneal_cfg = cfg.get("reward_annealing", {})
+        if (
+            anneal_cfg.get("enabled", False)
+            and env_cfg["type"] == "organism_arena_parallel"
+        ):
+            callbacks.append(
+                RewardAnnealingCallback(
+                    anneal_steps=int(anneal_cfg.get("anneal_steps", 500_000)),
+                    verbose=1,
+                )
+            )
 
         # Curriculum learning: bump env difficulty when performance exceeds threshold.
         curriculum_cfg = cfg.get("curriculum", {})

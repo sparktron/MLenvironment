@@ -47,6 +47,10 @@ class OrganismArenaParallelEnv(ParallelEnv):
         # Previous-step positions, used to derive each agent's velocity for the
         # egocentric observation. Repopulated on reset and updated each step.
         self._prev_positions: dict[str, np.ndarray] = {}
+        # Scales only the dense per-hit reward (not the health damage itself).
+        # Annealed toward 0 by RewardAnnealingCallback so the terminal win/loss
+        # signal eventually dominates. See update_live_params().
+        self._damage_scale = 1.0
         self.step_count = 0
         self._fig = None
         self._ax = None
@@ -150,6 +154,28 @@ class OrganismArenaParallelEnv(ParallelEnv):
             return 1.0 if dist <= 0.0 else 0.0
         return max(0.0, 1.0 - dist / rng)
 
+    def update_live_params(self, params: dict[str, Any]) -> None:
+        """Apply live parameter overrides from training callbacks.
+
+        Supported keys:
+          * ``reward.damage_scale`` — float multiplier on the dense per-hit
+            reward (used by ``RewardAnnealingCallback``).
+          * ``battle_rules.<field>`` — overrides a ``BattleRules`` field in place
+            (used by ``CurriculumCallback`` to ramp opponent difficulty); the
+            value is coerced to the field's existing type.
+
+        Unknown keys are ignored so a shared curriculum config can target
+        multiple env families without error.
+        """
+        for key, value in params.items():
+            if key == "reward.damage_scale":
+                self._damage_scale = float(value)
+            elif key.startswith("battle_rules."):
+                field = key.removeprefix("battle_rules.")
+                if hasattr(self.rules, field):
+                    current = getattr(self.rules, field)
+                    setattr(self.rules, field, type(current)(value))
+
     def step(self, actions: dict[str, np.ndarray]):
         self.step_count += 1
         # Capture the active agent set at step entry; all returned dicts must share these keys.
@@ -191,8 +217,11 @@ class OrganismArenaParallelEnv(ParallelEnv):
                 self.state[defender]["health"] = max(
                     0.0, self.state[defender]["health"] - damage
                 )
-                rewards[attacker] += damage
-                rewards[defender] -= damage
+                # Health always takes full damage so combat resolves; only the
+                # dense reward is scaled (annealed toward the sparse win signal).
+                dense_reward = damage * self._damage_scale
+                rewards[attacker] += dense_reward
+                rewards[defender] -= dense_reward
                 self.state[attacker]["cooldown"] = self.rules.cooldown_steps
 
         for agent in active_agents:

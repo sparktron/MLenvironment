@@ -30,6 +30,40 @@ training:
 evaluation:
   episodes: 5
 
+# League self-play: agent_0 trains against frozen past-self snapshots (agent_1).
+self_play:
+  enabled: true
+  snapshot_freq: 5000
+  max_league_size: 10
+  sampling_mode: uniform
+
+# Dense-to-sparse: ramp the per-hit reward to zero over the first half of
+# training so the terminal win/loss signal eventually dominates.
+reward_annealing:
+  enabled: true
+  anneal_steps: 15000
+
+# Win-rate-gated curriculum: ramp combat tempo as agent_0's win rate climbs.
+# Metric is logged by ArenaMetricsCallback; thresholds are win-rate fractions.
+curriculum:
+  enabled: true
+  metric: arena/agent_0_win_rate
+  max_level: 3
+  level_up_thresholds:
+    0: 0.60
+    1: 0.65
+    2: 0.70
+  level_params:
+    1:
+      battle_rules.cooldown_steps: 4
+      battle_rules.damage: 0.03
+    2:
+      battle_rules.cooldown_steps: 3
+      battle_rules.damage: 0.05
+    3:
+      battle_rules.cooldown_steps: 2
+      battle_rules.damage: 0.07
+
 output:
   base_dir: outputs
 

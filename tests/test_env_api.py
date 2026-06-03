@@ -285,3 +285,42 @@ def test_arena_metrics_callback_computes_win_rates() -> None:
     assert abs(recs["arena/agent_1_win_rate"] - 1 / 3) < 1e-9
     assert abs(recs["arena/timeout_rate"] - 1 / 3) < 1e-9
     assert recs["arena/episode_outcomes"] == 3
+
+
+def test_update_live_params_anneals_dense_reward_but_keeps_damage() -> None:
+    """Feature 5A: damage_scale=0 zeroes the dense reward but combat still resolves."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "battle_rules": {"damage": 0.1, "attack_range": 0.4, "cooldown_steps": 0},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    env.update_live_params({"reward.damage_scale": 0.0})
+    env.state["agent_0"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
+    env.state["agent_1"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
+    env.state["agent_0"]["cooldown"] = 0
+    health_before = env.state["agent_1"]["health"]
+    attack = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    noop = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+    _, rewards, _, _, _ = env.step({"agent_0": attack, "agent_1": noop})
+    assert rewards["agent_0"] == 0.0, "dense reward should be zero at damage_scale=0"
+    assert env.state["agent_1"]["health"] < health_before, "health must still drop"
+
+
+def test_update_live_params_updates_battle_rules() -> None:
+    """Feature 5B: curriculum overrides mutate BattleRules in place, type-coerced."""
+    cfg = {"type": "organism_arena_parallel", "seed": 0}
+    env = make_env("organism_arena_parallel", cfg)
+    original = env.rules.cooldown_steps
+    env.update_live_params({"battle_rules.cooldown_steps": original + 2})
+    assert env.rules.cooldown_steps == original + 2
+    assert isinstance(env.rules.cooldown_steps, int)
+
+
+def test_update_live_params_ignores_unknown_keys() -> None:
+    cfg = {"type": "organism_arena_parallel", "seed": 0}
+    env = make_env("organism_arena_parallel", cfg)
+    # Unknown keys (e.g. from a shared walker curriculum) must be silently ignored.
+    env.update_live_params({"reward.target_velocity": 2.0, "battle_rules.bogus": 1})
+    assert not hasattr(env.rules, "bogus")

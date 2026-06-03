@@ -60,6 +60,10 @@ class CurriculumCallback(BaseCallback):
             for k, v in curriculum_cfg.get("level_up_thresholds", {}).items()
         }
         self._max_level = int(curriculum_cfg.get("max_level", 3))
+        # Metric driving level-ups. Defaults to the walker's episode-reward mean;
+        # the arena gates on a win-rate metric logged by ArenaMetricsCallback
+        # (e.g. "arena/agent_0_win_rate"), which has no Monitor ep_rew_mean.
+        self._metric = str(curriculum_cfg.get("metric", "rollout/ep_rew_mean"))
         self._level_params: dict[int, dict[str, Any]] = {
             int(k): v for k, v in curriculum_cfg.get("level_params", {}).items()
         }
@@ -73,19 +77,21 @@ class CurriculumCallback(BaseCallback):
         if self._level >= self._max_level:
             return
 
-        # SB3 logs ep_rew_mean after enough episodes have been collected.
-        mean_reward = _safe_logger_value(self.logger, "rollout/ep_rew_mean")
-        if mean_reward is None:
+        # Read the configured metric from the logger (e.g. ep_rew_mean for the
+        # walker, or arena/agent_0_win_rate for the arena). Absent early on.
+        metric_value = _safe_logger_value(self.logger, self._metric)
+        if metric_value is None:
             return
 
         threshold = self._per_level_thresholds.get(self._level, self._default_threshold)
-        if mean_reward >= threshold:
+        if metric_value >= threshold:
             self._level += 1
             self._cur_cfg["level"] = self._level
             self._apply_level_params(self._level)
             if self.verbose >= 1:
                 print(
-                    f"[CurriculumCallback] Level up -> {self._level}  (mean_reward={mean_reward:.2f})"
+                    f"[CurriculumCallback] Level up -> {self._level}  "
+                    f"({self._metric}={metric_value:.3f})"
                 )
 
     # ------------------------------------------------------------------
