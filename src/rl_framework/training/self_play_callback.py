@@ -68,7 +68,9 @@ class SelfPlayCallback(BaseCallback):
         if max_league_size <= 0:
             raise ValueError(f"max_league_size must be > 0, got {max_league_size}")
         if sampling_mode not in {"uniform", "recent_bias"}:
-            raise ValueError(f"sampling_mode must be 'uniform' or 'recent_bias', got {sampling_mode}")
+            raise ValueError(
+                f"sampling_mode must be 'uniform' or 'recent_bias', got {sampling_mode}"
+            )
         if recent_bias_alpha <= 0:
             raise ValueError(f"recent_bias_alpha must be > 0, got {recent_bias_alpha}")
         self._snapshot_dir = Path(snapshot_dir)
@@ -91,9 +93,16 @@ class SelfPlayCallback(BaseCallback):
         tag = f"selfplay_{self.num_timesteps}"
         path = self._snapshot_dir / tag
         self.model.save(str(path))
+        # Save the obs normaliser alongside the policy so a frozen opponent can
+        # normalise its observations the way this policy did during training.
+        vec_normalize = self.model.get_vec_normalize_env()
+        if vec_normalize is not None:
+            vec_normalize.save(str(self._snapshot_dir / f"{tag}_vecnorm.pkl"))
         self._league.append(path)
         if self.verbose >= 1:
-            print(f"[SelfPlay] Snapshot saved: {path}  (league size={len(self._league)})")
+            print(
+                f"[SelfPlay] Snapshot saved: {path}  (league size={len(self._league)})"
+            )
 
         # Prune oldest if league exceeds max size.
         while len(self._league) > self._max_league_size:
@@ -101,6 +110,9 @@ class SelfPlayCallback(BaseCallback):
             old_zip = old.with_suffix(".zip")
             if old_zip.exists():
                 old_zip.unlink()
+            old_vecnorm = old.with_name(f"{old.name}_vecnorm.pkl")
+            if old_vecnorm.exists():
+                old_vecnorm.unlink()
             self._model_cache.pop(old, None)
 
     # ------------------------------------------------------------------
@@ -112,7 +124,10 @@ class SelfPlayCallback(BaseCallback):
         if not self._league:
             return None
         if self._sampling_mode == "recent_bias":
-            weights = np.arange(1, len(self._league) + 1, dtype=np.float64) ** self._recent_bias_alpha
+            weights = (
+                np.arange(1, len(self._league) + 1, dtype=np.float64)
+                ** self._recent_bias_alpha
+            )
             probs = weights / weights.sum()
             idx = int(self._rng.choice(len(self._league), p=probs))
             path = self._league[idx]

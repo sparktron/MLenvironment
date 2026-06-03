@@ -157,6 +157,26 @@ def test_arena_selfplay_train_writes_league(tmp_path: Path) -> None:
     assert league, "self-play training wrote no league snapshots"
 
 
+def test_arena_eval_on_trained_checkpoint(tmp_path: Path) -> None:
+    """Train a real arena checkpoint, then run head-to-head eval vs random.
+
+    Exercises load_frozen_policy on a real PPO checkpoint with sibling
+    vecnormalize.pkl discovery and the full episode-driving loop."""
+    from rl_framework.training.arena_eval import run_arena_eval
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=256)
+    model_path = train(cfg)
+    checkpoint = str(model_path) + ".zip"
+
+    result = run_arena_eval(checkpoint, "random", cfg, n_episodes=5, swap_roles=True)
+    assert result["n_episodes"] == 10
+    total = (
+        result["policy_win_rate"] + result["opponent_win_rate"] + result["timeout_rate"]
+    )
+    assert abs(total - 1.0) < 1e-6
+
+
 def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
     """evaluate() appends a row to eval_metrics.csv and returns a metrics dict."""
     from rl_framework.training.eval_runner import evaluate

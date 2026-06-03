@@ -12,6 +12,7 @@ def _parse_args() -> argparse.Namespace:
         choices=[
             "train",
             "eval",
+            "arena-eval",
             "sweep",
             "multi-seed",
             "render-replay",
@@ -26,6 +27,32 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
     parser.add_argument("--model-path", default="")
+    parser.add_argument(
+        "--policy",
+        default="",
+        help="Path to the policy checkpoint under test (arena-eval).",
+    )
+    parser.add_argument(
+        "--opponent",
+        default="random",
+        help="Opponent checkpoint path, or 'random' for a random baseline (arena-eval).",
+    )
+    parser.add_argument(
+        "--n-episodes",
+        type=int,
+        default=100,
+        help="Episodes per spawn orientation for arena-eval (default: 100).",
+    )
+    parser.add_argument(
+        "--no-swap-roles",
+        action="store_true",
+        help="Disable spawn-slot swapping in arena-eval (keeps positional bias).",
+    )
+    parser.add_argument(
+        "--output",
+        default="",
+        help="Optional path to write the arena-eval result as JSON.",
+    )
     parser.add_argument(
         "--seeds",
         default="",
@@ -215,6 +242,27 @@ def main() -> None:
         result = metrics
         if not args.json:
             print(yaml.dump(metrics, default_flow_style=False))
+
+    elif args.command == "arena-eval":
+        from rl_framework.training.arena_eval import run_arena_eval
+
+        if not args.policy:
+            raise ValueError("--policy is required for arena-eval")
+        result = run_arena_eval(
+            args.policy,
+            args.opponent,
+            cfg_dict,
+            n_episodes=args.n_episodes,
+            swap_roles=not args.no_swap_roles,
+            output_path=args.output or None,
+        )
+        if not args.json:
+            print(
+                f"policy_win_rate={result['policy_win_rate']:.3f}  "
+                f"opponent_win_rate={result['opponent_win_rate']:.3f}  "
+                f"timeout_rate={result['timeout_rate']:.3f}  "
+                f"n_episodes={result['n_episodes']}"
+            )
 
     elif args.command == "sweep":
         from rl_framework.training.sweep import run_sweep

@@ -19,22 +19,93 @@ would stay random forever. Instead the wrapper reads the league from the
 snapshot *directory* that :class:`SelfPlayCallback` writes to; disk is the one
 channel that survives both cloudpickle cloning and true multiprocessing.
 
-Known limitation: the frozen policy is queried with the *raw* egocentric
-observation. If training normalises observations (``VecNormalize``), the
-wrapper sits inside that normalisation and the frozen policy sees a different
-input distribution than it trained on. This degrades opponent fidelity but
-keeps the mechanism simple; snapshotting the normaliser alongside each policy
-is a possible follow-up.
+Observation normalisation: the wrapper sits *inside* training's
+``VecNormalize``, so it hands the frozen policy raw egocentric observations.
+To keep the opponent on-distribution, each league snapshot is saved with its
+obs normaliser (a ``<stem>_vecnorm.pkl`` sidecar written by
+``SelfPlayCallback``), and :class:`FrozenPolicy` re-applies it before
+predicting. If a snapshot has no sidecar (training ran without normalisation)
+the raw observation is used, which is then correct.
 """
 
 from __future__ import annotations
 
+import pickle
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from pettingzoo.utils import BaseParallelWrapper
 from stable_baselines3 import PPO
+
+# Suffix for the per-snapshot observation-normaliser sidecar written next to
+# each league snapshot, so a frozen opponent can normalise its observations the
+# same way it did during training (see module docstring's "Known limitation").
+VECNORM_SUFFIX = "_vecnorm.pkl"
+
+
+def load_obs_normalizer(path: str | Path) -> Any | None:
+    """Load a saved ``VecNormalize`` from *path* for obs normalisation only.
+
+    Returns the (venv-less) ``VecNormalize`` instance, or ``None`` if the file
+    is missing. ``VecNormalize`` drops its ``venv`` on pickling, so the loaded
+    object supports ``normalize_obs`` without an attached env.
+    """
+    path = Path(path)
+    if not path.exists():
+        return None
+    with path.open("rb") as fh:
+        return pickle.load(fh)
+
+
+class FrozenPolicy:
+    """A frozen policy paired with the obs normaliser it was trained under.
+
+    Wraps a loaded SB3 model so callers can hand it *raw* observations: if a
+    normaliser is present the observation is normalised before prediction,
+    matching the distribution the policy saw during training. This closes the
+    raw-vs-normalised mismatch that would otherwise make league opponents play
+    off-distribution.
+    """
+
+    def __init__(self, model: Any, normalizer: Any | None = None) -> None:
+        self._model = model
+        self._normalizer = normalizer
+
+    def predict(self, obs: np.ndarray, deterministic: bool = True):
+        if self._normalizer is not None:
+            obs = self._normalizer.normalize_obs(obs)
+        return self._model.predict(obs, deterministic=deterministic)
+
+
+class RandomPolicy:
+    """Uniform-random opponent baseline (no model, no normalisation)."""
+
+    def __init__(self, action_space: Any) -> None:
+        self._action_space = action_space
+
+    def predict(self, obs: np.ndarray, deterministic: bool = True):
+        return self._action_space.sample(), None
+
+
+def load_frozen_policy(path: str | Path, action_space: Any) -> Any:
+    """Load a :class:`FrozenPolicy` from *path*, or a random baseline.
+
+    ``path == "random"`` returns a :class:`RandomPolicy` over *action_space*.
+    Otherwise the SB3 model is loaded and paired with an obs normaliser
+    discovered next to it: a per-snapshot ``<stem>_vecnorm.pkl`` sidecar (league
+    snapshots) if present, else a sibling ``vecnormalize.pkl`` (a training run's
+    final normaliser). If neither exists, observations are used raw.
+    """
+    if str(path) == "random":
+        return RandomPolicy(action_space)
+    path = Path(path)
+    model = PPO.load(str(path))
+    sidecar = path.with_name(path.stem + VECNORM_SUFFIX)
+    normalizer = load_obs_normalizer(sidecar)
+    if normalizer is None:
+        normalizer = load_obs_normalizer(path.with_name("vecnormalize.pkl"))
+    return FrozenPolicy(model, normalizer)
 
 
 class LeagueSampler:
@@ -57,7 +128,7 @@ class LeagueSampler:
         self._mode = sampling_mode
         self._alpha = recent_bias_alpha
         self._rng = np.random.default_rng(seed)
-        self._cache: dict[Path, PPO] = {}
+        self._cache: dict[Path, FrozenPolicy] = {}
 
     def _league_files(self) -> list[Path]:
         if not self._dir.exists():
@@ -67,8 +138,12 @@ class LeagueSampler:
             key=lambda p: int(p.stem.rsplit("_", 1)[-1]),
         )
 
-    def sample(self) -> PPO | None:
-        """Return a frozen opponent from the on-disk league, or ``None`` if empty."""
+    def sample(self) -> FrozenPolicy | None:
+        """Return a frozen opponent from the on-disk league, or ``None`` if empty.
+
+        Each opponent is paired with its per-snapshot obs normaliser sidecar so
+        it predicts on the same observation distribution it trained under.
+        """
         files = self._league_files()
         if not files:
             return None
@@ -85,7 +160,9 @@ class LeagueSampler:
             self._cache.pop(cached, None)
 
         if path not in self._cache:
-            self._cache[path] = PPO.load(str(path))
+            model = PPO.load(str(path))
+            normalizer = load_obs_normalizer(path.with_name(path.stem + VECNORM_SUFFIX))
+            self._cache[path] = FrozenPolicy(model, normalizer)
         return self._cache[path]
 
 

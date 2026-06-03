@@ -148,7 +148,9 @@ def test_league_sampler_recent_bias_prefers_latest(monkeypatch, tmp_path) -> Non
     sampler = LeagueSampler(
         tmp_path, sampling_mode="recent_bias", recent_bias_alpha=3.0, seed=0
     )
-    samples = [sampler.sample() for _ in range(300)]
+    # sample() wraps the loaded model in a FrozenPolicy; inspect the model
+    # (here a path string, via the patched PPO.load).
+    samples = [sampler.sample()._model for _ in range(300)]
     latest = sum(1 for s in samples if "selfplay_300" in s)
     earliest = sum(1 for s in samples if "selfplay_100" in s)
     assert latest > earliest
