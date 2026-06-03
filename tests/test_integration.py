@@ -7,12 +7,15 @@ the training stack.
 
 They are slower than unit tests (~5-15 s each) but still fast enough for CI.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
 
-def _walker_cfg(tmp_path: Path, timesteps: int = 256, checkpoint_every: int = 128) -> dict:
+def _walker_cfg(
+    tmp_path: Path, timesteps: int = 256, checkpoint_every: int = 128
+) -> dict:
     return {
         "experiment_name": "integ_walker",
         "seed": 0,
@@ -34,7 +37,11 @@ def _walker_cfg(tmp_path: Path, timesteps: int = 256, checkpoint_every: int = 12
                 "orientation_penalty_weight": 0.1,
                 "torque_penalty_weight": 0.01,
             },
-            "termination": {"min_height": -0.5, "max_tilt_radians": 1.5, "max_steps": 50},
+            "termination": {
+                "min_height": -0.5,
+                "max_tilt_radians": 1.5,
+                "max_steps": 50,
+            },
             "domain_randomization": {
                 "mass_scale_range": [1.0, 1.0],
                 "friction_range": [0.8, 0.8],
@@ -63,11 +70,68 @@ def test_walker_train_produces_model_and_vecnorm(tmp_path: Path) -> None:
     cfg = _walker_cfg(tmp_path)
     model_path = train(cfg)
 
-    zip_path = Path(str(model_path) + ".zip") if not str(model_path).endswith(".zip") else Path(model_path)
+    zip_path = (
+        Path(str(model_path) + ".zip")
+        if not str(model_path).endswith(".zip")
+        else Path(model_path)
+    )
     assert zip_path.exists(), f"Model zip not found: {zip_path}"
 
     vecnorm_path = zip_path.with_name("vecnormalize.pkl")
     assert vecnorm_path.exists(), f"vecnormalize.pkl not found alongside {zip_path}"
+
+
+def _arena_cfg(tmp_path: Path, timesteps: int = 256) -> dict:
+    return {
+        "experiment_name": "integ_arena",
+        "seed": 0,
+        "output": {"base_dir": str(tmp_path)},
+        "environment": {
+            "type": "organism_arena_parallel",
+            "sim": {"arena_half_extent": 1.0},
+            "battle_rules": {
+                "max_steps": 20,
+                "damage": 0.2,
+                "attack_range": 0.5,
+                "cooldown_steps": 0,
+            },
+        },
+        "training": {
+            "total_timesteps": timesteps,
+            "n_steps": 64,
+            "batch_size": 64,
+            "num_envs": 1,
+            "device": "cpu",
+            "normalize_observations": True,
+        },
+    }
+
+
+def test_arena_train_runs_and_logs_metrics(tmp_path: Path) -> None:
+    """Arena PPO training starts (regression for the SuperSuit seed bug) and the
+    ArenaMetricsCallback writes arena/* scalars to TensorBoard."""
+    import glob
+
+    from tensorboard.backend.event_processing.event_accumulator import (
+        EventAccumulator,
+    )
+
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path)
+    model_path = train(cfg)
+
+    zip_path = Path(str(model_path) + ".zip")
+    assert zip_path.exists(), f"Arena model zip not found: {zip_path}"
+
+    events = glob.glob(str(tmp_path / "**" / "events.out.tfevents.*"), recursive=True)
+    assert events, "no TensorBoard event file written"
+    acc = EventAccumulator(events[0])
+    acc.Reload()
+    arena_tags = [t for t in acc.Tags()["scalars"] if t.startswith("arena/")]
+    assert "arena/episode_outcomes" in arena_tags, (
+        f"arena metrics missing from TensorBoard; got {arena_tags}"
+    )
 
 
 def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
@@ -77,7 +141,11 @@ def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
 
     cfg = _walker_cfg(tmp_path)
     model_path = train(cfg)
-    zip_path = str(model_path) + ".zip" if not str(model_path).endswith(".zip") else str(model_path)
+    zip_path = (
+        str(model_path) + ".zip"
+        if not str(model_path).endswith(".zip")
+        else str(model_path)
+    )
 
     metrics = evaluate(cfg, zip_path)
 
@@ -103,10 +171,7 @@ def test_walker_checkpoint_saved_at_interval(tmp_path: Path) -> None:
     model_path = train(cfg)
 
     ckpt_dir = (
-        Path(tmp_path)
-        / cfg["experiment_name"]
-        / f"seed_{cfg['seed']}"
-        / "checkpoints"
+        Path(tmp_path) / cfg["experiment_name"] / f"seed_{cfg['seed']}" / "checkpoints"
     )
     checkpoints = list(ckpt_dir.glob("*.zip"))
     assert len(checkpoints) >= 1, (

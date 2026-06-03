@@ -10,6 +10,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
+from stable_baselines3.common.vec_env.base_vec_env import VecEnvWrapper
 
 from rl_framework.envs.registry import make_env
 from rl_framework.training.curriculum_callback import CurriculumCallback
@@ -59,6 +60,36 @@ class StopOnEvent(BaseCallback):
 
     def _on_step(self) -> bool:
         return not self._stop_event.is_set()
+
+
+class _SeedableVecEnv(VecEnvWrapper):
+    """Add a working ``seed()`` to SuperSuit's SB3 arena vec env.
+
+    SuperSuit 3.10's ``ConcatVecEnv`` only supports seeding through
+    ``reset(seed=)`` and exposes no ``seed()`` method, yet this Stable-Baselines3
+    version's ``set_random_seed`` calls ``env.seed(seed)`` during ``PPO``
+    construction — which otherwise raises ``AttributeError`` and prevents arena
+    training from starting at all. Routing the seed through SuperSuit's own
+    ``reset(seed=)`` is not an option: its ``SB3VecEnvWrapper.reset`` re-enters
+    the same broken ``seed()`` call and recurses.
+
+    The arena env's internal RNG is already seeded from ``cfg["seed"]`` at
+    construction and preserved across ``reset(seed=None)``, so the only thing
+    SB3's ``env.seed()`` needs to do here is seed the action/observation spaces
+    for reproducible sampling.
+    """
+
+    def reset(self):  # type: ignore[override]
+        return self.venv.reset()
+
+    def step_wait(self):
+        return self.venv.step_wait()
+
+    def seed(self, seed: int | None = None):
+        if seed is not None:
+            self.action_space.seed(seed)
+            self.observation_space.seed(seed)
+        return [seed] * self.num_envs
 
 
 class ArenaMetricsCallback(BaseCallback):
@@ -207,6 +238,8 @@ def train(
             num_cpus=max(num_envs, 1),
             base_class="stable_baselines3",
         )
+        # SuperSuit's SB3 vec env lacks seed(), which SB3 calls during PPO init.
+        vec_env = _SeedableVecEnv(vec_env)
     else:
         env_fns = [
             _build_single_env(env_cfg, monitor_dir=paths.logs_dir, rank=i)
