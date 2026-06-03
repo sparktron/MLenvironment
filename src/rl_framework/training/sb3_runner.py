@@ -61,6 +61,60 @@ class StopOnEvent(BaseCallback):
         return not self._stop_event.is_set()
 
 
+class ArenaMetricsCallback(BaseCallback):
+    """Log per-episode arena outcomes (win rates, timeouts) to TensorBoard.
+
+    The arena env is wrapped through SuperSuit rather than SB3's ``Monitor``,
+    so ``rollout/ep_rew_mean`` is unavailable. This callback instead reads the
+    ``episode_outcome`` annotation that ``OrganismArenaParallelEnv.step()``
+    attaches to ``infos`` on terminal/truncated steps and records aggregate
+    win rates at the end of each rollout.
+
+    Note: SuperSuit's vec-env conversion surfaces one ``info`` per agent slot,
+    so each finished episode contributes its outcome from both perspectives.
+    Win rates are therefore computed as a fraction of *outcome observations*,
+    which keeps the ratios correct even though the raw count is doubled.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(verbose=0)
+        self._wins = {"agent_0": 0, "agent_1": 0}
+        self._timeouts = 0
+        self._draws = 0
+        self._outcomes = 0
+
+    def _on_step(self) -> bool:
+        for info in self.locals.get("infos", []):
+            outcome = info.get("episode_outcome")
+            if not outcome:
+                continue
+            self._outcomes += 1
+            kind = outcome.get("outcome")
+            if kind == "timeout":
+                self._timeouts += 1
+            elif kind == "draw":
+                self._draws += 1
+            else:
+                winner = outcome.get("winner")
+                if winner in self._wins:
+                    self._wins[winner] += 1
+        return True
+
+    def _on_rollout_end(self) -> None:
+        if self._outcomes == 0:
+            return
+        total = self._outcomes
+        self.logger.record("arena/agent_0_win_rate", self._wins["agent_0"] / total)
+        self.logger.record("arena/agent_1_win_rate", self._wins["agent_1"] / total)
+        self.logger.record("arena/timeout_rate", self._timeouts / total)
+        self.logger.record("arena/draw_rate", self._draws / total)
+        self.logger.record("arena/episode_outcomes", total)
+        self._wins = {"agent_0": 0, "agent_1": 0}
+        self._timeouts = 0
+        self._draws = 0
+        self._outcomes = 0
+
+
 def _build_single_env(
     env_cfg: dict[str, Any], monitor_dir: Path | None = None, rank: int = 0
 ):
@@ -229,6 +283,10 @@ def train(
         # Caller-supplied callbacks (e.g. LiveTuningCallback from the GUI).
         if extra_callbacks:
             callbacks.extend(extra_callbacks)
+
+        # Arena training has no Monitor wrapper; surface win/loss metrics instead.
+        if env_cfg["type"] == "organism_arena_parallel":
+            callbacks.append(ArenaMetricsCallback())
 
         # Curriculum learning: bump env difficulty when performance exceeds threshold.
         curriculum_cfg = cfg.get("curriculum", {})

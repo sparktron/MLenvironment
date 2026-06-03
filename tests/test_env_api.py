@@ -212,3 +212,76 @@ def test_organism_env_attack_binary_mode_is_a_cliff() -> None:
     noop = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     _, rewards, _, _, _ = env.step({"agent_0": attack, "agent_1": noop})
     assert abs(rewards["agent_0"] - 0.1) < 1e-6, "full damage inside range"
+
+
+def test_organism_env_infos_episode_outcome_on_ko() -> None:
+    """Feature 2: terminal step annotates infos with a 'ko' episode_outcome."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "battle_rules": {"damage": 10.0, "attack_range": 5.0, "cooldown_steps": 0},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    env.state["agent_1"]["health"] = 0.001
+    env.state["agent_0"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
+    env.state["agent_1"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
+    attack = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    noop = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+    _, _, terminations, _, infos = env.step({"agent_0": attack, "agent_1": noop})
+    assert any(terminations.values()), "episode should terminate on KO"
+    for info in infos.values():
+        assert "episode_outcome" in info
+        assert info["episode_outcome"]["outcome"] == "ko"
+        assert info["episode_outcome"]["winner"] == "agent_0"
+        assert info["episode_outcome"]["loser"] == "agent_1"
+
+
+def test_organism_env_infos_episode_outcome_on_timeout() -> None:
+    """Feature 2: truncation annotates infos with a 'timeout' episode_outcome."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "battle_rules": {"damage": 0.0, "max_steps": 1},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    noop = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+    _, _, _, truncations, infos = env.step({"agent_0": noop, "agent_1": noop})
+    assert all(truncations.values())
+    for info in infos.values():
+        assert info["episode_outcome"]["outcome"] == "timeout"
+        assert info["episode_outcome"]["winner"] is None
+
+
+def test_arena_metrics_callback_computes_win_rates() -> None:
+    """ArenaMetricsCallback aggregates outcomes and records win rates."""
+    from rl_framework.training.sb3_runner import ArenaMetricsCallback
+
+    class _StubLogger:
+        def __init__(self) -> None:
+            self.records: dict[str, float] = {}
+
+        def record(self, key: str, value: float) -> None:
+            self.records[key] = value
+
+    from types import SimpleNamespace
+
+    cb = ArenaMetricsCallback()
+    cb.model = SimpleNamespace(logger=_StubLogger())
+    # Three episodes: agent_0 KO win, agent_1 KO win, a timeout.
+    cb.locals = {
+        "infos": [
+            {"episode_outcome": {"outcome": "ko", "winner": "agent_0"}},
+            {"episode_outcome": {"outcome": "ko", "winner": "agent_1"}},
+            {"episode_outcome": {"outcome": "timeout", "winner": None}},
+            {"step": 5},  # non-terminal info — ignored
+        ]
+    }
+    cb._on_step()
+    cb._on_rollout_end()
+    recs = cb.logger.records
+    assert abs(recs["arena/agent_0_win_rate"] - 1 / 3) < 1e-9
+    assert abs(recs["arena/agent_1_win_rate"] - 1 / 3) < 1e-9
+    assert abs(recs["arena/timeout_rate"] - 1 / 3) < 1e-9
+    assert recs["arena/episode_outcomes"] == 3

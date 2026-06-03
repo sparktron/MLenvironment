@@ -203,12 +203,44 @@ class OrganismArenaParallelEnv(ParallelEnv):
                     rewards[winner] += 1.0
                 rewards[agent] -= 1.0
 
+        # Build a per-episode outcome annotation for instrumentation (Feature 2).
+        # The same dict is attached to every agent's info so a metrics callback
+        # can read the result from whichever agent slot it observes.
+        terminated = [agent for agent in active_agents if terminations[agent]]
+        episode_outcome: dict[str, Any] | None = None
+        if terminated:
+            if len(terminated) == len(active_agents):
+                # Simultaneous knockout — no single winner.
+                episode_outcome = {
+                    "winner": None,
+                    "outcome": "draw",
+                    "step": self.step_count,
+                }
+            else:
+                loser = terminated[0]
+                winner = "agent_1" if loser == "agent_0" else "agent_0"
+                episode_outcome = {
+                    "winner": winner,
+                    "loser": loser,
+                    "outcome": "ko",
+                    "step": self.step_count,
+                }
+        elif all(truncations.values()):
+            episode_outcome = {
+                "winner": None,
+                "outcome": "timeout",
+                "step": self.step_count,
+            }
+
         if any(terminations.values()) or all(truncations.values()):
             self.agents = []
 
         # All five dicts must have identical keys (active_agents) per PettingZoo Parallel API.
         observations = {agent: self._obs(agent) for agent in active_agents}
         infos = {agent: {"step": self.step_count} for agent in active_agents}
+        if episode_outcome is not None:
+            for agent in active_agents:
+                infos[agent]["episode_outcome"] = episode_outcome
         # Record positions *after* building observations so the next step's
         # velocity reflects the displacement that occurs during that step.
         for agent in active_agents:
