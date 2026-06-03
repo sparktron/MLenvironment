@@ -134,6 +134,29 @@ def test_arena_train_runs_and_logs_metrics(tmp_path: Path) -> None:
     )
 
 
+def test_arena_selfplay_train_writes_league(tmp_path: Path) -> None:
+    """Self-play arena training runs end to end and writes league snapshots that
+    the env's LeagueSampler can consume (regression for the single-agent
+    VecNormalize/uint8-dones crash and the cloudpickle-cloned-callback no-op)."""
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=320)
+    cfg["self_play"] = {"enabled": True, "snapshot_freq": 128, "max_league_size": 5}
+    model_path = train(cfg)
+
+    assert Path(str(model_path) + ".zip").exists()
+    league = list(
+        (
+            Path(tmp_path)
+            / cfg["experiment_name"]
+            / f"seed_{cfg['seed']}"
+            / "checkpoints"
+            / "league"
+        ).glob("selfplay_*.zip")
+    )
+    assert league, "self-play training wrote no league snapshots"
+
+
 def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
     """evaluate() appends a row to eval_metrics.csv and returns a metrics dict."""
     from rl_framework.training.eval_runner import evaluate

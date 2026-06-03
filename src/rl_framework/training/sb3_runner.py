@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import supersuit as ss
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
@@ -15,6 +16,10 @@ from stable_baselines3.common.vec_env.base_vec_env import VecEnvWrapper
 from rl_framework.envs.registry import make_env
 from rl_framework.training.curriculum_callback import CurriculumCallback
 from rl_framework.training.self_play_callback import SelfPlayCallback
+from rl_framework.training.self_play_env_wrapper import (
+    LeagueSampler,
+    SelfPlayEnvWrapper,
+)
 from rl_framework.utils.logging_utils import create_experiment_paths
 from rl_framework.utils.reproducibility import write_run_metadata
 
@@ -62,28 +67,36 @@ class StopOnEvent(BaseCallback):
         return not self._stop_event.is_set()
 
 
-class _SeedableVecEnv(VecEnvWrapper):
-    """Add a working ``seed()`` to SuperSuit's SB3 arena vec env.
+class _ArenaVecEnvAdapter(VecEnvWrapper):
+    """Adapt SuperSuit's SB3 arena vec env to SB3's expectations.
 
-    SuperSuit 3.10's ``ConcatVecEnv`` only supports seeding through
-    ``reset(seed=)`` and exposes no ``seed()`` method, yet this Stable-Baselines3
-    version's ``set_random_seed`` calls ``env.seed(seed)`` during ``PPO``
-    construction — which otherwise raises ``AttributeError`` and prevents arena
-    training from starting at all. Routing the seed through SuperSuit's own
-    ``reset(seed=)`` is not an option: its ``SB3VecEnvWrapper.reset`` re-enters
-    the same broken ``seed()`` call and recurses.
+    Two SuperSuit 3.10 ↔ Stable-Baselines3 incompatibilities are patched here:
 
-    The arena env's internal RNG is already seeded from ``cfg["seed"]`` at
-    construction and preserved across ``reset(seed=None)``, so the only thing
-    SB3's ``env.seed()`` needs to do here is seed the action/observation spaces
-    for reproducible sampling.
+    1. **Missing ``seed()``.** SuperSuit's ``ConcatVecEnv`` only supports seeding
+       through ``reset(seed=)`` and exposes no ``seed()`` method, yet SB3's
+       ``set_random_seed`` calls ``env.seed(seed)`` during ``PPO`` construction —
+       otherwise raising ``AttributeError`` before training can start. Routing
+       through SuperSuit's ``reset(seed=)`` is not viable: its
+       ``SB3VecEnvWrapper.reset`` re-enters the same broken ``seed()`` and
+       recurses. The arena env's RNG is already seeded from ``cfg["seed"]`` at
+       construction (and preserved across ``reset(seed=None)``), so ``seed()``
+       only needs to seed the action/observation spaces for reproducible
+       sampling.
+
+    2. **``uint8`` dones.** SuperSuit returns the ``dones`` array as ``uint8``.
+       ``VecNormalize.step_wait`` does ``self.returns[dones] = 0``, which numpy
+       interprets as *integer fancy-indexing* rather than a boolean mask — at
+       ``num_envs == 1`` (single-agent self-play) ``returns[[1]]`` is out of
+       bounds and crashes; at higher counts it silently resets the wrong slots.
+       Casting ``dones`` to ``bool`` restores mask semantics.
     """
 
     def reset(self):  # type: ignore[override]
         return self.venv.reset()
 
     def step_wait(self):
-        return self.venv.step_wait()
+        obs, rewards, dones, infos = self.venv.step_wait()
+        return obs, rewards, np.asarray(dones, dtype=bool), infos
 
     def seed(self, seed: int | None = None):
         if seed is not None:
@@ -229,8 +242,27 @@ def train(
 
     num_envs = int(cfg["training"].get("num_envs", 1))
 
+    # Self-play league config — used both to wrap the env (opponent routing) and
+    # to register the snapshot-saving callback later. The snapshot directory is
+    # the shared channel between them (survives SuperSuit's cloudpickle cloning).
+    self_play_cfg = cfg.get("self_play", {})
+    self_play_enabled = bool(self_play_cfg.get("enabled", False)) and (
+        env_cfg["type"] == "organism_arena_parallel"
+    )
+    league_dir = paths.checkpoints_dir / "league"
+
     if env_cfg["type"] == "organism_arena_parallel":
         par_env = make_env(env_cfg["type"], env_cfg)
+        if self_play_enabled:
+            # Route the opponent slot through a frozen past-self sampled from the
+            # on-disk league; exposes only the live agent to SB3.
+            sampler = LeagueSampler(
+                league_dir,
+                sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
+                recent_bias_alpha=float(self_play_cfg.get("recent_bias_alpha", 1.0)),
+                seed=cfg["seed"],
+            )
+            par_env = SelfPlayEnvWrapper(par_env, sampler)
         vec_env = ss.pettingzoo_env_to_vec_env_v1(par_env)
         vec_env = ss.concat_vec_envs_v1(
             vec_env,
@@ -238,8 +270,8 @@ def train(
             num_cpus=max(num_envs, 1),
             base_class="stable_baselines3",
         )
-        # SuperSuit's SB3 vec env lacks seed(), which SB3 calls during PPO init.
-        vec_env = _SeedableVecEnv(vec_env)
+        # Patch SuperSuit↔SB3 incompatibilities (missing seed(), uint8 dones).
+        vec_env = _ArenaVecEnvAdapter(vec_env)
     else:
         env_fns = [
             _build_single_env(env_cfg, monitor_dir=paths.logs_dir, rank=i)
@@ -326,15 +358,12 @@ def train(
         if curriculum_cfg.get("enabled", False):
             callbacks.append(CurriculumCallback(curriculum_cfg, env_cfg, verbose=1))
 
-        # Self-play league: periodically freeze policy snapshots as past opponents.
-        self_play_cfg = cfg.get("self_play", {})
-        if (
-            self_play_cfg.get("enabled", False)
-            and env_cfg["type"] == "organism_arena_parallel"
-        ):
+        # Self-play league: periodically freeze policy snapshots as past
+        # opponents. Writes to the same league_dir the env's LeagueSampler reads.
+        if self_play_enabled:
             callbacks.append(
                 SelfPlayCallback(
-                    snapshot_dir=paths.checkpoints_dir / "league",
+                    snapshot_dir=league_dir,
                     snapshot_freq=int(self_play_cfg.get("snapshot_freq", 5000)),
                     max_league_size=int(self_play_cfg.get("max_league_size", 10)),
                     sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
