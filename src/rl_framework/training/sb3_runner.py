@@ -267,6 +267,24 @@ def train(
 
     num_envs = int(cfg["training"].get("num_envs", 1))
 
+    # The arena path only works in a single process. SuperSuit's
+    # concat_vec_envs_v1 is called with num_cpus == num_envs, so num_envs > 1
+    # forks the envs into subprocesses. That breaks the arena in two ways:
+    #   * _ArenaVecEnvAdapter.env_method() reaches the live envs by walking the
+    #     in-process vec-env chain, which is empty once the envs live in child
+    #     processes — so reward annealing and curriculum updates become silent
+    #     no-ops (training looks fine but neither feature ever fires).
+    #   * SuperSuit 3.10's SB3 arena adapter is itself unstable at num_cpus >= 2.
+    # Fail loudly rather than train a subtly broken run.
+    if env_cfg["type"] == "organism_arena_parallel" and num_envs > 1:
+        raise ValueError(
+            "organism_arena_parallel training requires training.num_envs == 1 "
+            f"(got {num_envs}). The arena runs single-process: num_envs > 1 forks "
+            "SuperSuit into subprocesses, which silently disables live env_method "
+            "updates (reward annealing, curriculum) and is unstable in SuperSuit "
+            "3.10. Set training.num_envs: 1 for arena configs."
+        )
+
     # Self-play league config — used both to wrap the env (opponent routing) and
     # to register the snapshot-saving callback later. The snapshot directory is
     # the shared channel between them (survives SuperSuit's cloudpickle cloning).

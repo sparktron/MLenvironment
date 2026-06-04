@@ -83,6 +83,13 @@ class WalkerDynamics:
     velocity_gain: float = 1.0
 
     def __post_init__(self) -> None:
+        # Construction-time caches for the hot path. These freeze position_gain,
+        # velocity_gain, and max_torque at their __init__ values — mutating those
+        # fields on a live instance will NOT refresh these lists (and would leave
+        # the PD path reading cached caps while the torque path reads live
+        # torque_scale). Treat these three fields as construction-time-only; they
+        # are not part of the live-tuning surface (LiveTuningCallback only touches
+        # env_cfg sections, never WalkerDynamics).
         self._pos_gains: list[float] = [self.position_gain] * NUM_JOINTS
         self._vel_gains: list[float] = [self.velocity_gain] * NUM_JOINTS
         self._torque_caps_list: list[float] = (

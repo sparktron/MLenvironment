@@ -45,9 +45,15 @@ reward_annealing:
 
 # Win-rate-gated curriculum: ramp combat tempo as agent_0's win rate climbs.
 # Metric is logged by ArenaMetricsCallback; thresholds are win-rate fractions.
+# warmup_steps holds level-ups until the league has real opponents (>= the
+# self_play.snapshot_freq above); before that the opponent is random actions
+# and the win rate would advance the curriculum against noise.
+# Difficulty ramps monotonically up from the base (damage 0.06, cooldown 3):
+# higher damage + shorter cooldown = faster, deadlier combat at each level.
 curriculum:
   enabled: true
   metric: arena/agent_0_win_rate
+  warmup_steps: 5000
   max_level: 3
   level_up_thresholds:
     0: 0.60
@@ -55,14 +61,14 @@ curriculum:
     2: 0.70
   level_params:
     1:
-      battle_rules.cooldown_steps: 4
-      battle_rules.damage: 0.03
-    2:
       battle_rules.cooldown_steps: 3
-      battle_rules.damage: 0.05
+      battle_rules.damage: 0.08
+    2:
+      battle_rules.cooldown_steps: 2
+      battle_rules.damage: 0.10
     3:
       battle_rules.cooldown_steps: 2
-      battle_rules.damage: 0.07
+      battle_rules.damage: 0.12
 
 output:
   base_dir: outputs

@@ -28,9 +28,7 @@ class RewardAnnealingCallback(BaseCallback):
     def _on_step(self) -> bool:
         scale = max(0.0, 1.0 - self.num_timesteps / self.anneal_steps)
         # Avoid redundant env_method calls once fully annealed or unchanged.
-        if self._last_scale is not None and (
-            scale == self._last_scale or (scale == 0.0 and self._last_scale == 0.0)
-        ):
+        if scale == self._last_scale:
             return True
         if self.training_env is not None:
             self.training_env.env_method(

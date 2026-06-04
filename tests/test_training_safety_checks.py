@@ -7,6 +7,26 @@ from rl_framework.training.self_play_callback import SelfPlayCallback
 from rl_framework.utils.config_merge import set_nested
 
 
+def test_arena_training_rejects_multiple_envs(tmp_path) -> None:
+    """The arena runs single-process; num_envs > 1 must fail loudly.
+
+    num_envs > 1 forks SuperSuit into subprocesses, which silently disables the
+    live env_method updates (reward annealing, curriculum) and is unstable in
+    SuperSuit 3.10. Guard fires before any env is built.
+    """
+    from rl_framework.training.sb3_runner import train
+
+    cfg = {
+        "experiment_name": "arena_guard_test",
+        "seed": 0,
+        "environment": {"type": "organism_arena_parallel"},
+        "training": {"total_timesteps": 1, "num_envs": 2},
+        "output": {"base_dir": str(tmp_path)},
+    }
+    with pytest.raises(ValueError, match="num_envs == 1"):
+        train(cfg)
+
+
 def test_set_nested_requires_existing_leaf_key() -> None:
     cfg = {"training": {"learning_rate": 3e-4}}
     with pytest.raises(KeyError, match="leaf key 'missing_key' not found"):

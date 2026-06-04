@@ -99,10 +99,14 @@ def run_arena_eval(
     opponent_returns: list[float] = []
     episode = 0
     try:
-        for policy_slot in slots:
-            for _ in range(n_episodes):
+        # Pair the two spawn orientations on identical seeds so role-swapping
+        # cancels positional bias exactly: episode i is replayed from the same
+        # initial conditions with the policy in each slot, rather than each
+        # orientation drawing fresh (unmatched) seeds.
+        for i in range(n_episodes):
+            for policy_slot in slots:
                 result, p_ret, o_ret = _play_episode(
-                    env, policy, opponent, policy_slot, base_seed + episode
+                    env, policy, opponent, policy_slot, base_seed + i
                 )
                 episode += 1
                 policy_returns.append(p_ret)

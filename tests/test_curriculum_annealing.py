@@ -103,3 +103,33 @@ def test_curriculum_gates_on_configured_metric() -> None:
 def test_curriculum_default_metric_is_ep_rew_mean() -> None:
     cb = CurriculumCallback({"enabled": True}, env_cfg={})
     assert cb._metric == "rollout/ep_rew_mean"
+
+
+def test_curriculum_warmup_suppresses_early_level_ups() -> None:
+    """Below warmup_steps no level-up fires even with the metric over threshold.
+
+    Guards the arena case where the league is empty (random opponent) early on,
+    so an over-threshold win rate would otherwise advance against noise.
+    """
+    env = _FakeVecEnv()
+    cur_cfg = {
+        "enabled": True,
+        "metric": "arena/agent_0_win_rate",
+        "level_up_threshold": 0.6,
+        "warmup_steps": 5000,
+        "max_level": 2,
+        "level_params": {1: {"battle_rules.cooldown_steps": 3}},
+    }
+    cb = CurriculumCallback(cur_cfg, env_cfg={}, verbose=0)
+    logger = _StubLogger({"arena/agent_0_win_rate": 0.95})
+
+    # Before warmup: metric well over threshold, but no level-up.
+    _attach(cb, num_timesteps=4999, env=env, logger=logger)
+    cb._on_rollout_end()
+    assert cb.current_level == 0, "warmup must suppress level-ups"
+    assert not env.calls, "no env_method push before warmup"
+
+    # After warmup: the gate opens.
+    _attach(cb, num_timesteps=5000, env=env, logger=logger)
+    cb._on_rollout_end()
+    assert cb.current_level == 1, "level-up should fire once past warmup"

@@ -64,6 +64,12 @@ class CurriculumCallback(BaseCallback):
         # the arena gates on a win-rate metric logged by ArenaMetricsCallback
         # (e.g. "arena/agent_0_win_rate"), which has no Monitor ep_rew_mean.
         self._metric = str(curriculum_cfg.get("metric", "rollout/ep_rew_mean"))
+        # Suppress level-ups until this many timesteps have elapsed. For the
+        # arena self-play setup the league is empty (opponent = random actions)
+        # until the first snapshot lands, so an early win rate reflects beating
+        # noise, not skill. Gating on warmup_steps >= snapshot_freq stops the
+        # curriculum from ramping difficulty against a random opponent.
+        self._warmup_steps = int(curriculum_cfg.get("warmup_steps", 0))
         self._level_params: dict[int, dict[str, Any]] = {
             int(k): v for k, v in curriculum_cfg.get("level_params", {}).items()
         }
@@ -75,6 +81,11 @@ class CurriculumCallback(BaseCallback):
     def _on_rollout_end(self) -> None:
         """Check after every rollout whether performance warrants a level bump."""
         if self._level >= self._max_level:
+            return
+
+        # Hold off until the warmup window has elapsed (e.g. until the self-play
+        # league has real opponents rather than a random fallback).
+        if self.num_timesteps < self._warmup_steps:
             return
 
         # Read the configured metric from the logger (e.g. ep_rew_mean for the
