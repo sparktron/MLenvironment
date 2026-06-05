@@ -57,12 +57,15 @@ def run_multi_seed(
     if max_workers is None:
         max_workers = min(len(seeds), os.cpu_count() or 1)
 
-    # Build per-seed configs up front.
+    # Build per-seed configs up front. The seed is the only thing that varies;
+    # create_experiment_paths already nests each run under seed_<seed>/, so the
+    # experiment_name is left untouched. Each seed lands at the natural sibling
+    # path outputs/<experiment_name>/seed_<seed>/, co-located with the
+    # multi_seed_summary/ written below.
     seed_args: list[tuple[int, dict[str, Any]]] = []
     for seed in seeds:
         run_cfg = deepcopy(cfg)
         run_cfg["seed"] = seed
-        run_cfg["experiment_name"] = f"{cfg['experiment_name']}__seed_{seed}"
         seed_args.append((seed, run_cfg))
 
     per_seed_metrics: dict[int, dict[str, float]] = {}

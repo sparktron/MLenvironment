@@ -669,32 +669,45 @@ def list_outputs():
     if not outputs_dir.exists():
         return jsonify([])
     results = []
+
+    def _append_seed(experiment: str, run_id: str | None, seed_dir: Path) -> None:
+        checkpoints = (
+            list((seed_dir / "checkpoints").glob("*.zip"))
+            if (seed_dir / "checkpoints").exists()
+            else []
+        )
+        results.append(
+            {
+                "experiment": experiment,
+                "run_id": run_id,
+                "seed": seed_dir.name,
+                "path": str(seed_dir.relative_to(outputs_dir)),
+                "checkpoints": [p.name for p in sorted(checkpoints)],
+                "has_final_model": (
+                    seed_dir / "checkpoints" / "final_model.zip"
+                ).exists(),
+            }
+        )
+
+    def _is_seed_dir(p: Path) -> bool:
+        return p.is_dir() and not p.is_symlink() and p.name.startswith("seed_")
+
     for exp_dir in sorted(outputs_dir.iterdir()):
         if not exp_dir.is_dir() or exp_dir.is_symlink():
             continue
+        # Plain single-run / multi-seed layout: <experiment>/seed_<seed>/.
         for seed_dir in sorted(exp_dir.iterdir()):
-            if (
-                not seed_dir.is_dir()
-                or seed_dir.is_symlink()
-                or not seed_dir.name.startswith("seed_")
-            ):
-                continue
-            checkpoints = (
-                list((seed_dir / "checkpoints").glob("*.zip"))
-                if (seed_dir / "checkpoints").exists()
-                else []
-            )
-            results.append(
-                {
-                    "experiment": exp_dir.name,
-                    "seed": seed_dir.name,
-                    "path": str(seed_dir.relative_to(outputs_dir)),
-                    "checkpoints": [p.name for p in sorted(checkpoints)],
-                    "has_final_model": (
-                        seed_dir / "checkpoints" / "final_model.zip"
-                    ).exists(),
-                }
-            )
+            if _is_seed_dir(seed_dir):
+                _append_seed(exp_dir.name, None, seed_dir)
+        # Sweep / morphology variants: <experiment>/runs/<run_id>/seed_<seed>/.
+        runs_dir = exp_dir / "runs"
+        if runs_dir.is_dir() and not runs_dir.is_symlink():
+            for run_dir in sorted(runs_dir.iterdir()):
+                if not run_dir.is_dir() or run_dir.is_symlink():
+                    continue
+                for seed_dir in sorted(run_dir.iterdir()):
+                    if _is_seed_dir(seed_dir):
+                        _append_seed(exp_dir.name, run_dir.name, seed_dir)
     return jsonify(results)
 
 

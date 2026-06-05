@@ -8,7 +8,7 @@
 - Add CSV schema stability checks/versioning for metrics files.
 
 ## Larger changes (separate session)
-- Rework experiment storage layout to avoid name mutation in multi-seed and sweep orchestration.
+- ~~Rework experiment storage layout to avoid name mutation in multi-seed and sweep orchestration.~~ **Done** — variants now route through `output.run_id` (`<experiment>/runs/<run_id>/seed_<seed>/`); multi-seed no longer mutates the name. See `create_experiment_paths`.
 - Replace file-based GUI tuning/status IPC with atomic event stream (SSE/WebSocket or durable queue).
 - Introduce end-to-end reproducibility mode (deterministic settings + enforcement + metadata).
 - Add CI pipeline for lint/test/type checks and lockfile validation.

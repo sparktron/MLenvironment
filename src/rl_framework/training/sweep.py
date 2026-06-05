@@ -44,12 +44,16 @@ def run_sweep(cfg: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]
                 set_nested(run_cfg, k, v)
                 name_suffix.append(f"{k.split('.')[-1]}_{v}")
                 overrides[k] = v
-            run_cfg["experiment_name"] = (
-                f"{cfg['experiment_name']}__{'__'.join(name_suffix)}"
-            )
+            # Each combo is a distinct run under the same experiment. Route it
+            # through output.run_id rather than mutating experiment_name, so it
+            # lands at outputs/<experiment_name>/runs/<run_id>/seed_<seed>/ and
+            # stays co-located with the sweep_summary/ written below.
+            run_id = "__".join(name_suffix)
+            run_cfg.setdefault("output", {})["run_id"] = run_id
             planned_runs.append(
                 {
-                    "experiment_name": run_cfg["experiment_name"],
+                    "experiment_name": cfg["experiment_name"],
+                    "run_id": run_id,
                     "overrides": overrides,
                     "status": "pending",
                 }
@@ -63,7 +67,7 @@ def run_sweep(cfg: dict[str, Any], dry_run: bool = False) -> list[dict[str, Any]
                 except Exception as exc:
                     logger.error(
                         "Sweep combo %s failed: %s",
-                        run_cfg["experiment_name"],
+                        run_cfg["output"]["run_id"],
                         exc,
                         exc_info=True,
                     )
@@ -86,12 +90,13 @@ def _write_sweep_manifest(
     path = out_dir / "planned_runs.csv"
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["index", "experiment_name", "overrides", "status"])
+        writer.writerow(["index", "experiment_name", "run_id", "overrides", "status"])
         for i, run in enumerate(planned_runs):
             writer.writerow(
                 [
                     i,
                     run["experiment_name"],
+                    run.get("run_id", ""),
                     json.dumps(run["overrides"]),
                     run.get("status", ""),
                 ]

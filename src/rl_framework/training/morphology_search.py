@@ -2,8 +2,10 @@
 
 Thin loop around :class:`~rl_framework.evolution.simple_search.RandomMorphologySearch`.
 Each trial gets a mutated copy of ``cfg["environment"]["morphology"]`` and a
-distinct ``experiment_name`` suffix so outputs don't overwrite each other.
+distinct ``output.run_id`` (``morph_<i>``) so trials land in separate output
+subtrees (``<experiment_name>/runs/morph_<i>/``) without overwriting each other.
 """
+
 from __future__ import annotations
 
 import copy
@@ -56,7 +58,11 @@ def run_morphology_search(
         trial_cfg = copy.deepcopy(cfg)
         mutated = searcher.mutate(base_morph)
         trial_cfg["environment"]["morphology"] = mutated
-        trial_cfg["experiment_name"] = f"{base_name}_morph_{i:03d}"
+        # Each trial is a distinct run under the same experiment. Route it
+        # through output.run_id rather than mutating experiment_name, so trials
+        # land at outputs/<experiment_name>/runs/morph_<i>/seed_<seed>/.
+        run_id = f"morph_{i:03d}"
+        trial_cfg.setdefault("output", {})["run_id"] = run_id
 
         model_path = train(trial_cfg)
         metrics = evaluate(trial_cfg, _as_model_zip_path(str(model_path)))
@@ -64,7 +70,8 @@ def run_morphology_search(
         score = float(metrics.get("mean_return", float("-inf")))
         entry = {
             "trial": i,
-            "experiment_name": trial_cfg["experiment_name"],
+            "experiment_name": base_name,
+            "run_id": run_id,
             "morphology": mutated,
             "model_path": str(model_path),
             "score": score,

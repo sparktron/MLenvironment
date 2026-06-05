@@ -4,6 +4,7 @@ These exercise config CRUD, schema, training manager error paths, and outputs
 listing through Flask's in-process test client. Real training is not spun up
 because only the error/validation branches of the training endpoints are hit.
 """
+
 from __future__ import annotations
 
 
@@ -39,6 +40,7 @@ def _minimal_cfg(name: str = "demo") -> dict:
 
 
 # ----- config CRUD -----
+
 
 def test_list_configs_empty(client):
     c, _, _ = client
@@ -113,6 +115,7 @@ def test_create_config_rejects_traversal_name(client):
 
 # ----- schema -----
 
+
 def test_schema_returns_both_envs(client):
     c, _, _ = client
     resp = c.get("/api/schema")
@@ -124,6 +127,7 @@ def test_schema_returns_both_envs(client):
 
 
 # ----- training manager error paths -----
+
 
 def test_train_start_empty_payload(client):
     c, _, _ = client
@@ -225,6 +229,7 @@ def test_list_runs_initially_empty(client):
 
 # ----- outputs -----
 
+
 def test_list_outputs_empty_when_missing(client):
     c, _, _ = client
     resp = c.get("/api/outputs")
@@ -243,10 +248,36 @@ def test_list_outputs_lists_experiments(client, tmp_path):
     data = resp.get_json()
     assert len(data) == 1
     assert data[0]["experiment"] == "exp1"
+    assert data[0]["run_id"] is None
     assert data[0]["has_final_model"] is True
 
 
+def test_list_outputs_includes_sweep_morph_run_variants(client, tmp_path):
+    c, _, base = client
+    outputs = base / "outputs"
+    # Plain seed run directly under the experiment.
+    (outputs / "exp1" / "seed_0" / "checkpoints").mkdir(parents=True)
+    # A sweep/morph variant nested under runs/<run_id>/seed_<seed>/.
+    variant = outputs / "exp1" / "runs" / "lr_0.001" / "seed_0" / "checkpoints"
+    variant.mkdir(parents=True)
+    (variant / "final_model.zip").write_bytes(b"")
+
+    resp = c.get(f"/api/outputs?base_dir={outputs}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+
+    plain = [d for d in data if d["run_id"] is None]
+    nested = [d for d in data if d["run_id"] == "lr_0.001"]
+    assert len(plain) == 1 and plain[0]["experiment"] == "exp1"
+    assert len(nested) == 1
+    assert nested[0]["experiment"] == "exp1"
+    assert nested[0]["seed"] == "seed_0"
+    assert nested[0]["path"] == "exp1/runs/lr_0.001/seed_0"
+    assert nested[0]["has_final_model"] is True
+
+
 # ----- frames endpoint -----
+
 
 def _inject_run_with_callback(manager, run_id: str, callback=None) -> None:
     """Insert a synthetic _RunState directly into manager._runs."""

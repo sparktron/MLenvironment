@@ -142,13 +142,15 @@ def _render_replay(cfg: dict, model_path: str) -> dict:
     env_cfg = cfg["environment"]
     env_cfg["render_mode"] = "rgb_array"
     env = make_env(env_cfg["type"], env_cfg)
-    out_dir = (
-        Path(cfg["output"]["base_dir"])
-        / cfg["experiment_name"]
-        / f"seed_{cfg['seed']}"
-        / "videos"
+    from rl_framework.utils.logging_utils import create_experiment_paths
+
+    paths = create_experiment_paths(
+        cfg["output"]["base_dir"],
+        cfg["experiment_name"],
+        cfg["seed"],
+        run_id=cfg["output"].get("run_id"),
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = paths.videos_dir
     model = PPO.load(model_path)
 
     if isinstance(env, ParallelEnv):

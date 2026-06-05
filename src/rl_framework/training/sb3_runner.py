@@ -254,7 +254,10 @@ def train(
         )
 
     paths = create_experiment_paths(
-        cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"]
+        cfg["output"]["base_dir"],
+        cfg["experiment_name"],
+        cfg["seed"],
+        run_id=cfg["output"].get("run_id"),
     )
     repro_cfg = cfg.get("reproducibility", {})
     write_run_metadata(

@@ -21,7 +21,10 @@ def _was_truncated(infos: Any) -> bool:
 def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
     env_cfg = cfg["environment"]
     paths = create_experiment_paths(
-        cfg["output"]["base_dir"], cfg["experiment_name"], cfg["seed"]
+        cfg["output"]["base_dir"],
+        cfg["experiment_name"],
+        cfg["seed"],
+        run_id=cfg["output"].get("run_id"),
     )
 
     if env_cfg["type"] == "organism_arena_parallel":
