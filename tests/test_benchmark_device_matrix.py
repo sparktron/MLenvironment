@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 
@@ -81,3 +82,75 @@ def test_run_regime_timeout_writes_progress_event(monkeypatch, tmp_path) -> None
     assert [event["event"] for event in events] == ["regime_started", "regime_timed_out"]
     assert events[1]["name"] == "CPU-4workers"
     assert events[1]["timeout_s"] == 300.0
+
+
+def test_main_runs_each_regime_once_with_progress_args(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    progress_log = tmp_path / "progress.jsonl"
+    calls: list[tuple[str, int, int]] = []
+
+    class FakeProcess:
+        pid = 12345
+
+        def __init__(self, cmd: list[str]) -> None:
+            result_path = cmd[cmd.index("--json-out") + 1]
+            with open(result_path, "w", encoding="utf-8") as fh:
+                json.dump({"mean_return_mean": 1.0, "mean_return_std": 0.0}, fh)
+
+        def poll(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        bdm,
+        "REGIMES",
+        (bdm.Regime(name="CPU-4workers", device="cpu", max_workers=4),),
+    )
+    monkeypatch.setattr(bdm.subprocess, "Popen", lambda cmd: FakeProcess(cmd))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "benchmark_device_matrix.py",
+            "--config-name",
+            "robot_walk_basic",
+            "--seeds",
+            "0",
+            "--total-timesteps",
+            "1",
+            "--inactivity-timeout-s",
+            "5",
+            "--progress-log",
+            str(progress_log),
+            "--no-debug",
+        ],
+    )
+
+    original = bdm._run_regime
+
+    def spy_run_regime(*args, **kwargs):
+        calls.append(
+            (
+                kwargs["progress_log"].name,
+                kwargs["ordinal"],
+                kwargs["total_regimes"],
+            )
+        )
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(bdm, "_run_regime", spy_run_regime)
+
+    bdm.main()
+
+    assert calls == [("progress.jsonl", 1, 1)]
+    events = [
+        json.loads(line) for line in progress_log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [event["event"] for event in events] == [
+        "matrix_started",
+        "regime_started",
+        "regime_completed",
+        "matrix_completed",
+    ]
+    output = capsys.readouterr().out
+    assert '"winner"' in output
