@@ -22,7 +22,10 @@ from rl_framework.training.self_play_env_wrapper import (
     SelfPlayEnvWrapper,
 )
 from rl_framework.utils.logging_utils import create_experiment_paths
-from rl_framework.utils.reproducibility import write_run_metadata
+from rl_framework.utils.reproducibility import (
+    check_resume_provenance,
+    write_run_metadata,
+)
 
 
 def _validate_resume_path(resume_from: Path, normalize: bool) -> None:
@@ -247,10 +250,14 @@ def train(
         training continues from the saved timestep counter.  If a sibling
         ``vecnormalize.pkl`` exists, its running statistics are also restored.
     """
+    repro_cfg = cfg.get("reproducibility", {})
     if resume_from is not None:
         _validate_resume_path(
             Path(resume_from),
             cfg["training"].get("normalize_observations", True),
+        )
+        check_resume_provenance(
+            resume_from, cfg, strict=bool(repro_cfg.get("strict", False))
         )
 
     paths = create_experiment_paths(
@@ -259,7 +266,6 @@ def train(
         cfg["seed"],
         run_id=cfg["output"].get("run_id"),
     )
-    repro_cfg = cfg.get("reproducibility", {})
     write_run_metadata(
         paths.run_dir,
         cfg,
