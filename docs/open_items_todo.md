@@ -11,8 +11,8 @@
 - ~~Rework experiment storage layout to avoid name mutation in multi-seed and sweep orchestration.~~ **Done** — variants now route through `output.run_id` (`<experiment>/runs/<run_id>/seed_<seed>/`); multi-seed no longer mutates the name. See `create_experiment_paths`.
 - Replace file-based GUI tuning/status IPC with atomic event stream (SSE/WebSocket or durable queue).
 - Introduce end-to-end reproducibility mode (deterministic settings + enforcement + metadata).
-- Add CI pipeline for lint/test/type checks and lockfile validation.
-- Remove tracked generated artifacts (`__pycache__`, `.egg-info`) from git history and enforce clean repository hygiene.
+- ~~Add CI pipeline for lint/test/type checks and lockfile validation.~~ **Done** — `.github/workflows/ci.yml` runs pytest+coverage, ruff, mypy (non-blocking), and `check_repo_policy.py` (lockfile completeness).
+- ~~Remove tracked generated artifacts (`__pycache__`, `.egg-info`) and enforce clean repository hygiene.~~ **Done** — `.egg-info` untracked; `check_repo_policy.py` now fails on any tracked `__pycache__`/`.pyc`/`.egg-info`/`.venv` unconditionally (was gated behind `STRICT_REPO_CLEAN`).
 
 ## Known limitations currently retained
 - Single active GUI run policy.
