@@ -96,3 +96,11 @@ def test_validate_experiment_config_rejects_non_bool_repro_strict() -> None:
     cfg["reproducibility"] = {"strict": "yes"}
     with pytest.raises(TypeError, match="reproducibility.strict"):
         validate_experiment_config(cfg)
+
+
+def test_validate_experiment_config_rejects_multi_env_arena() -> None:
+    cfg = _base_cfg()
+    cfg["environment"] = {"type": "organism_arena_parallel"}
+    cfg["training"]["num_envs"] = 8
+    with pytest.raises(ValueError, match="organism_arena_parallel.*num_envs == 1"):
+        validate_experiment_config(cfg)

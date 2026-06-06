@@ -163,6 +163,13 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
                     )
 
     if env_type == "organism_arena_parallel":
+        num_envs = int(cfg.get("training", {}).get("num_envs", 1))
+        if num_envs != 1:
+            raise ValueError(
+                "organism_arena_parallel requires training.num_envs == 1 "
+                f"(got {num_envs}). The arena uses in-process SuperSuit updates "
+                "for reward annealing and curriculum."
+            )
         battle = env_cfg.get("battle_rules", {})
         for key in ("damage", "attack_range"):
             if key in battle:
