@@ -365,7 +365,7 @@ def get_schema():
                     },
                 },
             },
-            "training": _training_schema(),
+            "training": _training_schema("walker_bullet"),
             "evaluation": _eval_schema(),
         },
         "organism_arena_parallel": {
@@ -442,15 +442,15 @@ def get_schema():
                     },
                 },
             },
-            "training": _training_schema(),
+            "training": _training_schema("organism_arena_parallel"),
             "evaluation": _eval_schema(),
         },
     }
     return jsonify(schema)
 
 
-def _training_schema() -> dict[str, Any]:
-    return {
+def _training_schema(env_type: str) -> dict[str, Any]:
+    schema = {
         "policy": {
             "value": "MlpPolicy",
             "type": "choice",
@@ -567,6 +567,15 @@ def _training_schema() -> dict[str, Any]:
             "desc": "Training device",
         },
     }
+    if env_type == "organism_arena_parallel":
+        schema["num_envs"].update(
+            {
+                "value": 1,
+                "desc": "Parallel environments (arena requires single-process training)",
+                "max": 1,
+            }
+        )
+    return schema
 
 
 def _eval_schema() -> dict[str, Any]:

@@ -126,6 +126,16 @@ def test_schema_returns_both_envs(client):
     assert data["walker_bullet"]["training"]["device"]["value"] == "auto"
 
 
+def test_schema_sets_single_process_arena_training_default(client):
+    c, _, _ = client
+    resp = c.get("/api/schema")
+
+    assert resp.status_code == 200
+    training = resp.get_json()["organism_arena_parallel"]["training"]
+    assert training["num_envs"]["value"] == 1
+    assert training["num_envs"]["max"] == 1
+
+
 # ----- training manager error paths -----
 
 
