@@ -214,23 +214,6 @@ def _run_regime(
             "mean_return_mean": float(result["mean_return_mean"]),
             "mean_return_std": float(result["mean_return_std"]),
         }
-        _append_progress_log(
-            progress_log,
-            {
-                "event": "regime_completed",
-                "ordinal": ordinal,
-                "total_regimes": total_regimes,
-                **row,
-            },
-        )
-        row = {
-            "name": regime.name,
-            "device": regime.device,
-            "max_workers": regime.max_workers,
-            "elapsed_s": elapsed_s,
-            "mean_return_mean": float(result["mean_return_mean"]),
-            "mean_return_std": float(result["mean_return_std"]),
-        }
         _write_progress_event(
             progress_log,
             {
@@ -352,18 +335,6 @@ def main() -> None:
             f"[run {ordinal}/{len(REGIMES)}] {regime.name}  "
             f"device={regime.device}  max_workers={regime.max_workers}",
             flush=True,
-        )
-        rows.append(
-            _run_regime(
-                args.config_name,
-                args.seeds,
-                args.config_dir,
-                regime,
-                inactivity_timeout_s=args.inactivity_timeout_s,
-                heartbeat_s=args.heartbeat_s,
-                total_timesteps=args.total_timesteps,
-                debug=args.debug,
-            )
         )
         try:
             rows.append(
