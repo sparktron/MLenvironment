@@ -94,6 +94,9 @@ class WalkerBulletEnv(gym.Env):
             # DR scales — overwritten on each reset.
             self._mass_scale = 1.0
             self._friction_scale = 1.0
+            # Nominal masses captured after createMultiBody; domain
+            # randomization scales each link from its own baseline.
+            self._nominal_masses: dict[int, float] = {}
             # Pre-allocated obs buffer; _get_obs() writes in-place and returns
             # a copy so VecEnv cannot mutate the buffer through the returned array.
             self._obs_buf = np.zeros(35, dtype=np.float32)
@@ -110,6 +113,8 @@ class WalkerBulletEnv(gym.Env):
     _FORE_ARM_H = [0.035, 0.035, 0.09]
     _HEAD_H = [0.08, 0.07, 0.10]
     _LEG_DY = 0.085  # lateral (Y) hip offset — legs are side-by-side along Y
+    _DYNAMIC_LINK_IDS = [-1, *range(11)]
+    _FRICTION_LINK_IDS = [-1, 2, 5]
     # Torso COM height when both feet rest flat on the ground:
     #   ankle_z = foot_h[2], knee = ankle + 2*shin_h[2], hip = knee + 2*thigh_h[2]
     #   torso_z = hip + torso_h[2]
@@ -300,6 +305,12 @@ class WalkerBulletEnv(gym.Env):
         # Under TORQUE_CONTROL the implicit velocity motor must be silenced.
         # Under POSITION_CONTROL (our default) it's harmless but cheap to do.
         self.dynamics.disable_velocity_motors(self.robot_id, physicsClientId=cid)
+        self._nominal_masses = {
+            link_id: float(
+                p.getDynamicsInfo(self.robot_id, link_id, physicsClientId=cid)[0]
+            )
+            for link_id in self._DYNAMIC_LINK_IDS
+        }
 
     def _get_obs(
         self,
@@ -347,26 +358,22 @@ class WalkerBulletEnv(gym.Env):
         sim_cfg = self.cfg.get("sim") or {}
         mass_rng = rand_cfg.get("mass_scale_range", [1.0, 1.0])
         fric_rng = rand_cfg.get("friction_range", [1.0, 1.0])
-        base_mass = sim_cfg.get("mass", 3.0)
         # Store the *scales* (not absolute values) so they're surfaced in the
         # observation as dimensionless multipliers centered on 1.0.
         self._mass_scale = float(self._rng.uniform(mass_rng[0], mass_rng[1]))
         self._friction_scale = float(self._rng.uniform(fric_rng[0], fric_rng[1]))
-        mass = base_mass * self._mass_scale
         friction = sim_cfg.get("friction", 0.8) * self._friction_scale
-        # NOTE (FIX #25 — advisory): mass_scale is applied only to the torso
-        # base body (link -1) and both feet (links 2, 5), not to all 11 links.
-        # The total robot mass is ~65.9 kg; torso+feet account for ~32 kg, so
-        # the effective inertia variation is roughly half what the obs signal
-        # implies.  Extending DR to all links would be a behaviour change that
-        # requires re-tuning trained policies.  When that is warranted, add
-        # `apply_mass_scale_to_all_links: true` to the YAML and loop over all
-        # JOINT_INDICES links here in addition to the base body.
-        for link_id in [-1, 2, 5]:
+        for link_id, nominal_mass in self._nominal_masses.items():
             p.changeDynamics(
                 self.robot_id,
                 link_id,
-                mass=mass,
+                mass=nominal_mass * self._mass_scale,
+                physicsClientId=self._connection,
+            )
+        for link_id in self._FRICTION_LINK_IDS:
+            p.changeDynamics(
+                self.robot_id,
+                link_id,
                 lateralFriction=friction,
                 physicsClientId=self._connection,
             )

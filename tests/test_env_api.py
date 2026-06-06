@@ -1,4 +1,5 @@
 import numpy as np
+import pybullet as p
 
 from rl_framework.envs.registry import make_env
 
@@ -21,6 +22,36 @@ def test_walker_env_api() -> None:
     assert isinstance(truncated, bool)
     assert isinstance(info, dict)
     env.close()
+
+
+def test_walker_domain_randomization_preserves_link_mass_ratios() -> None:
+    """Mass randomization scales each link from its own nominal mass."""
+    cfg = {
+        "type": "walker_bullet",
+        "seed": 1,
+        "sim": {"gravity": -9.81, "mass": 28.0, "friction": 0.8, "max_force": 30.0},
+        "domain_randomization": {
+            "mass_scale_range": [1.0, 1.0],
+            "friction_range": [1.0, 1.0],
+        },
+    }
+    env = make_env("walker_bullet", cfg)
+    try:
+        obs, _ = env.reset(seed=1)
+        assert obs[33] == 1.0
+        masses = {
+            link_id: p.getDynamicsInfo(
+                env.robot_id, link_id, physicsClientId=env._connection
+            )[0]
+            for link_id in (-1, 0, 2, 5, 10)
+        }
+        assert masses[-1] == 28.0
+        assert masses[0] == 7.0
+        assert masses[2] == 2.0
+        assert masses[5] == 2.0
+        assert masses[10] == 1.5
+    finally:
+        env.close()
 
 
 def test_organism_env_api() -> None:
