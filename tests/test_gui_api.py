@@ -171,6 +171,27 @@ def test_train_start_invalid_seed_type_returns_400(client):
     assert "error" in resp.get_json()
 
 
+def test_train_start_rejects_stopping_run(client):
+    """A draining stop request still owns the single training slot."""
+    import threading
+    from rl_framework.gui import app as gui_app
+    from rl_framework.gui.training_manager import _RunState
+
+    c, _, _ = client
+    state = _RunState(
+        run_id="run_stopping",
+        cfg={"experiment_name": "exp"},
+        status="stopping",
+        stop_event=threading.Event(),
+    )
+    gui_app.manager._runs["run_stopping"] = state
+
+    resp = c.post("/api/train/start", json=_minimal_cfg("next_run"))
+
+    assert resp.status_code == 409
+    assert "already active" in resp.get_json()["error"]
+
+
 def test_train_stop_unknown_run(client):
     c, _, _ = client
     resp = c.post("/api/train/stop/does_not_exist")

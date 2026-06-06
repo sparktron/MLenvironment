@@ -35,6 +35,8 @@ class _RunState:
 class TrainingManager:
     """Manages background training runs, one at a time."""
 
+    _ACTIVE_STATUSES = {"pending", "running", "stopping"}
+
     def __init__(self) -> None:
         self._runs: dict[str, _RunState] = {}
         self._lock = threading.Lock()
@@ -59,8 +61,17 @@ class TrainingManager:
             return {"error": str(exc)}
 
         with self._lock:
-            if any(r.status == "running" for r in self._runs.values()):
-                return {"error": "A training run is already active. Stop it first."}
+            active = next(
+                (r for r in self._runs.values() if r.status in self._ACTIVE_STATUSES),
+                None,
+            )
+            if active is not None:
+                return {
+                    "error": (
+                        "A training run is already active "
+                        f"(status={active.status}). Wait for it to finish first."
+                    )
+                }
 
             state = _RunState(run_id=run_id, cfg=cfg)
             state.status = "running"
