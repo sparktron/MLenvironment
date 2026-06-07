@@ -1,7 +1,7 @@
 # Organism Arena Buildout — Implementation Plan
 
-**Date:** 2026-05-28  
-**Status:** Ready for implementation  
+**Date:** 2026-05-28
+**Status:** Ready for implementation
 **Estimated scope:** 6 features, sequenced by dependency
 
 ---
@@ -35,8 +35,8 @@ Start with Feature 4 (egocentric obs) and Feature 6 (attack falloff) since they 
 
 ## Feature 4 — Egocentric Observation Reframing
 
-**File:** `src/rl_framework/envs/organisms/arena_parallel.py`  
-**Complexity:** Low  
+**File:** `src/rl_framework/envs/organisms/arena_parallel.py`
+**Complexity:** Low
 **Blocks:** Features 1, 2, 3, 5 (do this first to avoid breaking their tests)
 
 ### Problem
@@ -101,8 +101,8 @@ def test_velocity_is_zero_on_reset():
 
 ## Feature 6 — Continuous Attack Falloff
 
-**File:** `src/rl_framework/envs/organisms/arena_parallel.py`  
-**Complexity:** Low  
+**File:** `src/rl_framework/envs/organisms/arena_parallel.py`
+**Complexity:** Low
 **Blocks:** nothing (independent)
 
 ### Problem
@@ -170,8 +170,8 @@ def test_attack_zero_damage_beyond_range():
 
 ## Feature 2 — Arena Training Instrumentation
 
-**Files:** `src/rl_framework/training/sb3_runner.py`, `src/rl_framework/envs/organisms/arena_parallel.py`  
-**Complexity:** Low–Medium  
+**Files:** `src/rl_framework/training/sb3_runner.py`, `src/rl_framework/envs/organisms/arena_parallel.py`
+**Complexity:** Low–Medium
 **Blocks:** Features 3, 5
 
 ### Problem A: No TensorBoard metrics for arena
@@ -284,9 +284,9 @@ def test_infos_contains_timeout_on_truncation():
 
 ## Feature 1 — Complete the SelfPlayEnvWrapper
 
-**New file:** `src/rl_framework/training/self_play_env_wrapper.py`  
-**Modified:** `src/rl_framework/training/sb3_runner.py`  
-**Complexity:** Low (~80 lines)  
+**New file:** `src/rl_framework/training/self_play_env_wrapper.py`
+**Modified:** `src/rl_framework/training/sb3_runner.py`
+**Complexity:** Low (~80 lines)
 **Blocks:** Feature 5
 
 ### Problem
@@ -405,9 +405,9 @@ def test_wrapper_resamples_opponent_on_each_reset():
 
 ## Feature 3 — Head-to-Head Snapshot Eval Harness
 
-**New file:** `src/rl_framework/training/arena_eval.py`  
-**Modified:** `src/rl_framework/cli/main.py`  
-**Complexity:** Medium  
+**New file:** `src/rl_framework/training/arena_eval.py`
+**Modified:** `src/rl_framework/cli/main.py`
+**Complexity:** Medium
 **Blocks:** Feature 5 (provides win-rate signal for curriculum)
 
 ### Problem
@@ -490,9 +490,9 @@ def test_arena_eval_role_swap_doubles_episode_count():
 
 ## Feature 5 — Win-Rate-Gated Curriculum + Dense-to-Sparse Reward Annealing
 
-**New file:** `src/rl_framework/training/reward_annealing_callback.py`  
-**Modified:** `src/rl_framework/envs/organisms/arena_parallel.py` (add `update_live_params`), `src/rl_framework/training/sb3_runner.py`, YAML configs  
-**Complexity:** Medium  
+**New file:** `src/rl_framework/training/reward_annealing_callback.py`
+**Modified:** `src/rl_framework/envs/organisms/arena_parallel.py` (add `update_live_params`), `src/rl_framework/training/sb3_runner.py`, YAML configs
+**Complexity:** Medium
 **Requires:** Features 2 (win/loss metrics) and 1 (self-play wrapper active)
 
 ### Part A: Dense-to-Sparse Reward Annealing
@@ -609,7 +609,7 @@ def test_curriculum_battle_rules_update_via_live_params():
 
 Both shipped YAML configs have a dead key that fails validation:
 
-**`src/rl_framework/configs/experiments/organisms_fight_arena.yaml`** and  
+**`src/rl_framework/configs/experiments/organisms_fight_arena.yaml`** and
 **`src/rl_framework/configs/experiments/organisms_growth_competition.yaml`**:
 
 Remove the `energy: 1.0` line from the `morphology:` section. The `config.py` validator rejects it with `ValueError` (it's not in `valid_morph_keys`).

@@ -146,7 +146,7 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" \
 **New!** Launch the interactive web GUI to set up and monitor experiments without touching YAML or the terminal.
 
 ```bash
-python -m rl_framework.cli.main gui              # http://127.0.0.1:5000
+python -m rl_framework.cli.main gui              # http://127.0.0.1:5001
 python -m rl_framework.cli.main gui --port 8080   # custom port
 ```
 
@@ -863,6 +863,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 ### v0.4.0
 
 **🐛 Bug Fixes:**
+- `eval_runner.py` — Arena eval now treats `episode_outcome: timeout` as truncation and uses the same SuperSuit/SB3 adapter as training, so timeout rates and done masks are recorded correctly
 - `gui/app.py` — Fixed path traversal vulnerability in `GET /api/outputs`: the `base_dir` query parameter is now ignored; the server always uses its own `_DEFAULT_OUTPUTS_DIR`
 - `gui/app.py` — `POST /api/train/stop/<run_id>` now returns **409 Conflict** (not 404) when the run exists but is not in a stoppable state; 404 is still returned for unknown run IDs
 - `live_tuning_callback.py` — Removed redundant `self.model.learning_rate = lr` assignment; SB3 uses `lr_schedule` (not the `learning_rate` attribute) to drive optimizer updates, so the stale write had no effect and was misleading

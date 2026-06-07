@@ -8,14 +8,28 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from rl_framework.envs.registry import make_env
-from rl_framework.training.sb3_runner import _find_vecnormalize_path_for_model
+from rl_framework.training.sb3_runner import (
+    _ArenaVecEnvAdapter,
+    _find_vecnormalize_path_for_model,
+)
 from rl_framework.utils.logging_utils import append_metrics_csv, create_experiment_paths
 
 
 def _was_truncated(infos: Any) -> bool:
     """Infer truncation from VecEnv infos payload for single-env evaluation."""
-    info0 = infos[0] if isinstance(infos, list) and infos else {}
-    return bool(info0.get("TimeLimit.truncated", False))
+    if isinstance(infos, dict):
+        infos = [infos]
+    if not isinstance(infos, (list, tuple)):
+        return False
+    for info in infos:
+        if not isinstance(info, dict):
+            continue
+        if info.get("TimeLimit.truncated", False):
+            return True
+        outcome = info.get("episode_outcome")
+        if isinstance(outcome, dict) and outcome.get("outcome") == "timeout":
+            return True
+    return False
 
 
 def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
@@ -34,6 +48,7 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
         vec_env = ss.concat_vec_envs_v1(
             vec_env, 1, num_cpus=1, base_class="stable_baselines3"
         )
+        vec_env = _ArenaVecEnvAdapter(vec_env)
     else:
         vec_env = DummyVecEnv([lambda: make_env(env_cfg["type"], env_cfg)])
 
