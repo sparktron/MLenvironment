@@ -254,10 +254,12 @@ def _git_cmd(args: list[str]) -> str | None:
 
 def _git_dirty() -> bool | None:
     try:
-        subprocess.check_output(["git", "diff", "--quiet"], stderr=subprocess.STDOUT)
-        return False
-    except subprocess.CalledProcessError:
-        return True
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            text=True,
+            stderr=subprocess.STDOUT,
+        )
+        return bool(status.strip())
     except Exception:
         return None
 
