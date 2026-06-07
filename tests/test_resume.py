@@ -120,16 +120,30 @@ def test_validate_resume_path_missing_vecnorm(tmp_path: Path) -> None:
     zip_path = tmp_path / "model.zip"
     _make_fake_zip(zip_path)  # valid zip; vecnorm must not exist
 
-    with pytest.raises(FileNotFoundError, match="vecnormalize.pkl not found"):
+    with pytest.raises(FileNotFoundError, match="VecNormalize sidecar not found"):
         _validate_resume_path(zip_path, normalize=True)
 
 
 def test_validate_resume_path_passes_when_files_present(tmp_path: Path) -> None:
-    """_validate_resume_path succeeds when both files exist."""
+    """_validate_resume_path succeeds with the legacy shared vecnormalize file."""
     from rl_framework.training.sb3_runner import _validate_resume_path
 
     zip_path = tmp_path / "model.zip"
     _make_fake_zip(zip_path)
     (tmp_path / "vecnormalize.pkl").write_bytes(b"fake")
+
+    _validate_resume_path(zip_path, normalize=True)  # should not raise
+
+
+def test_validate_resume_path_accepts_model_specific_vecnorm(tmp_path: Path) -> None:
+    """Periodic checkpoints can resume from their exact normaliser sidecar."""
+    from rl_framework.training.sb3_runner import (
+        _validate_resume_path,
+        _vecnormalize_path_for_model,
+    )
+
+    zip_path = tmp_path / "ppo_model_64_steps.zip"
+    _make_fake_zip(zip_path)
+    _vecnormalize_path_for_model(zip_path).write_bytes(b"fake")
 
     _validate_resume_path(zip_path, normalize=True)  # should not raise

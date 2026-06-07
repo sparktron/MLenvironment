@@ -24,9 +24,9 @@ class LiveTuningCallback(BaseCallback):
     - ``domain_randomization.*`` (float)  – any key under env_cfg["domain_randomization"]
     - ``battle_rules.*``         (float)  – any key under env_cfg["battle_rules"]
 
-    ``reward.*`` and ``termination.*`` changes are propagated immediately to
-    each env's live objects via ``env_method("update_live_params")`` so that
-    the new values take effect without waiting for the next episode reset.
+    Accepted env-section changes are propagated through
+    ``env_method("update_live_params")``. Each env applies the subset it can
+    safely change mid-run and stores the rest in its config for future resets.
 
     """
 
@@ -93,12 +93,12 @@ class LiveTuningCallback(BaseCallback):
 
         if applied:
             self._applied.append(applied)
-            # Push reward/termination changes to live env objects immediately so
-            # they take effect in the current episode, not just on the next reset.
+            # Push all accepted env changes to live env objects. Unsupported
+            # fields are ignored by the env implementations.
             env_params = {
                 k: v
                 for k, v in applied.items()
-                if k.split(".")[0] in ("reward", "termination")
+                if "." in k and k.split(".", 1)[0] in self.ENV_SECTIONS
             }
             if env_params and self.training_env is not None:
                 try:

@@ -207,7 +207,7 @@ def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
 
 
 def test_walker_checkpoint_saved_at_interval(tmp_path: Path) -> None:
-    """At least one intermediate checkpoint is written when checkpoint_every fires."""
+    """Intermediate checkpoints include model-specific VecNormalize sidecars."""
     from rl_framework.training.sb3_runner import train
 
     cfg = _walker_cfg(tmp_path, timesteps=256, checkpoint_every=64)
@@ -221,3 +221,8 @@ def test_walker_checkpoint_saved_at_interval(tmp_path: Path) -> None:
         f"Expected at least one intermediate checkpoint in {ckpt_dir}, found none.\n"
         f"Final model: {model_path}"
     )
+    periodic = [path for path in checkpoints if path.name.startswith("ppo_model_")]
+    assert periodic, f"Expected periodic checkpoints in {ckpt_dir}, found {checkpoints}"
+    for checkpoint in periodic:
+        sidecar = checkpoint.with_name(checkpoint.stem + "_vecnormalize.pkl")
+        assert sidecar.exists(), f"VecNormalize sidecar missing for {checkpoint}"

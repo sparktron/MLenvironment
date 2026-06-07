@@ -251,6 +251,32 @@ def test_train_tune_unknown_run(client):
     assert resp.status_code == 400
 
 
+def test_training_manager_sigterm_chains_previous_handler() -> None:
+    import signal
+    from rl_framework.gui.training_manager import TrainingManager
+
+    called: list[int] = []
+    manager = TrainingManager()
+    manager._previous_sigterm_handler = lambda signum, _frame: called.append(signum)
+
+    manager._sigterm_handler(signal.SIGTERM, None)
+
+    assert called == [signal.SIGTERM]
+
+
+def test_training_manager_sigterm_exits_for_default_handler() -> None:
+    import signal
+    from rl_framework.gui.training_manager import TrainingManager
+
+    manager = TrainingManager()
+    manager._previous_sigterm_handler = signal.SIG_DFL
+
+    with pytest.raises(SystemExit) as exc:
+        manager._sigterm_handler(signal.SIGTERM, None)
+
+    assert exc.value.code == 128 + signal.SIGTERM
+
+
 def test_list_runs_initially_empty(client):
     c, _, _ = client
     resp = c.get("/api/train/runs")

@@ -349,6 +349,25 @@ def test_update_live_params_updates_battle_rules() -> None:
     assert isinstance(env.rules.cooldown_steps, int)
 
 
+def test_arena_live_params_update_morphology_and_bounds() -> None:
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "sim": {"arena_half_extent": 1.0},
+        "morphology": {"base_size": 1.0},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+
+    env.update_live_params(
+        {"morphology.base_size": 1.4, "sim.arena_half_extent": 2.5}
+    )
+
+    assert env.morphology["base_size"] == 1.4
+    assert env.cfg["morphology"]["base_size"] == 1.4
+    assert env.bounds == 2.5
+    assert env.cfg["sim"]["arena_half_extent"] == 2.5
+
+
 def test_update_live_params_ignores_unknown_keys() -> None:
     cfg = {"type": "organism_arena_parallel", "seed": 0}
     env = make_env("organism_arena_parallel", cfg)

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -65,6 +67,14 @@ def _append_progress_log(progress_log: Path | None, event: dict) -> None:
     _write_progress_event(progress_log, event)
 
 
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """Kill the benchmarked process group, falling back to the parent process."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (AttributeError, OSError):
+        proc.kill()
+
+
 def _run_regime(
     config_name: str,
     seeds: str,
@@ -120,7 +130,7 @@ def _run_regime(
         )
         start = time.perf_counter()
         print(f"[exec] {' '.join(cmd)}", flush=True)
-        proc = subprocess.Popen(cmd)
+        proc = subprocess.Popen(cmd, start_new_session=True)
         print(f"[pid] {regime.name} pid={proc.pid}", flush=True)
         _dbg(debug, f"spawned process pid={proc.pid}")
         last_heartbeat = start
@@ -134,10 +144,10 @@ def _run_regime(
                 )
                 last_heartbeat = now
             if elapsed > inactivity_timeout_s:
-                proc.kill()
+                _kill_process_tree(proc)
                 _dbg(
                     debug,
-                    f"killed process pid={proc.pid} due to timeout elapsed={elapsed:.1f}s",
+                    f"killed process group pid={proc.pid} due to timeout elapsed={elapsed:.1f}s",
                 )
                 _append_progress_log(
                     progress_log,

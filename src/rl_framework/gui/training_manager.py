@@ -41,10 +41,12 @@ class TrainingManager:
         self._runs: dict[str, _RunState] = {}
         self._lock = threading.Lock()
         self._active_thread: threading.Thread | None = None
+        self._previous_sigterm_handler: Any = signal.SIG_DFL
         atexit.register(self._shutdown)
         # atexit does not fire on SIGTERM; register an explicit handler so that
         # container shutdowns and Werkzeug reloads also drain in-progress runs.
         try:
+            self._previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
             signal.signal(signal.SIGTERM, self._sigterm_handler)
         except (OSError, ValueError):
             pass  # non-main thread or unsupported platform
@@ -160,6 +162,11 @@ class TrainingManager:
 
     def _sigterm_handler(self, signum: int, frame: object) -> None:
         self._shutdown()
+        previous = self._previous_sigterm_handler
+        if callable(previous) and previous is not self._sigterm_handler:
+            previous(signum, frame)
+        elif previous == signal.SIG_DFL:
+            raise SystemExit(128 + signum)
 
     def _shutdown(self) -> None:
         """Signal any active run to stop and wait up to 30 s for the thread to finish.

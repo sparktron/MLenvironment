@@ -530,7 +530,7 @@ class WalkerBulletEnv(gym.Env):
         return None
 
     def update_live_params(self, params: dict[str, Any]) -> None:
-        """Apply dotted-key parameter overrides to live reward/termination objects.
+        """Apply dotted-key parameter overrides to live env state.
 
         Called by CurriculumCallback and LiveTuningCallback via
         ``VecEnv.env_method("update_live_params", params)`` so that changes take
@@ -539,6 +539,8 @@ class WalkerBulletEnv(gym.Env):
         Supported prefixes mirror the env config sections:
         - ``reward.*``       → ``self.reward_fn.<attr>``
         - ``termination.*``  → ``self.termination.<attr>``
+        - ``domain_randomization.*`` → config + sensor/latency fields
+        - ``sim.gravity`` / ``sim.timestep`` / timing fields → live physics/config
 
         The underlying ``self.cfg`` dict is also updated so that future resets
         reconstruct objects with the same values.
@@ -552,6 +554,13 @@ class WalkerBulletEnv(gym.Env):
             if len(parts) != 2:
                 continue
             section, attr = parts
+            if section not in {
+                "reward",
+                "termination",
+                "domain_randomization",
+                "sim",
+            }:
+                continue
             live_obj = _SECTION_OBJ_MAP.get(section)
             if live_obj is not None and hasattr(live_obj, attr):
                 try:
@@ -562,6 +571,32 @@ class WalkerBulletEnv(gym.Env):
                     section_cfg[attr] = cast_val
                 except (TypeError, ValueError):
                     pass
+                continue
+
+            section_cfg = self.cfg.setdefault(section, {})
+            current = section_cfg.get(attr)
+            try:
+                cast_val = type(current)(value) if current is not None else value
+            except (TypeError, ValueError):
+                continue
+            section_cfg[attr] = cast_val
+
+            if section == "domain_randomization":
+                if attr == "sensor_noise_std":
+                    self._sensor_noise_std = float(cast_val)
+                elif attr == "action_latency_steps":
+                    self._action_latency_steps = int(cast_val)
+                    self._action_buffer.clear()
+            elif section == "sim":
+                if attr == "gravity":
+                    p.setGravity(0, 0, float(cast_val), physicsClientId=self._connection)
+                elif attr == "timestep":
+                    self._sim_timestep = float(cast_val)
+                    p.setTimeStep(self._sim_timestep, physicsClientId=self._connection)
+                elif attr == "frame_skip":
+                    self._frame_skip = int(cast_val)
+                elif attr == "settle_steps":
+                    self._settle_steps = int(cast_val)
 
     def close(self) -> None:
         if p.isConnected(self._connection):

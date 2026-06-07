@@ -28,15 +28,40 @@ from rl_framework.utils.reproducibility import (
 )
 
 
+def _model_zip_path(path: str | Path) -> Path:
+    path = Path(path)
+    return path if str(path).endswith(".zip") else Path(str(path) + ".zip")
+
+
+def _vecnormalize_path_for_model(model_path: str | Path) -> Path:
+    """Return the model-specific VecNormalize sidecar path.
+
+    Periodic checkpoints need their own normaliser snapshot because a shared
+    ``vecnormalize.pkl`` can drift after the model was written.
+    """
+    path = _model_zip_path(model_path)
+    return path.with_name(path.stem + "_vecnormalize.pkl")
+
+
+def _legacy_vecnormalize_path_for_model(model_path: str | Path) -> Path:
+    return _model_zip_path(model_path).with_name("vecnormalize.pkl")
+
+
+def _find_vecnormalize_path_for_model(model_path: str | Path) -> Path | None:
+    specific = _vecnormalize_path_for_model(model_path)
+    if specific.exists():
+        return specific
+    legacy = _legacy_vecnormalize_path_for_model(model_path)
+    if legacy.exists():
+        return legacy
+    return None
+
+
 def _validate_resume_path(resume_from: Path, normalize: bool) -> None:
     """Raise FileNotFoundError early with a clear message if resume files are missing."""
     import zipfile
 
-    model_path = (
-        resume_from
-        if str(resume_from).endswith(".zip")
-        else Path(str(resume_from) + ".zip")
-    )
+    model_path = _model_zip_path(resume_from)
     if not model_path.exists():
         raise FileNotFoundError(
             f"resume_from model not found: {model_path}. "
@@ -48,11 +73,13 @@ def _validate_resume_path(resume_from: Path, normalize: bool) -> None:
             "The file may have been truncated by an interrupted write."
         )
     if normalize:
-        vecnorm = model_path.with_name("vecnormalize.pkl")
-        if not vecnorm.exists():
+        if _find_vecnormalize_path_for_model(model_path) is None:
             raise FileNotFoundError(
-                f"vecnormalize.pkl not found alongside model {model_path}. "
-                "Move both files together, or set normalize_observations: false."
+                f"VecNormalize sidecar not found for model {model_path}. "
+                f"Expected {_vecnormalize_path_for_model(model_path).name} "
+                f"(or legacy {_legacy_vecnormalize_path_for_model(model_path).name}). "
+                "Move the model and normalizer together, or set "
+                "normalize_observations: false."
             )
 
 
@@ -131,6 +158,27 @@ class _ArenaVecEnvAdapter(VecEnvWrapper):
         return [
             getattr(env, method_name)(*args, **kwargs) for env in self._arena_envs()
         ]
+
+
+class VecNormalizeCheckpointCallback(CheckpointCallback):
+    """Checkpoint callback that writes model-specific VecNormalize sidecars."""
+
+    def __init__(self, save_freq: int, save_path: str, name_prefix: str) -> None:
+        super().__init__(
+            save_freq=save_freq,
+            save_path=save_path,
+            name_prefix=name_prefix,
+        )
+
+    def _on_step(self) -> bool:
+        should_save = self.n_calls % self.save_freq == 0
+        result = super()._on_step()
+        if should_save:
+            vecnorm = self.model.get_vec_normalize_env()
+            if vecnorm is not None:
+                model_path = Path(self._checkpoint_path(extension="zip"))
+                vecnorm.save(str(_vecnormalize_path_for_model(model_path)))
+        return result
 
 
 class ArenaMetricsCallback(BaseCallback):
@@ -343,9 +391,7 @@ def train(
         if normalize:
             vecnorm_path = None
             if resume_from is not None:
-                candidate = Path(resume_from).with_name("vecnormalize.pkl")
-                if candidate.exists():
-                    vecnorm_path = candidate
+                vecnorm_path = _find_vecnormalize_path_for_model(resume_from)
             if vecnorm_path is not None:
                 vec_env = VecNormalize.load(str(vecnorm_path), vec_env)
                 # Keep updating stats and continue training.
@@ -386,7 +432,7 @@ def train(
                 verbose=1,
             )
 
-        checkpoint_cb = CheckpointCallback(
+        checkpoint_cb = VecNormalizeCheckpointCallback(
             save_freq=cfg["training"].get("checkpoint_every", 10000),
             save_path=str(paths.checkpoints_dir),
             name_prefix="ppo_model",
@@ -450,6 +496,7 @@ def train(
         final_path = paths.checkpoints_dir / "final_model"
         model.save(str(final_path))
         if isinstance(vec_env, VecNormalize):
+            vec_env.save(str(_vecnormalize_path_for_model(final_path)))
             vec_env.save(str(paths.checkpoints_dir / "vecnormalize.pkl"))
         return final_path
     finally:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -9,6 +8,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from rl_framework.envs.registry import make_env
+from rl_framework.training.sb3_runner import _find_vecnormalize_path_for_model
 from rl_framework.utils.logging_utils import append_metrics_csv, create_experiment_paths
 
 
@@ -37,8 +37,8 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
     else:
         vec_env = DummyVecEnv([lambda: make_env(env_cfg["type"], env_cfg)])
 
-    vn_path = Path(model_path).with_name("vecnormalize.pkl")
-    if vn_path.exists():
+    vn_path = _find_vecnormalize_path_for_model(model_path)
+    if vn_path is not None:
         vec_env = VecNormalize.load(str(vn_path), vec_env)
         vec_env.training = False
         vec_env.norm_reward = False

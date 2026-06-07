@@ -163,6 +163,9 @@ class OrganismArenaParallelEnv(ParallelEnv):
           * ``battle_rules.<field>`` — overrides a ``BattleRules`` field in place
             (used by ``CurriculumCallback`` to ramp opponent difficulty); the
             value is coerced to the field's existing type.
+          * ``morphology.<field>`` — updates morphology config for current/future
+            size calculations and subsequent resets.
+          * ``sim.arena_half_extent`` — updates arena bounds immediately.
 
         Unknown keys are ignored so a shared curriculum config can target
         multiple env families without error.
@@ -170,11 +173,26 @@ class OrganismArenaParallelEnv(ParallelEnv):
         for key, value in params.items():
             if key == "reward.damage_scale":
                 self._damage_scale = float(value)
+                self.cfg.setdefault("reward", {})["damage_scale"] = self._damage_scale
             elif key.startswith("battle_rules."):
                 field = key.removeprefix("battle_rules.")
                 if hasattr(self.rules, field):
                     current = getattr(self.rules, field)
-                    setattr(self.rules, field, type(current)(value))
+                    cast_val = type(current)(value)
+                    setattr(self.rules, field, cast_val)
+                    self.cfg.setdefault("battle_rules", {})[field] = cast_val
+            elif key.startswith("morphology."):
+                field = key.removeprefix("morphology.")
+                current = self.morphology.get(field)
+                try:
+                    cast_val = type(current)(value) if current is not None else value
+                except (TypeError, ValueError):
+                    continue
+                self.morphology[field] = cast_val
+                self.cfg.setdefault("morphology", {})[field] = cast_val
+            elif key == "sim.arena_half_extent":
+                self.bounds = float(value)
+                self.cfg.setdefault("sim", {})["arena_half_extent"] = self.bounds
 
     def step(self, actions: dict[str, np.ndarray]):
         self.step_count += 1

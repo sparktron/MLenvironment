@@ -94,8 +94,9 @@ def load_frozen_policy(path: str | Path, action_space: Any) -> Any:
     ``path == "random"`` returns a :class:`RandomPolicy` over *action_space*.
     Otherwise the SB3 model is loaded and paired with an obs normaliser
     discovered next to it: a per-snapshot ``<stem>_vecnorm.pkl`` sidecar (league
-    snapshots) if present, else a sibling ``vecnormalize.pkl`` (a training run's
-    final normaliser). If neither exists, observations are used raw.
+    snapshots) if present, then a model-specific ``<stem>_vecnormalize.pkl``
+    sidecar, else a sibling ``vecnormalize.pkl`` (legacy final normaliser). If
+    neither exists, observations are used raw.
     """
     if str(path) == "random":
         return RandomPolicy(action_space)
@@ -103,6 +104,8 @@ def load_frozen_policy(path: str | Path, action_space: Any) -> Any:
     model = PPO.load(str(path))
     sidecar = path.with_name(path.stem + VECNORM_SUFFIX)
     normalizer = load_obs_normalizer(sidecar)
+    if normalizer is None:
+        normalizer = load_obs_normalizer(path.with_name(path.stem + "_vecnormalize.pkl"))
     if normalizer is None:
         normalizer = load_obs_normalizer(path.with_name("vecnormalize.pkl"))
     return FrozenPolicy(model, normalizer)

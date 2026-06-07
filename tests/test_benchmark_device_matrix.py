@@ -56,10 +56,14 @@ def test_run_regime_timeout_writes_progress_event(monkeypatch, tmp_path) -> None
             self.killed = True
 
     fake_process = FakeProcess()
+    killed_pgroups: list[int] = []
     times = iter([0.0, 301.0])
     progress_log = tmp_path / "progress.jsonl"
 
-    monkeypatch.setattr(bdm.subprocess, "Popen", lambda _cmd: fake_process)
+    monkeypatch.setattr(bdm.subprocess, "Popen", lambda _cmd, **_kwargs: fake_process)
+    monkeypatch.setattr(
+        bdm.os, "killpg", lambda pid, sig: killed_pgroups.append(pid)
+    )
     monkeypatch.setattr(bdm.time, "perf_counter", lambda: next(times))
 
     with pytest.raises(RuntimeError, match="timed out"):
@@ -78,7 +82,8 @@ def test_run_regime_timeout_writes_progress_event(monkeypatch, tmp_path) -> None
         )
 
     events = [json.loads(line) for line in progress_log.read_text(encoding="utf-8").splitlines()]
-    assert fake_process.killed
+    assert killed_pgroups == [fake_process.pid]
+    assert not fake_process.killed
     assert [event["event"] for event in events] == ["regime_started", "regime_timed_out"]
     assert events[1]["name"] == "CPU-4workers"
     assert events[1]["timeout_s"] == 300.0
@@ -106,7 +111,7 @@ def test_main_runs_each_regime_once_with_progress_args(
         "REGIMES",
         (bdm.Regime(name="CPU-4workers", device="cpu", max_workers=4),),
     )
-    monkeypatch.setattr(bdm.subprocess, "Popen", lambda cmd: FakeProcess(cmd))
+    monkeypatch.setattr(bdm.subprocess, "Popen", lambda cmd, **_kwargs: FakeProcess(cmd))
     monkeypatch.setattr(
         sys,
         "argv",

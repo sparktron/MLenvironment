@@ -66,6 +66,7 @@ def run_multi_seed(
     for seed in seeds:
         run_cfg = deepcopy(cfg)
         run_cfg["seed"] = seed
+        run_cfg.setdefault("environment", {})["seed"] = seed
         seed_args.append((seed, run_cfg))
 
     per_seed_metrics: dict[int, dict[str, float]] = {}
