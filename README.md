@@ -855,6 +855,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 - Historical audit artifact: `docs/exhaustive_repo_review_2026-04-22.md`
 - Incremental fixes report: `docs/fixes_2026-04-22.md`
 - Open items and future plan: `docs/open_items_todo.md`
+- Agent workflow notes: `AGENTS.md`
 
 ---
 
