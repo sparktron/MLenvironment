@@ -493,3 +493,74 @@ def test_arena_obs_normalized_and_visibility_disambiguates() -> None:
     assert obs[5] == 0.0 and obs[7] == 0.0, (
         "out-of-range opponent: zero block plus visibility flag 0"
     )
+
+
+def test_arena_growth_scales_max_health_and_preserves_fraction() -> None:
+    """B6: episode growth raises max_health in lockstep with size, and current
+    health is rescaled so the health fraction is preserved across growth."""
+    growth = 0.01
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "sim": {"spawn_jitter": 0.0},
+        "morphology": {"base_size": 1.0, "episode_growth_scale": growth, "health": 2.0},
+        # No damage: isolate growth from combat so the only health change is
+        # the growth rescale.
+        "battle_rules": {"damage": 0.0, "max_steps": 50},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    a = env.state["agent_0"]
+    assert a["size"] == 1.0
+    assert a["max_health"] == 2.0 and a["health"] == 2.0
+
+    noop = np.zeros(3, dtype=np.float32)
+    # Take a step at full health: size grows, max_health and health track it.
+    env.step({"agent_0": noop, "agent_1": noop})
+    a = env.state["agent_0"]
+    expected_size = 1.0 + growth * env.step_count
+    assert abs(a["size"] - expected_size) < 1e-6
+    assert abs(a["max_health"] - 2.0 * expected_size) < 1e-6
+    # Full health before growth -> still full (fraction 1.0) after.
+    assert abs(a["health"] - a["max_health"]) < 1e-6
+
+
+def test_arena_growth_preserves_partial_health_fraction() -> None:
+    """A wounded organism keeps its health *fraction* (not absolute hp) on growth."""
+    growth = 0.05
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "sim": {"spawn_jitter": 0.0},
+        "morphology": {"base_size": 1.0, "episode_growth_scale": growth, "health": 1.0},
+        "battle_rules": {"damage": 0.0, "max_steps": 50},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    # Wound agent_0 to 50% before any growth step.
+    env.state["agent_0"]["health"] = 0.5 * env.state["agent_0"]["max_health"]
+    noop = np.zeros(3, dtype=np.float32)
+    env.step({"agent_0": noop, "agent_1": noop})
+    a = env.state["agent_0"]
+    assert abs(a["health"] / a["max_health"] - 0.5) < 1e-6, (
+        "growth should preserve the health fraction, not the absolute hp"
+    )
+
+
+def test_arena_no_growth_keeps_max_health_fixed() -> None:
+    """With episode_growth_scale=0, max_health stays at its spawn value."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "sim": {"spawn_jitter": 0.0},
+        "morphology": {"base_size": 1.0, "episode_growth_scale": 0.0, "health": 1.5},
+        "battle_rules": {"damage": 0.0, "max_steps": 10},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    noop = np.zeros(3, dtype=np.float32)
+    for _ in range(5):
+        env.step({"agent_0": noop, "agent_1": noop})
+    a = env.state["agent_0"]
+    assert a["size"] == 1.0
+    assert abs(a["max_health"] - 1.5) < 1e-6 and abs(a["health"] - 1.5) < 1e-6

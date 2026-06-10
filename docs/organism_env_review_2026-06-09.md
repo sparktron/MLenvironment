@@ -8,7 +8,11 @@ obs/dynamics contract change: spawn jitter (`sim.spawn_jitter`, default 0.1),
 norm-clamped movement (`sim.move_speed`, default 0.05), and a normalized 8D
 observation with a visibility flag. **Breaking:** arena checkpoints and league
 snapshots trained before this change are incompatible (obs 7D → 8D) — retrain.
-Still open: B6 (design decision: growth scales damage but not max health).
+**Status update (2026-06-10, cont.):** B6 fixed — episode growth now scales
+`max_health` in lockstep with `size`, and current health is rescaled by the
+same factor so the health *fraction* is preserved (growth makes an organism
+tankier as well as harder-hitting). **All bugs from this review are now
+closed**; remaining items are the Part 2/3/4 efficiency and feature roadmap.
 **Scope reviewed:**
 - `src/rl_framework/envs/organisms/arena_parallel.py` (full)
 - `src/rl_framework/training/self_play_env_wrapper.py` (full)
@@ -85,12 +89,14 @@ fires with default config; tune defaults when fixing.)
 (`if k in BattleRules.__annotations__`) means a typo like `dammage: 0.1` silently
 runs with defaults. *Fix:* warn (or raise) on unrecognized keys.
 
-**B6. Episode growth scales damage but not max health**
+**B6. Episode growth scales damage but not max health** — ✅ FIXED (2026-06-10)
 `_current_size` grows `size` each step (up to 2.0); damage scales with attacker
-`size` (`step`, line ~225) but `max_health` is frozen at spawn. If intended (a
-late-game aggression incentive), document it in the config schema; if not, scale
-health too. Currently it is an undocumented asymmetry that morphology-search will
-silently exploit.
+`size` but `max_health` was frozen at spawn — an undocumented asymmetry.
+*Resolution:* `max_health` now tracks `size` each step via the shared
+`_max_health_for_size` helper, and current health is rescaled by the same
+factor so the health fraction is preserved across growth. Growth now buffs
+defense and offense together. `episode_growth_scale`/`health` schema docs
+updated to say so.
 
 ### P2 — robustness / hygiene
 

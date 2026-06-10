@@ -84,11 +84,20 @@ class OrganismArenaParallelEnv(ParallelEnv):
         # move_x, move_y, attack_trigger
         return spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
 
+    def _max_health_for_size(self, size: float) -> float:
+        """Health pool for an organism of the given *size*.
+
+        Used at spawn and re-applied each step so episode growth scales an
+        organism's max health in lockstep with the damage it deals (both scale
+        with ``size``); otherwise growth would be a pure offensive buff.
+        """
+        return float(self.morphology.get("health", 1.0)) * float(size)
+
     def _spawn_agent(self, name: str, sign: float) -> dict[str, Any]:
         base_size = float(self.morphology.get("base_size", 1.0))
         # step_count is 0 at spawn — store base_size and compute current size dynamically.
-        size = np.clip(base_size, 0.5, 2.0)
-        health = float(self.morphology.get("health", 1.0)) * size
+        size = float(np.clip(base_size, 0.5, 2.0))
+        health = self._max_health_for_size(size)
         jitter = self._rng.uniform(-self.spawn_jitter, self.spawn_jitter, size=2)
         pos = np.clip(
             np.array([0.6 * sign, 0.0]) + jitter, -self.bounds, self.bounds
@@ -263,8 +272,19 @@ class OrganismArenaParallelEnv(ParallelEnv):
             self.state[agent]["cooldown"] = max(
                 0, int(self.state[agent]["cooldown"]) - 1
             )
-            # Apply growth: update size each step so episode_growth_scale takes effect.
-            self.state[agent]["size"] = self._current_size(agent)
+            # Apply growth: update size each step so episode_growth_scale takes
+            # effect. Max health tracks size, and current health is rescaled by
+            # the same factor so the health *fraction* is preserved — growth
+            # raises both the cap and current health, making a larger organism
+            # tankier as well as harder-hitting (its damage already scales with
+            # size). Without this, growth would buff offense only.
+            new_size = self._current_size(agent)
+            prev_max = self.state[agent]["max_health"]
+            new_max = self._max_health_for_size(new_size)
+            if prev_max > 0 and new_max != prev_max:
+                self.state[agent]["health"] *= new_max / prev_max
+            self.state[agent]["max_health"] = new_max
+            self.state[agent]["size"] = new_size
 
         for attacker in list(self.agents):
             defender = "agent_1" if attacker == "agent_0" else "agent_0"

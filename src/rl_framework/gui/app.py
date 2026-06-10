@@ -406,14 +406,14 @@ def get_schema():
                     "episode_growth_scale": {
                         "value": 0.0,
                         "type": "float",
-                        "desc": "Size growth per step",
+                        "desc": "Size growth per step (scales damage and max health)",
                         "min": 0,
                         "max": 0.1,
                     },
                     "health": {
                         "value": 1.2,
                         "type": "float",
-                        "desc": "Initial health (scaled by size)",
+                        "desc": "Health pool (scaled by size each step)",
                         "min": 0.1,
                         "max": 10,
                     },
