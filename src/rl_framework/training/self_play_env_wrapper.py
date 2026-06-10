@@ -105,7 +105,9 @@ def load_frozen_policy(path: str | Path, action_space: Any) -> Any:
     sidecar = path.with_name(path.stem + VECNORM_SUFFIX)
     normalizer = load_obs_normalizer(sidecar)
     if normalizer is None:
-        normalizer = load_obs_normalizer(path.with_name(path.stem + "_vecnormalize.pkl"))
+        normalizer = load_obs_normalizer(
+            path.with_name(path.stem + "_vecnormalize.pkl")
+        )
     if normalizer is None:
         normalizer = load_obs_normalizer(path.with_name("vecnormalize.pkl"))
     return FrozenPolicy(model, normalizer)
@@ -136,10 +138,14 @@ class LeagueSampler:
     def _league_files(self) -> list[Path]:
         if not self._dir.exists():
             return []
-        return sorted(
-            self._dir.glob("selfplay_*.zip"),
-            key=lambda p: int(p.stem.rsplit("_", 1)[-1]),
-        )
+        # Only numeric-suffixed snapshots belong to the league; a stray file
+        # like selfplay_best.zip must not crash sampling at episode reset.
+        files = [
+            p
+            for p in self._dir.glob("selfplay_*.zip")
+            if p.stem.rsplit("_", 1)[-1].isdigit()
+        ]
+        return sorted(files, key=lambda p: int(p.stem.rsplit("_", 1)[-1]))
 
     def sample(self) -> FrozenPolicy | None:
         """Return a frozen opponent from the on-disk league, or ``None`` if empty.
@@ -238,7 +244,7 @@ class SelfPlayEnvWrapper(BaseParallelWrapper):
         if self._frozen_policy is None:
             # Empty league — random opponent keeps early training moving.
             return self.env.action_space(self.FROZEN_AGENT).sample()
-        frozen_obs = self.env._obs(self.FROZEN_AGENT)
+        frozen_obs = self.env.unwrapped.observe(self.FROZEN_AGENT)
         action, _ = self._frozen_policy.predict(
             frozen_obs[np.newaxis], deterministic=True
         )

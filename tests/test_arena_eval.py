@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from rl_framework.training.arena_eval import run_arena_eval
+from rl_framework.training.arena_eval import _play_episode, run_arena_eval
 from rl_framework.training.self_play_env_wrapper import (
     FrozenPolicy,
     RandomPolicy,
@@ -37,6 +37,7 @@ def test_arena_eval_returns_expected_keys() -> None:
     assert {
         "policy_win_rate",
         "opponent_win_rate",
+        "draw_rate",
         "timeout_rate",
         "policy_mean_return",
         "opponent_mean_return",
@@ -47,7 +48,10 @@ def test_arena_eval_returns_expected_keys() -> None:
 def test_arena_eval_rates_are_a_partition() -> None:
     result = run_arena_eval("random", "random", _cfg(), n_episodes=10, swap_roles=False)
     total = (
-        result["policy_win_rate"] + result["opponent_win_rate"] + result["timeout_rate"]
+        result["policy_win_rate"]
+        + result["opponent_win_rate"]
+        + result["draw_rate"]
+        + result["timeout_rate"]
     )
     assert abs(total - 1.0) < 1e-6
     assert result["policy_win_rate"] + result["opponent_win_rate"] <= 1.0 + 1e-6
@@ -73,6 +77,36 @@ def test_arena_eval_writes_output_json(tmp_path) -> None:
     assert out.exists()
     payload = json.loads(out.read_text())
     assert payload["n_episodes"] == 3
+
+
+def test_play_episode_classifies_simultaneous_ko_as_draw() -> None:
+    """A simultaneous knockout must be a draw, not a loss for the policy."""
+    from rl_framework.envs.registry import make_env
+
+    class _AlwaysAttack:
+        def predict(self, obs, deterministic=True):
+            return np.array([0.0, 0.0, 1.0], dtype=np.float32), None
+
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "battle_rules": {
+            # One binary-falloff hit kills outright, and both agents attack on
+            # the same step — both die together.
+            "damage": 5.0,
+            "attack_range": 5.0,
+            "cooldown_steps": 0,
+            "attack_falloff": "binary",
+        },
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    try:
+        result, _, _ = _play_episode(
+            env, _AlwaysAttack(), _AlwaysAttack(), "agent_0", seed=0
+        )
+    finally:
+        env.close()
+    assert result == "draw"
 
 
 # -- FrozenPolicy / loaders --------------------------------------------------

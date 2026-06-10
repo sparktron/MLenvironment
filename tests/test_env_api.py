@@ -358,9 +358,7 @@ def test_arena_live_params_update_morphology_and_bounds() -> None:
     }
     env = make_env("organism_arena_parallel", cfg)
 
-    env.update_live_params(
-        {"morphology.base_size": 1.4, "sim.arena_half_extent": 2.5}
-    )
+    env.update_live_params({"morphology.base_size": 1.4, "sim.arena_half_extent": 2.5})
 
     assert env.morphology["base_size"] == 1.4
     assert env.cfg["morphology"]["base_size"] == 1.4
@@ -374,3 +372,43 @@ def test_update_live_params_ignores_unknown_keys() -> None:
     # Unknown keys (e.g. from a shared walker curriculum) must be silently ignored.
     env.update_live_params({"reward.target_velocity": 2.0, "battle_rules.bogus": 1})
     assert not hasattr(env.rules, "bogus")
+
+
+def test_unknown_battle_rules_key_warns() -> None:
+    import pytest
+
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "battle_rules": {"dammage": 0.1, "max_steps": 10},
+    }
+    with pytest.warns(UserWarning, match="dammage"):
+        env = make_env("organism_arena_parallel", cfg)
+    # Valid keys still apply despite the typo'd sibling.
+    assert env.rules.max_steps == 10
+
+
+def test_arena_step_after_episode_end_is_inert() -> None:
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "battle_rules": {"max_steps": 2},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    idle = {a: np.zeros(3, dtype=np.float32) for a in env.possible_agents}
+    env.step(idle)
+    env.step(idle)  # hits max_steps -> truncation, agents emptied
+    assert env.agents == []
+    obs, rewards, terms, truncs, infos = env.step({})
+    # No fabricated timeout outcome, no phantom agents.
+    assert obs == {} and rewards == {} and terms == {} and truncs == {} and infos == {}
+
+
+def test_arena_observe_matches_observation_contract() -> None:
+    cfg = {"type": "organism_arena_parallel", "seed": 0}
+    env = make_env("organism_arena_parallel", cfg)
+    reset_obs, _ = env.reset(seed=0)
+    obs = env.observe("agent_0")
+    assert obs.shape == env.observation_space("agent_0").shape
+    assert np.array_equal(obs, reset_obs["agent_0"])

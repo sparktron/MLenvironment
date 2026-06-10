@@ -262,6 +262,7 @@ def main() -> None:
             print(
                 f"policy_win_rate={result['policy_win_rate']:.3f}  "
                 f"opponent_win_rate={result['opponent_win_rate']:.3f}  "
+                f"draw_rate={result['draw_rate']:.3f}  "
                 f"timeout_rate={result['timeout_rate']:.3f}  "
                 f"n_episodes={result['n_episodes']}"
             )

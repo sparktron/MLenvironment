@@ -47,6 +47,9 @@ def _play_episode(env: Any, policy: Any, opponent: Any, policy_slot: str, seed: 
 
     if final_outcome is None or final_outcome.get("outcome") == "timeout":
         result = "timeout"
+    elif final_outcome.get("outcome") == "draw":
+        # Simultaneous knockout — neither side wins.
+        result = "draw"
     elif final_outcome.get("winner") == policy_slot:
         result = "win"
     else:
@@ -80,8 +83,9 @@ def run_arena_eval(
         If given, the result dict is written there as JSON.
 
     Returns a dict with ``policy_win_rate``, ``opponent_win_rate``,
-    ``timeout_rate``, ``policy_mean_return``, ``opponent_mean_return``, and
-    ``n_episodes`` (the total number actually run).
+    ``draw_rate``, ``timeout_rate``, ``policy_mean_return``,
+    ``opponent_mean_return``, and ``n_episodes`` (the total number actually
+    run). Draws (simultaneous knockouts) count toward neither side's win rate.
     """
     env_cfg = cfg["environment"]
     env = make_env(env_cfg["type"], env_cfg)
@@ -94,7 +98,7 @@ def run_arena_eval(
 
     slots = [_AGENTS[0], _AGENTS[1]] if swap_roles else [_AGENTS[0]]
 
-    wins = losses = timeouts = 0
+    wins = losses = draws = timeouts = 0
     policy_returns: list[float] = []
     opponent_returns: list[float] = []
     episode = 0
@@ -115,6 +119,8 @@ def run_arena_eval(
                     wins += 1
                 elif result == "loss":
                     losses += 1
+                elif result == "draw":
+                    draws += 1
                 else:
                     timeouts += 1
     finally:
@@ -124,6 +130,7 @@ def run_arena_eval(
     result = {
         "policy_win_rate": wins / total,
         "opponent_win_rate": losses / total,
+        "draw_rate": draws / total,
         "timeout_rate": timeouts / total,
         "policy_mean_return": float(np.mean(policy_returns)) if policy_returns else 0.0,
         "opponent_mean_return": (

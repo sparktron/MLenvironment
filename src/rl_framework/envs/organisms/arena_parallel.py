@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,12 +36,16 @@ class OrganismArenaParallelEnv(ParallelEnv):
         self.agents = []
         self._rng = np.random.default_rng(cfg.get("seed", 0))
         self.bounds = float(cfg.get("sim", {}).get("arena_half_extent", 1.0))
+        rules_cfg = cfg.get("battle_rules", {})
+        unknown_rules = sorted(set(rules_cfg) - set(BattleRules.__annotations__))
+        if unknown_rules:
+            warnings.warn(
+                f"Ignoring unknown battle_rules keys {unknown_rules}; "
+                f"valid keys are {sorted(BattleRules.__annotations__)}",
+                stacklevel=2,
+            )
         self.rules = BattleRules(
-            **{
-                k: v
-                for k, v in cfg.get("battle_rules", {}).items()
-                if k in BattleRules.__annotations__
-            }
+            **{k: v for k, v in rules_cfg.items() if k in BattleRules.__annotations__}
         )
         self.morphology = cfg.get("morphology", {})
         self.state: dict[str, dict[str, Any]] = {}
@@ -137,6 +142,14 @@ class OrganismArenaParallelEnv(ParallelEnv):
             dtype=np.float32,
         )
 
+    def observe(self, agent: str) -> np.ndarray:
+        """Public read-only observation accessor for *agent*.
+
+        Wrappers that drive an internal agent slot (e.g. ``SelfPlayEnvWrapper``)
+        should use this rather than the private ``_obs``.
+        """
+        return self._obs(agent)
+
     def _attack_falloff(self, dist: float) -> float:
         """Return the damage multiplier in ``[0, 1]`` for an attack at *dist*.
 
@@ -195,6 +208,11 @@ class OrganismArenaParallelEnv(ParallelEnv):
                 self.cfg.setdefault("sim", {})["arena_half_extent"] = self.bounds
 
     def step(self, actions: dict[str, np.ndarray]):
+        if not self.agents:
+            # Episode already over. Without this guard the empty truncations
+            # dict below makes all(...) vacuously True and the step fabricates
+            # a spurious timeout outcome.
+            return {}, {}, {}, {}, {}
         self.step_count += 1
         # Capture the active agent set at step entry; all returned dicts must share these keys.
         active_agents = list(self.agents)
@@ -300,8 +318,18 @@ class OrganismArenaParallelEnv(ParallelEnv):
         if self.render_mode not in ("human", "rgb_array"):
             return None
 
-        if self.render_mode == "human":
-            matplotlib.use("TkAgg")
+        # Switch backend once, before the first figure exists — calling use()
+        # repeatedly after pyplot is live is at best a no-op and at worst
+        # clashes with an already-loaded backend. rgb_array never forces a
+        # backend so headless (Agg) rendering keeps working.
+        if self.render_mode == "human" and self._fig is None:
+            try:
+                matplotlib.use("TkAgg")
+            except ImportError as exc:
+                raise RuntimeError(
+                    "render_mode='human' needs a TkAgg-capable display; "
+                    "use render_mode='rgb_array' for headless rendering"
+                ) from exc
 
         import matplotlib.patches as mpatches
         import matplotlib.pyplot as plt

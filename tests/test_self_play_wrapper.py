@@ -138,6 +138,14 @@ def test_league_sampler_loads_and_caches_from_disk(monkeypatch, tmp_path) -> Non
     assert len(loads) <= 3, "each distinct snapshot loaded at most once"
 
 
+def test_league_sampler_skips_non_numeric_snapshots(tmp_path) -> None:
+    (tmp_path / "selfplay_100.zip").write_text("x", encoding="utf-8")
+    (tmp_path / "selfplay_best.zip").write_text("x", encoding="utf-8")
+    sampler = LeagueSampler(tmp_path, seed=0)
+    files = sampler._league_files()
+    assert [p.name for p in files] == ["selfplay_100.zip"]
+
+
 def test_league_sampler_recent_bias_prefers_latest(monkeypatch, tmp_path) -> None:
     for ts in (100, 200, 300):
         (tmp_path / f"selfplay_{ts}.zip").write_text("x", encoding="utf-8")
