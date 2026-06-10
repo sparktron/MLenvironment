@@ -7,12 +7,15 @@ from rl_framework.training.self_play_callback import SelfPlayCallback
 from rl_framework.utils.config_merge import set_nested
 
 
-def test_arena_training_rejects_multiple_envs(tmp_path) -> None:
-    """The arena runs single-process; num_envs > 1 must fail loudly.
+def test_shared_policy_arena_rejects_multiple_envs(tmp_path) -> None:
+    """Shared-policy arena (no self-play) runs single-process via SuperSuit;
+    num_envs > 1 must fail loudly.
 
-    num_envs > 1 forks SuperSuit into subprocesses, which silently disables the
+    Without self-play the arena needs SuperSuit's multi-agent vec conversion,
+    and num_envs > 1 forks it into subprocesses, which silently disables the
     live env_method updates (reward annealing, curriculum) and is unstable in
-    SuperSuit 3.10. Guard fires before any env is built.
+    SuperSuit 3.10. The guard fires before any env is built. (The self-play
+    path bypasses SuperSuit and parallelizes — see the integration tests.)
     """
     from rl_framework.training.sb3_runner import train
 

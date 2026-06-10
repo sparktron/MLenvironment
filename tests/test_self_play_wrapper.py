@@ -8,6 +8,7 @@ from rl_framework.envs.registry import make_env
 from rl_framework.training.self_play_env_wrapper import (
     LeagueSampler,
     SelfPlayEnvWrapper,
+    SingleAgentArenaEnv,
 )
 
 
@@ -103,6 +104,51 @@ def test_wrapper_surfaces_terminal_when_opponent_knocked_out() -> None:
     )
     assert terms["agent_0"] is True, "live agent should see terminal on opponent KO"
     assert rewards["agent_0"] > 0, "live agent should be rewarded for the KO"
+
+
+# -- SingleAgentArenaEnv -----------------------------------------------------
+
+
+def _single_agent_env(**rules):
+    arena = _arena(**rules)
+    return SingleAgentArenaEnv(SelfPlayEnvWrapper(arena, _StubSampler()))
+
+
+def test_single_agent_env_gym_contract() -> None:
+    """Adapter presents the live agent as a flat single-agent Gymnasium env."""
+    env = _single_agent_env(max_steps=20)
+    assert env.observation_space.shape == (8,)
+    assert env.action_space.shape == (3,)
+    obs, info = env.reset(seed=0)
+    assert obs.shape == env.observation_space.shape
+    assert isinstance(info, dict)
+    obs, reward, terminated, truncated, info = env.step(np.zeros(3, dtype=np.float32))
+    assert obs.shape == env.observation_space.shape
+    assert isinstance(reward, float)
+    assert isinstance(terminated, bool) and isinstance(truncated, bool)
+    assert isinstance(info, dict)
+
+
+def test_single_agent_env_surfaces_episode_outcome() -> None:
+    """The terminal info must carry episode_outcome so ArenaMetricsCallback and
+    the Monitor can read it on the native vec-env path."""
+    env = _single_agent_env(max_steps=3, damage=0.0)
+    env.reset(seed=0)
+    info = {}
+    for _ in range(3):
+        _, _, terminated, truncated, info = env.step(np.zeros(3, dtype=np.float32))
+        if terminated or truncated:
+            break
+    assert truncated, "episode should truncate at max_steps"
+    assert info.get("episode_outcome", {}).get("outcome") == "timeout"
+
+
+def test_single_agent_env_update_live_params_forwards_to_arena() -> None:
+    """SB3 env_method('update_live_params', ...) must reach the arena env."""
+    env = _single_agent_env(max_steps=20)
+    arena = env._env.unwrapped
+    env.update_live_params({"reward.damage_scale": 0.25})
+    assert arena._damage_scale == 0.25
 
 
 # -- LeagueSampler -----------------------------------------------------------

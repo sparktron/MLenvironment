@@ -53,9 +53,15 @@ python scripts/check_repo_policy.py                    # custom — enforces no 
 - Auto-reload is on (`use_reloader=True` in `run_gui`), so Python edits restart the server — but any in-process training is killed on restart. Stop runs first if you want to preserve them.
 - The wizard schema lives in `src/rl_framework/gui/app.py::get_schema`. Nested groups (like `sim.control`) need the recursive `populateGroup` JS helper in `gui/static/app.js`; flat dicts under top-level sections render as inputs.
 
+## Arena training paths
+
+Two distinct vec-env paths in `sb3_runner.py`, chosen by whether self-play is on:
+- **Self-play** (`self_play.enabled: true`): `SelfPlayEnvWrapper` exposes one live agent, wrapped by `SingleAgentArenaEnv` (a `gymnasium.Env`) onto SB3's native `DummyVecEnv`/`SubprocVecEnv`. **`num_envs > 1` is supported and parallelizes across cores** — `env_method` (reward annealing, curriculum) propagates to subprocess workers, and `Monitor` gives `rollout/ep_rew_mean`. Each worker is seeded per rank so spawns/opponents differ. This is the preferred arena path.
+- **Shared-policy** (`self_play.enabled: false`): needs SuperSuit's 2-agent vec conversion + `_ArenaVecEnvAdapter` (seed()/uint8-dones patches), which only works single-process. A guard rejects `num_envs > 1` here.
+
 ## Subprocess gotcha
 
-`SubprocVecEnv` can't be smoke-tested from a stdin heredoc — multiprocessing tries to re-run the parent script and fails on `<stdin>`. For smoke tests of the parallel path, use `num_envs: 1` (DummyVecEnv) or write to a temp `.py` file and invoke it.
+`SubprocVecEnv` can't be smoke-tested from a stdin heredoc — multiprocessing tries to re-run the parent script and fails on `<stdin>`. For smoke tests of the parallel path, use `num_envs: 1` (DummyVecEnv) or write to a temp `.py` file and invoke it (`PYTHONPATH=src python /tmp/foo.py`).
 
 ## Workflow
 

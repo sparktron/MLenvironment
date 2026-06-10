@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import os
 import threading
 from pathlib import Path
@@ -20,6 +21,7 @@ from rl_framework.training.self_play_callback import SelfPlayCallback
 from rl_framework.training.self_play_env_wrapper import (
     LeagueSampler,
     SelfPlayEnvWrapper,
+    SingleAgentArenaEnv,
 )
 from rl_framework.utils.logging_utils import create_experiment_paths
 from rl_framework.utils.reproducibility import (
@@ -259,6 +261,51 @@ def _build_single_env(
     return _make
 
 
+def _build_arena_selfplay_env(
+    env_cfg: dict[str, Any],
+    self_play_cfg: dict[str, Any],
+    league_dir: Path,
+    base_seed: int,
+    monitor_dir: Path | None = None,
+    rank: int = 0,
+):
+    """Factory for one self-play arena env on SB3's native vec-env path.
+
+    The arena ``ParallelEnv`` is wrapped in a :class:`SelfPlayEnvWrapper`
+    (frozen opponent in the second slot) and then a :class:`SingleAgentArenaEnv`
+    Gymnasium adapter, so it behaves like any single-agent env under
+    ``DummyVecEnv``/``SubprocVecEnv`` — no SuperSuit, working ``env_method``,
+    and a ``Monitor`` for ``rollout/ep_rew_mean``.
+
+    Each rank is seeded independently (env construction + league sampler) so
+    parallel workers explore distinct spawns and sample distinct opponent
+    sequences rather than running identical episodes.
+    """
+
+    def _make():
+        rank_cfg = copy.deepcopy(env_cfg)
+        # Spread per-worker seeds so spawn jitter and the RNG differ by rank.
+        rank_cfg["seed"] = base_seed + 1000 * rank
+        par_env = make_env(rank_cfg["type"], rank_cfg)
+        sampler = LeagueSampler(
+            league_dir,
+            sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
+            recent_bias_alpha=float(self_play_cfg.get("recent_bias_alpha", 1.0)),
+            seed=base_seed + 1000 * rank,
+        )
+        env = SingleAgentArenaEnv(SelfPlayEnvWrapper(par_env, sampler))
+        filename = (
+            str(monitor_dir / f"monitor_env{rank}.csv")
+            if monitor_dir is not None
+            else None
+        )
+        # info_keywords persists the per-episode arena outcome into the Monitor
+        # CSV; the live agent's info carries it on terminal/timeout steps.
+        return Monitor(env, filename=filename)
+
+    return _make
+
+
 def _make_lr_schedule(start: float, end: float | None):
     """Return either a constant LR or a linear-decay callable accepting SB3's
     remaining-progress value (1.0 at start of training, 0.0 at end)."""
@@ -324,50 +371,69 @@ def train(
 
     num_envs = int(cfg["training"].get("num_envs", 1))
 
-    # The arena path only works in a single process. SuperSuit's
-    # concat_vec_envs_v1 is called with num_cpus == num_envs, so num_envs > 1
-    # forks the envs into subprocesses. That breaks the arena in two ways:
-    #   * _ArenaVecEnvAdapter.env_method() reaches the live envs by walking the
-    #     in-process vec-env chain, which is empty once the envs live in child
-    #     processes — so reward annealing and curriculum updates become silent
-    #     no-ops (training looks fine but neither feature ever fires).
-    #   * SuperSuit 3.10's SB3 arena adapter is itself unstable at num_cpus >= 2.
-    # Fail loudly rather than train a subtly broken run.
-    if env_cfg["type"] == "organism_arena_parallel" and num_envs > 1:
-        raise ValueError(
-            "organism_arena_parallel training requires training.num_envs == 1 "
-            f"(got {num_envs}). The arena runs single-process: num_envs > 1 forks "
-            "SuperSuit into subprocesses, which silently disables live env_method "
-            "updates (reward annealing, curriculum) and is unstable in SuperSuit "
-            "3.10. Set training.num_envs: 1 for arena configs."
-        )
-
     # Self-play league config — used both to wrap the env (opponent routing) and
     # to register the snapshot-saving callback later. The snapshot directory is
-    # the shared channel between them (survives SuperSuit's cloudpickle cloning).
+    # the shared channel between them (survives cloudpickle cloning into workers).
     self_play_cfg = cfg.get("self_play", {})
     self_play_enabled = bool(self_play_cfg.get("enabled", False)) and (
         env_cfg["type"] == "organism_arena_parallel"
     )
     league_dir = paths.checkpoints_dir / "league"
 
-    if env_cfg["type"] == "organism_arena_parallel":
-        par_env = make_env(env_cfg["type"], env_cfg)
-        if self_play_enabled:
-            # Route the opponent slot through a frozen past-self sampled from the
-            # on-disk league; exposes only the live agent to SB3.
-            sampler = LeagueSampler(
+    # The *shared-policy* arena path (no self-play) must stay single-process.
+    # It needs SuperSuit's multi-agent vec conversion, and SuperSuit's
+    # concat_vec_envs_v1(num_cpus=num_envs) forks the envs at num_envs > 1, which
+    #   * empties the in-process chain _ArenaVecEnvAdapter.env_method() walks, so
+    #     reward annealing / curriculum updates become silent no-ops, and
+    #   * is unstable in SuperSuit 3.10 at num_cpus >= 2.
+    # The self-play path does NOT use SuperSuit (single-agent view + native SB3
+    # vec env), so it parallelizes safely — only guard the shared-policy path.
+    if (
+        env_cfg["type"] == "organism_arena_parallel"
+        and num_envs > 1
+        and not self_play_enabled
+    ):
+        raise ValueError(
+            "Shared-policy organism_arena_parallel training (self_play.enabled: "
+            f"false) requires training.num_envs == 1 (got {num_envs}). It runs "
+            "single-process via SuperSuit; num_envs > 1 forks into subprocesses, "
+            "silently disabling live env_method updates (reward annealing, "
+            "curriculum) and is unstable in SuperSuit 3.10. Either set "
+            "training.num_envs: 1, or enable self_play to use the parallel path."
+        )
+
+    if env_cfg["type"] == "organism_arena_parallel" and self_play_enabled:
+        # Self-play exposes a single live agent, so skip SuperSuit entirely and
+        # use SB3's native vec-env path (parallel-safe, working env_method,
+        # Monitor metrics). The opponent is sampled per-episode from the on-disk
+        # league inside each worker.
+        env_fns = [
+            _build_arena_selfplay_env(
+                env_cfg,
+                self_play_cfg,
                 league_dir,
-                sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
-                recent_bias_alpha=float(self_play_cfg.get("recent_bias_alpha", 1.0)),
-                seed=cfg["seed"],
+                base_seed=int(cfg["seed"]),
+                monitor_dir=paths.logs_dir,
+                rank=i,
             )
-            par_env = SelfPlayEnvWrapper(par_env, sampler)
+            for i in range(max(num_envs, 1))
+        ]
+        if num_envs > 1:
+            os.environ.setdefault("OMP_NUM_THREADS", "1")
+            os.environ.setdefault("MKL_NUM_THREADS", "1")
+            os.environ.setdefault("BLAS_NUM_THREADS", "1")
+            os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+            vec_env = SubprocVecEnv(env_fns)
+        else:
+            vec_env = DummyVecEnv(env_fns)
+    elif env_cfg["type"] == "organism_arena_parallel":
+        # Shared-policy arena: SuperSuit multi-agent conversion, single process.
+        par_env = make_env(env_cfg["type"], env_cfg)
         vec_env = ss.pettingzoo_env_to_vec_env_v1(par_env)
         vec_env = ss.concat_vec_envs_v1(
             vec_env,
-            max(num_envs, 1),
-            num_cpus=max(num_envs, 1),
+            1,
+            num_cpus=1,
             base_class="stable_baselines3",
         )
         # Patch SuperSuit↔SB3 incompatibilities (missing seed(), uint8 dones).

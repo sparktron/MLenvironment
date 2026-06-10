@@ -34,6 +34,7 @@ import pickle
 from pathlib import Path
 from typing import Any
 
+import gymnasium as gym
 import numpy as np
 from pettingzoo.utils import BaseParallelWrapper
 from stable_baselines3 import PPO
@@ -249,3 +250,67 @@ class SelfPlayEnvWrapper(BaseParallelWrapper):
             frozen_obs[np.newaxis], deterministic=True
         )
         return np.asarray(action[0], dtype=np.float32)
+
+
+class SingleAgentArenaEnv(gym.Env):
+    """Expose a single-agent :class:`SelfPlayEnvWrapper` as a Gymnasium env.
+
+    In league self-play the live policy controls one slot while a frozen
+    past-self drives the other, so the wrapped env presents exactly one agent.
+    That makes SuperSuit's multi-agent vec conversion unnecessary: this adapter
+    lets the arena ride SB3's native ``DummyVecEnv``/``SubprocVecEnv`` path
+    instead. The win over SuperSuit is twofold:
+
+    * **Parallel workers.** SB3's ``SubprocVecEnv.env_method`` reaches each
+      worker's env through pipes, so curriculum / reward-annealing updates fire
+      correctly across processes — unlike SuperSuit's ``ConcatVecEnv``, whose
+      in-process chain is empty once envs are forked (the reason arena training
+      was previously capped at ``num_envs == 1``).
+    * **Monitor metrics.** Wrapping in SB3's ``Monitor`` restores
+      ``rollout/ep_rew_mean`` and ``ep_len_mean``.
+
+    The disk-backed :class:`LeagueSampler` already survives cloudpickle cloning
+    into subprocess workers, so no opponent state needs to cross the process
+    boundary.
+    """
+
+    metadata = {"render_modes": ["human", "rgb_array"]}
+
+    def __init__(self, env: SelfPlayEnvWrapper) -> None:
+        self._env = env
+        self._agent = env.LIVE_AGENT
+        self.observation_space = env.observation_space(self._agent)
+        self.action_space = env.action_space(self._agent)
+        self.render_mode = getattr(env.unwrapped, "render_mode", None)
+
+    def reset(self, *, seed: int | None = None, options: dict | None = None):
+        obs, infos = self._env.reset(seed=seed, options=options)
+        a = self._agent
+        return obs[a], infos.get(a, {})
+
+    def step(self, action: np.ndarray):
+        a = self._agent
+        obs, rewards, terms, truncs, infos = self._env.step({a: action})
+        return (
+            obs[a],
+            float(rewards[a]),
+            bool(terms[a]),
+            bool(truncs[a]),
+            infos.get(a, {}),
+        )
+
+    def render(self):
+        return self._env.unwrapped.render()
+
+    def close(self):
+        self._env.close()
+
+    def update_live_params(self, params: dict[str, Any]) -> None:
+        """Forward live curriculum / annealing overrides to the arena env.
+
+        SB3's ``env_method('update_live_params', ...)`` resolves to this method
+        on the (Monitor-wrapped) adapter; we delegate to the underlying arena
+        env so the update reaches the object that actually steps — including in
+        subprocess workers.
+        """
+        self._env.unwrapped.update_live_params(params)

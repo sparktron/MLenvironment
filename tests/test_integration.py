@@ -157,6 +157,30 @@ def test_arena_selfplay_train_writes_league(tmp_path: Path) -> None:
     assert league, "self-play training wrote no league snapshots"
 
 
+def test_arena_selfplay_parallel_envs_train_and_propagate(tmp_path: Path) -> None:
+    """Self-play arena training runs with num_envs > 1 (R2): it bypasses
+    SuperSuit, uses SB3's native SubprocVecEnv, writes one Monitor CSV per
+    worker, and reward annealing propagates to workers via env_method without
+    crashing. Regression for the single-process arena cap."""
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=512)
+    cfg["training"]["num_envs"] = 2
+    cfg["training"]["n_steps"] = 128
+    cfg["self_play"] = {"enabled": True, "snapshot_freq": 256, "max_league_size": 5}
+    cfg["reward_annealing"] = {"enabled": True, "anneal_steps": 512}
+
+    model_path = train(cfg)
+    assert Path(str(model_path) + ".zip").exists()
+
+    base = Path(tmp_path) / cfg["experiment_name"] / f"seed_{cfg['seed']}"
+    league = list((base / "checkpoints" / "league").glob("selfplay_*.zip"))
+    assert league, "parallel self-play training wrote no league snapshots"
+    # One Monitor CSV per worker proves the native vec-env path (not SuperSuit).
+    monitors = list((base / "logs").glob("monitor_env*.csv"))
+    assert len(monitors) == 2, f"expected one monitor csv per worker, got {monitors}"
+
+
 def test_arena_eval_on_trained_checkpoint(tmp_path: Path) -> None:
     """Train a real arena checkpoint, then run head-to-head eval vs random.
 
@@ -172,7 +196,10 @@ def test_arena_eval_on_trained_checkpoint(tmp_path: Path) -> None:
     result = run_arena_eval(checkpoint, "random", cfg, n_episodes=5, swap_roles=True)
     assert result["n_episodes"] == 10
     total = (
-        result["policy_win_rate"] + result["opponent_win_rate"] + result["timeout_rate"]
+        result["policy_win_rate"]
+        + result["opponent_win_rate"]
+        + result["draw_rate"]
+        + result["timeout_rate"]
     )
     assert abs(total - 1.0) < 1e-6
 

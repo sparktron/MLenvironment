@@ -171,12 +171,12 @@ comparable. Batch them into one breaking change and retrain once.
 ### Phase 2 — Throughput (the big win)
 | ID | Item | Effort |
 |----|------|--------|
-| R2 | **Parallel self-play training without SuperSuit.** When `self_play.enabled`, `SelfPlayEnvWrapper` already exposes exactly one agent — wrap it in a thin `ParallelEnv → gymnasium.Env` adapter and feed the standard `SubprocVecEnv` path (`num_envs: 24`, `Monitor`, native `env_method` for annealing/curriculum). Removes `_ArenaVecEnvAdapter`, the num_envs guard, and the SuperSuit 3.10 fragility for the self-play path; shared-policy mode can keep SuperSuit. Disk-backed league sampling already survives subprocesses by design. | ~1 day |
-| R2b | Vary `LeagueSampler` seed per worker rank so parallel envs don't sample identical opponent sequences | trivial, part of R2 |
-| R2c | League file-list caching / snapshot pre-warm (E2) | ~1 hr |
+| R2 | **Parallel self-play training without SuperSuit.** — ✅ DONE (2026-06-10). New `SingleAgentArenaEnv` Gymnasium adapter wraps the single-agent `SelfPlayEnvWrapper` onto SB3's native `DummyVecEnv`/`SubprocVecEnv` path. Self-play with `num_envs > 1` now parallelizes across cores with working `env_method` (annealing/curriculum) and `Monitor` metrics; the `_ArenaVecEnvAdapter`/SuperSuit path is retained only for shared-policy mode, whose `num_envs == 1` guard now fires only when self-play is off. Disk-backed league sampling already survived subprocess cloning. | ~1 day |
+| R2b | Vary `LeagueSampler` seed per worker rank so parallel envs don't sample identical opponent sequences | ✅ DONE — each rank seeded `base_seed + 1000*rank` (env + sampler) |
+| R2c | League file-list caching / snapshot pre-warm (E2) | open, ~1 hr |
 
-R2 also restores `rollout/ep_rew_mean` via `Monitor`, which the arena path
-currently lacks (ArenaMetricsCallback partially compensates).
+R2 also restored `rollout/ep_rew_mean` via `Monitor` on the self-play path
+(the shared-policy SuperSuit path still relies on ArenaMetricsCallback).
 
 ### Phase 3 — Usability & tooling
 | ID | Item | Effort |
