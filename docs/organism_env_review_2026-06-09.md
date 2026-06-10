@@ -186,12 +186,13 @@ Phase 3 (usability/tooling) and Phase 4 (env richness).
 |----|------|--------|
 | R3a | **Tournament CLI** (`arena-tournament`) — ✅ DONE (2026-06-10). Round-robin over `--checkpoints` (files/dirs) + optional `--include-random`; Bradley-Terry ratings on an Elo scale (draws/timeouts = half-wins), JSON (`--output`) + markdown (`--markdown-out`) standings and win-rate matrix. New module `training/arena_tournament.py`; builds on `run_arena_eval`. | ~½ day |
 | R3b | **GUI league dashboard** — ✅ DONE (2026-06-10). `/api/outputs` now reports `league_size` per seed run; new `/api/league?path=<seed>` endpoint returns per-snapshot detail (timesteps, size, age, vecnorm-sidecar presence), path-traversal guarded. Outputs tab renders an expandable league panel per self-play run. (Live win-rate-vs-league deferred — use `arena-tournament` over the league dir for ratings.) | ~1 day |
-| R3c | Headless arena video rendering wired into `render-replay` (force Agg backend, B9 fix) | ~2 hr |
-| R3d | Config schema docs for `battle_rules` / `morphology` (incl. growth-vs-health semantics, B6) | ~1 hr |
+| R3c | Headless arena video rendering wired into `render-replay` — ✅ DONE (2026-06-10). Arena replay already rendered headlessly via `rgb_array` after the B9 backend fix; `render-replay` now also takes `--replay-opponent` (checkpoint or `random`) to drive `agent_1`, and loads both slots through `load_frozen_policy` so obs-normaliser sidecars are applied (fixes a latent raw-obs mismatch in the old shared-policy replay). | ~2 hr |
+| R3d | Config schema docs for `battle_rules` / `morphology` — ✅ DONE (2026-06-10). New `docs/organism_arena_config.md` documents obs/action layout, all `sim`/`morphology`/`battle_rules` keys + defaults (incl. growth-vs-health, B6), and the self-play/annealing/curriculum sections; linked from CLAUDE.md. | ~1 hr |
 | R3e | Public `observe(agent)` API on the env; migrate `SelfPlayEnvWrapper` off `_obs` (B11) | ✅ DONE (2026-06-09, with B11) |
 
-Phase 3 status: R3a ✅, R3b ✅, R3e ✅ done. R3c (headless replay rendering)
-and R3d (config schema docs) remain.
+**Phase 3 is complete** (R3a, R3b, R3c, R3d, R3e all done). Remaining work is
+Phase 4 (env richness: collision, energy/food, N-agent arenas, morphology
+co-evolution, speed/size tradeoff).
 
 ### Phase 4 — Environment richness (design work, do after 1–3)
 - **Body collision** — agents currently overlap freely; contact pushes would make

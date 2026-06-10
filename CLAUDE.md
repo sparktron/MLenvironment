@@ -56,7 +56,10 @@ python scripts/check_repo_policy.py                    # custom — enforces no 
 - Auto-reload is on (`use_reloader=True` in `run_gui`), so Python edits restart the server — but any in-process training is killed on restart. Stop runs first if you want to preserve them.
 - The wizard schema lives in `src/rl_framework/gui/app.py::get_schema`. Nested groups (like `sim.control`) need the recursive `populateGroup` JS helper in `gui/static/app.js`; flat dicts under top-level sections render as inputs.
 
-## Arena training paths
+## Arena config & training paths
+
+Full arena config reference (obs/action layout, `sim`/`morphology`/`battle_rules` keys and defaults, self-play/annealing/curriculum): `docs/organism_arena_config.md`.
+
 
 Two distinct vec-env paths in `sb3_runner.py`, chosen by whether self-play is on:
 - **Self-play** (`self_play.enabled: true`): `SelfPlayEnvWrapper` exposes one live agent, wrapped by `SingleAgentArenaEnv` (a `gymnasium.Env`) onto SB3's native `DummyVecEnv`/`SubprocVecEnv`. **`num_envs > 1` is supported and parallelizes across cores** — `env_method` (reward annealing, curriculum) propagates to subprocess workers, and `Monitor` gives `rollout/ep_rew_mean`. Each worker is seeded per rank so spawns/opponents differ. This is the preferred arena path.

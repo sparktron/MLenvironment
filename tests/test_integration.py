@@ -181,6 +181,30 @@ def test_arena_selfplay_parallel_envs_train_and_propagate(tmp_path: Path) -> Non
     assert len(monitors) == 2, f"expected one monitor csv per worker, got {monitors}"
 
 
+def test_arena_render_replay_headless(tmp_path: Path) -> None:
+    """Arena render-replay produces a GIF headlessly, both as a shared-policy
+    replay and against an explicit opponent (R3c)."""
+    from rl_framework.cli.main import _render_replay
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=256)
+    model_path = train(cfg)
+    checkpoint = str(model_path) + ".zip"
+
+    # Shared-policy replay (opponent mirrors the main policy).
+    shared = _render_replay(cfg, checkpoint)
+    assert shared["frames"] > 0
+    assert shared["opponent"] == "self"
+    assert Path(shared["saved_replay"]).exists()
+    assert shared["saved_replay"].endswith("replay.gif")
+
+    # Matchup vs a random opponent.
+    versus = _render_replay(cfg, checkpoint, opponent_path="random")
+    assert versus["frames"] > 0
+    assert versus["opponent"] == "random"
+    assert Path(versus["saved_replay"]).exists()
+
+
 def test_arena_eval_on_trained_checkpoint(tmp_path: Path) -> None:
     """Train a real arena checkpoint, then run head-to-head eval vs random.
 

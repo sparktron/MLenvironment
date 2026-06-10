@@ -71,6 +71,12 @@ def _parse_args() -> argparse.Namespace:
         help="Optional path to write the arena-tournament report as markdown.",
     )
     parser.add_argument(
+        "--replay-opponent",
+        default="",
+        help="Arena render-replay only: checkpoint path (or 'random') to drive "
+        "agent_1. Default mirrors the main policy (shared-policy replay).",
+    )
+    parser.add_argument(
         "--seeds",
         default="",
         help="Comma-separated seeds for multi-seed runs (e.g. 0,1,2,3,4)",
@@ -147,9 +153,19 @@ def _save_frames_as_gif(frames: list, out_path: Path, fps: int = 30) -> None:
     )
 
 
-def _render_replay(cfg: dict, model_path: str) -> dict:
-    """Render a replay and return a result dict with saved path and frame count."""
+def _render_replay(
+    cfg: dict, model_path: str, opponent_path: str | None = None
+) -> dict:
+    """Render a replay and return a result dict with saved path and frame count.
+
+    For the 2-agent arena, *model_path* drives ``agent_0``. By default the same
+    policy mirrors into ``agent_1`` (a shared-policy replay); pass
+    *opponent_path* (a checkpoint or ``"random"``) to watch a real matchup. Both
+    slots are loaded via :func:`load_frozen_policy`, so a saved obs-normaliser
+    sidecar is applied and each policy sees the distribution it trained under.
+    """
     import gymnasium as gym
+    import numpy as np
     from gymnasium.wrappers import RecordVideo
     from pettingzoo.utils.env import ParallelEnv
     from stable_baselines3 import PPO
@@ -168,17 +184,27 @@ def _render_replay(cfg: dict, model_path: str) -> dict:
         run_id=cfg["output"].get("run_id"),
     )
     out_dir = paths.videos_dir
-    model = PPO.load(model_path)
 
     if isinstance(env, ParallelEnv):
+        from rl_framework.training.self_play_env_wrapper import load_frozen_policy
+
+        agents = list(env.possible_agents)
+        policy_slot = agents[0]
+        action_space = env.action_space(policy_slot)
+        policy = load_frozen_policy(model_path, action_space)
+        # No explicit opponent -> mirror the main policy (shared-policy replay).
+        opponent = (
+            load_frozen_policy(opponent_path, action_space) if opponent_path else policy
+        )
         try:
             frames = []
             observations, _ = env.reset(seed=cfg["seed"])
             while env.agents:
                 actions = {}
                 for agent, obs in observations.items():
-                    action, _ = model.predict(obs, deterministic=True)
-                    actions[agent] = action
+                    actor = policy if agent == policy_slot else opponent
+                    action, _ = actor.predict(obs, deterministic=True)
+                    actions[agent] = np.asarray(action, dtype=np.float32)
                 observations, _, _, _, _ = env.step(actions)
                 frame = env.render()
                 if frame is not None:
@@ -187,9 +213,15 @@ def _render_replay(cfg: dict, model_path: str) -> dict:
             _save_frames_as_gif(
                 frames, gif_path, fps=env.metadata.get("render_fps", 30)
             )
-            return {"saved_replay": str(gif_path), "frames": len(frames)}
+            return {
+                "saved_replay": str(gif_path),
+                "frames": len(frames),
+                "opponent": opponent_path or "self",
+            }
         finally:
             env.close()
+
+    model = PPO.load(model_path)
 
     if not isinstance(env, gym.Env):
         raise ValueError(f"Unsupported env type for replay: {type(env).__name__}")
@@ -330,7 +362,9 @@ def main() -> None:
     elif args.command == "render-replay":
         if not args.model_path:
             raise ValueError("--model-path is required for render-replay")
-        result = _render_replay(cfg_dict, args.model_path)
+        result = _render_replay(
+            cfg_dict, args.model_path, opponent_path=args.replay_opponent or None
+        )
         if not args.json:
             print(f"saved_replay={result['saved_replay']}  frames={result['frames']}")
 
