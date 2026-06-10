@@ -13,6 +13,7 @@ def _parse_args() -> argparse.Namespace:
             "train",
             "eval",
             "arena-eval",
+            "arena-tournament",
             "sweep",
             "multi-seed",
             "render-replay",
@@ -52,6 +53,22 @@ def _parse_args() -> argparse.Namespace:
         "--output",
         default="",
         help="Optional path to write the arena-eval result as JSON.",
+    )
+    parser.add_argument(
+        "--checkpoints",
+        default="",
+        help="Comma-separated checkpoint paths and/or directories for "
+        "arena-tournament (each directory contributes its *.zip files).",
+    )
+    parser.add_argument(
+        "--include-random",
+        action="store_true",
+        help="Add a random-action baseline competitor to the tournament.",
+    )
+    parser.add_argument(
+        "--markdown-out",
+        default="",
+        help="Optional path to write the arena-tournament report as markdown.",
     )
     parser.add_argument(
         "--seeds",
@@ -266,6 +283,30 @@ def main() -> None:
                 f"timeout_rate={result['timeout_rate']:.3f}  "
                 f"n_episodes={result['n_episodes']}"
             )
+
+    elif args.command == "arena-tournament":
+        from rl_framework.training.arena_tournament import run_tournament
+
+        checkpoints = [c for c in args.checkpoints.split(",") if c.strip()]
+        if not checkpoints and not args.include_random:
+            raise ValueError(
+                "arena-tournament needs --checkpoints (and/or --include-random)"
+            )
+        result = run_tournament(
+            checkpoints,
+            cfg_dict,
+            n_episodes=args.n_episodes,
+            swap_roles=not args.no_swap_roles,
+            include_random=args.include_random,
+            output_path=args.output or None,
+            markdown_path=args.markdown_out or None,
+        )
+        if not args.json:
+            print(f"Tournament: {len(result['competitors'])} competitors")
+            print(f"{'Rank':>4}  {'Elo':>6}  {'W-L-D':>10}  Competitor")
+            for s in result["standings"]:
+                wld = f"{s['wins']}-{s['losses']}-{s['draws']}"
+                print(f"{s['rank']:>4}  {s['elo']:>6.0f}  {wld:>10}  {s['competitor']}")
 
     elif args.command == "sweep":
         from rl_framework.training.sweep import run_sweep

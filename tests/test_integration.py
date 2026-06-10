@@ -204,6 +204,35 @@ def test_arena_eval_on_trained_checkpoint(tmp_path: Path) -> None:
     assert abs(total - 1.0) < 1e-6
 
 
+def test_arena_tournament_on_trained_checkpoint(tmp_path: Path) -> None:
+    """Train one arena checkpoint, then run a round-robin tournament of it vs a
+    random baseline through the real run_arena_eval path. Exercises competitor
+    resolution, the Bradley-Terry rating, and JSON/markdown output end to end."""
+    from rl_framework.training.arena_tournament import run_tournament
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=256)
+    model_path = train(cfg)
+    checkpoint = str(model_path) + ".zip"
+
+    json_out = tmp_path / "tourney.json"
+    md_out = tmp_path / "tourney.md"
+    result = run_tournament(
+        [checkpoint],
+        cfg,
+        n_episodes=3,
+        include_random=True,
+        output_path=str(json_out),
+        markdown_path=str(md_out),
+    )
+    assert len(result["competitors"]) == 2
+    assert set(result["ratings"]) == {"final_model", "random"}
+    assert [s["rank"] for s in result["standings"]] == [1, 2]
+    assert json_out.exists() and md_out.exists()
+    # Ratings are centred on the Elo zero-point.
+    assert all(1000 < e < 2000 for e in result["ratings"].values())
+
+
 def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
     """evaluate() appends a row to eval_metrics.csv and returns a metrics dict."""
     from rl_framework.training.eval_runner import evaluate

@@ -19,7 +19,10 @@ Everything goes through one entry point:
 python -m rl_framework.cli.main <subcommand> [--config-name <name>] [...]
 ```
 
-Subcommands: `train`, `eval`, `sweep`, `multi-seed`, `render-replay`, `morph-search`, `gui`. `--config-name` is required for all except `gui`. Default `--config-dir` is `src/rl_framework/configs/experiments`. Outputs land in `outputs/<experiment_name>/seed_<seed>/{checkpoints,logs,videos}/`.
+Subcommands: `train`, `eval`, `arena-eval`, `arena-tournament`, `sweep`, `multi-seed`, `render-replay`, `morph-search`, `gui`. `--config-name` is required for all except `gui`. Default `--config-dir` is `src/rl_framework/configs/experiments`. Outputs land in `outputs/<experiment_name>/seed_<seed>/{checkpoints,logs,videos}/`.
+
+- `arena-eval`: head-to-head of `--policy` vs `--opponent` (either may be `random`); reports win/draw/timeout rates.
+- `arena-tournament`: round-robin over `--checkpoints` (comma-separated files/dirs; dirs contribute their `*.zip`) plus optional `--include-random`. Reports a Bradley-Terry Elo ranking; `--output` writes JSON, `--markdown-out` writes a report table.
 
 ## Tests, lint, repo policy
 
