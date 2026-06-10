@@ -35,7 +35,13 @@ class OrganismArenaParallelEnv(ParallelEnv):
         self.possible_agents = ["agent_0", "agent_1"]
         self.agents = []
         self._rng = np.random.default_rng(cfg.get("seed", 0))
-        self.bounds = float(cfg.get("sim", {}).get("arena_half_extent", 1.0))
+        sim_cfg = cfg.get("sim", {})
+        self.bounds = float(sim_cfg.get("arena_half_extent", 1.0))
+        # Per-step movement speed cap (arena units / step).
+        self.move_speed = float(sim_cfg.get("move_speed", 0.05))
+        # Spawn-position jitter half-width. Non-zero by default: without it the
+        # env is fully deterministic and head-to-head eval replays one episode.
+        self.spawn_jitter = float(sim_cfg.get("spawn_jitter", 0.1))
         rules_cfg = cfg.get("battle_rules", {})
         unknown_rules = sorted(set(rules_cfg) - set(BattleRules.__annotations__))
         if unknown_rules:
@@ -61,14 +67,18 @@ class OrganismArenaParallelEnv(ParallelEnv):
         self._ax = None
 
     def observation_space(self, agent: str):
-        # Egocentric, slot-symmetric obs (7D):
-        #   [self_vel_x, self_vel_y, health,
-        #    rel_opp_x, rel_opp_y, opp_health, cooldown]
-        # Self position is expressed as velocity (displacement since last step)
-        # rather than absolute coords so the shared policy sees the same input
-        # distribution regardless of which spawn slot it is filling. Opponent
-        # components are relative and gated by sensing_radius.
-        return spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32)
+        # Egocentric, slot-symmetric obs (8D), every component pre-scaled to
+        # roughly [-1, 1]:
+        #   [self_vel_x, self_vel_y, health_frac,
+        #    rel_opp_x, rel_opp_y, opp_health_frac, cooldown_frac, opp_visible]
+        # Self position is expressed as velocity (displacement since last step,
+        # in units of move_speed) rather than absolute coords so the shared
+        # policy sees the same input distribution regardless of spawn slot.
+        # Health is a fraction of max health; rel components are in units of
+        # the arena diameter and gated (with opp_health) by sensing_radius.
+        # opp_visible disambiguates "out of sensing range" (all-zero opponent
+        # block) from "adjacent opponent with near-zero health".
+        return spaces.Box(low=-np.inf, high=np.inf, shape=(8,), dtype=np.float32)
 
     def action_space(self, agent: str):
         # move_x, move_y, attack_trigger
@@ -79,8 +89,12 @@ class OrganismArenaParallelEnv(ParallelEnv):
         # step_count is 0 at spawn — store base_size and compute current size dynamically.
         size = np.clip(base_size, 0.5, 2.0)
         health = float(self.morphology.get("health", 1.0)) * size
+        jitter = self._rng.uniform(-self.spawn_jitter, self.spawn_jitter, size=2)
+        pos = np.clip(
+            np.array([0.6 * sign, 0.0]) + jitter, -self.bounds, self.bounds
+        ).astype(np.float32)
         return {
-            "pos": np.array([0.6 * sign, 0.0], dtype=np.float32),
+            "pos": pos,
             "health": health,
             "max_health": health,
             "cooldown": 0,
@@ -115,29 +129,40 @@ class OrganismArenaParallelEnv(ParallelEnv):
     def _obs(self, agent: str) -> np.ndarray:
         """Build the egocentric observation for *agent* (pure read — no state mutation).
 
-        Self position is reported as velocity (displacement since the previous
-        step) so both spawn slots share one input distribution. Opponent
-        components are relative and zeroed when the opponent is beyond
-        ``sensing_radius``.
+        All components are pre-scaled to roughly ``[-1, 1]`` (see
+        ``observation_space``). Self position is reported as velocity
+        (displacement since the previous step, in units of ``move_speed``) so
+        both spawn slots share one input distribution. Opponent components are
+        relative (in units of the arena diameter) and zeroed when the opponent
+        is beyond ``sensing_radius``; the trailing visibility flag tells the
+        policy *why* they are zero.
         """
         opp = "agent_1" if agent == "agent_0" else "agent_0"
         me, other = self.state[agent], self.state[opp]
         prev = self._prev_positions.get(agent, me["pos"])
-        vel = me["pos"] - prev
+        vel = (me["pos"] - prev) / max(self.move_speed, 1e-8)
         rel = other["pos"] - me["pos"]
-        rel_x, rel_y, opp_health = float(rel[0]), float(rel[1]), other["health"]
-        if float(np.linalg.norm(rel)) > self.rules.sensing_radius:
+        diameter = max(2.0 * self.bounds, 1e-8)
+        visible = float(np.linalg.norm(rel)) <= self.rules.sensing_radius
+        if visible:
+            rel_x = float(rel[0]) / diameter
+            rel_y = float(rel[1]) / diameter
+            opp_health = other["health"] / max(other["max_health"], 1e-8)
+        else:
             # Opponent out of sensing range — hide its relative position/health.
             rel_x, rel_y, opp_health = 0.0, 0.0, 0.0
+        health_frac = me["health"] / max(me["max_health"], 1e-8)
+        cooldown_frac = float(me["cooldown"]) / max(self.rules.cooldown_steps, 1)
         return np.array(
             [
                 vel[0],
                 vel[1],
-                me["health"],
+                health_frac,
                 rel_x,
                 rel_y,
                 opp_health,
-                float(me["cooldown"]),
+                cooldown_frac,
+                float(visible),
             ],
             dtype=np.float32,
         )
@@ -225,7 +250,13 @@ class OrganismArenaParallelEnv(ParallelEnv):
         for agent, action in actions.items():
             if agent not in self.state:
                 continue
-            move = np.asarray(action[:2], dtype=np.float32) * 0.05
+            move = np.asarray(action[:2], dtype=np.float32)
+            # Clamp the move *norm* (not per component) so diagonal movement
+            # is not √2 faster than axis-aligned movement.
+            norm = float(np.linalg.norm(move))
+            if norm > 1.0:
+                move = move / norm
+            move = move * self.move_speed
             self.state[agent]["pos"] = np.clip(
                 self.state[agent]["pos"] + move, -self.bounds, self.bounds
             )

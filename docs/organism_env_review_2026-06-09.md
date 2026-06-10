@@ -2,8 +2,13 @@
 
 **Date:** 2026-06-09
 **Status update (2026-06-09):** B2, B5, B7, B8, B9, and B11 are fixed (with
-regression tests). Still open: B1, B3, B4, B10 (batched obs/dynamics contract
-change — requires retrain, see Phase 1) and B6 (design decision).
+regression tests).
+**Status update (2026-06-10):** B1, B3, B4, and B10 are fixed as one batched
+obs/dynamics contract change: spawn jitter (`sim.spawn_jitter`, default 0.1),
+norm-clamped movement (`sim.move_speed`, default 0.05), and a normalized 8D
+observation with a visibility flag. **Breaking:** arena checkpoints and league
+snapshots trained before this change are incompatible (obs 7D → 8D) — retrain.
+Still open: B6 (design decision: growth scales damage but not max health).
 **Scope reviewed:**
 - `src/rl_framework/envs/organisms/arena_parallel.py` (full)
 - `src/rl_framework/training/self_play_env_wrapper.py` (full)

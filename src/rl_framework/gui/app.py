@@ -380,6 +380,20 @@ def get_schema():
                         "min": 0.5,
                         "max": 5,
                     },
+                    "move_speed": {
+                        "value": 0.05,
+                        "type": "float",
+                        "desc": "Max movement per step (arena units)",
+                        "min": 0.01,
+                        "max": 0.5,
+                    },
+                    "spawn_jitter": {
+                        "value": 0.1,
+                        "type": "float",
+                        "desc": "Spawn position jitter half-width (0 = fixed spawns)",
+                        "min": 0,
+                        "max": 1,
+                    },
                 },
                 "morphology": {
                     "base_size": {

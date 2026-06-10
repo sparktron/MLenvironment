@@ -118,7 +118,7 @@ def test_load_frozen_policy_random_returns_random_policy() -> None:
     env = make_env("organism_arena_parallel", {"type": "organism_arena_parallel"})
     actor = load_frozen_policy("random", env.action_space("agent_0"))
     assert isinstance(actor, RandomPolicy)
-    action, state = actor.predict(np.zeros(7, dtype=np.float32))
+    action, state = actor.predict(np.zeros(8, dtype=np.float32))
     assert action.shape == (3,)
     assert state is None
 
@@ -137,7 +137,7 @@ def test_frozen_policy_applies_normalizer_before_predict() -> None:
             return np.zeros(3, dtype=np.float32), None
 
     fp = FrozenPolicy(_Model(), _Norm())
-    fp.predict(np.zeros(7, dtype=np.float32))
+    fp.predict(np.zeros(8, dtype=np.float32))
     assert seen.get("normalized") is True
     assert float(seen["obs"][0]) == 100.0  # normaliser ran before predict
 
@@ -151,6 +151,6 @@ def test_frozen_policy_without_normalizer_passes_raw_obs() -> None:
             return np.zeros(3, dtype=np.float32), None
 
     fp = FrozenPolicy(_Model(), None)
-    raw = np.arange(7, dtype=np.float32)
+    raw = np.arange(8, dtype=np.float32)
     fp.predict(raw)
     assert np.array_equal(captured["obs"], raw)

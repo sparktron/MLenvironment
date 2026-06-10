@@ -161,11 +161,13 @@ def test_organism_env_obs_reports_self_velocity() -> None:
     observations, _ = env.reset(seed=0)
     # Velocity reads zero on the first observation after reset.
     assert observations["agent_0"][0] == 0.0 and observations["agent_0"][1] == 0.0
-    # Move agent_0 by a known amount: action[:2] is scaled by 0.05 internally.
+    # Move agent_0 at full speed: velocity obs is in units of move_speed.
     move = np.array([1.0, 0.0, 0.0], dtype=np.float32)
     noop = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     observations, _, _, _, _ = env.step({"agent_0": move, "agent_1": noop})
-    assert abs(observations["agent_0"][0] - 0.05) < 1e-5, "vel_x should be +0.05"
+    assert abs(observations["agent_0"][0] - 1.0) < 1e-5, (
+        "vel_x should be +1.0 (full speed in move_speed units)"
+    )
     assert abs(observations["agent_0"][1]) < 1e-6, "vel_y should be 0"
 
 
@@ -181,8 +183,9 @@ def test_organism_env_obs_hides_opponent_beyond_sensing_radius() -> None:
     env.state["agent_0"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
     env.state["agent_1"]["pos"] = np.array([5.0, 0.0], dtype=np.float32)
     obs = env._obs("agent_0")
-    # rel_opp_x, rel_opp_y, opp_health are obs[3:6].
+    # rel_opp_x, rel_opp_y, opp_health are obs[3:6]; obs[7] is the visibility flag.
     assert obs[3] == 0.0 and obs[4] == 0.0 and obs[5] == 0.0
+    assert obs[7] == 0.0, "visibility flag should be 0 when out of sensing range"
 
 
 def test_organism_env_attack_damage_scales_with_distance() -> None:
@@ -412,3 +415,81 @@ def test_arena_observe_matches_observation_contract() -> None:
     obs = env.observe("agent_0")
     assert obs.shape == env.observation_space("agent_0").shape
     assert np.array_equal(obs, reset_obs["agent_0"])
+
+
+def test_arena_spawn_jitter_differs_across_seeds() -> None:
+    """Different reset seeds must yield different spawn positions (B1)."""
+    cfg = {"type": "organism_arena_parallel", "seed": 0}
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    pos_a = {a: env.state[a]["pos"].copy() for a in env.possible_agents}
+    env.reset(seed=1)
+    pos_b = {a: env.state[a]["pos"].copy() for a in env.possible_agents}
+    assert any(not np.array_equal(pos_a[a], pos_b[a]) for a in env.possible_agents), (
+        "spawn positions should differ across seeds"
+    )
+    # Same seed reproduces the same spawn.
+    env.reset(seed=1)
+    pos_c = {a: env.state[a]["pos"].copy() for a in env.possible_agents}
+    assert all(np.array_equal(pos_b[a], pos_c[a]) for a in env.possible_agents)
+
+
+def test_arena_spawn_jitter_zero_restores_fixed_spawn() -> None:
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "sim": {"spawn_jitter": 0.0},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    assert np.allclose(env.state["agent_0"]["pos"], [-0.6, 0.0])
+    assert np.allclose(env.state["agent_1"]["pos"], [0.6, 0.0])
+
+
+def test_arena_diagonal_movement_not_faster() -> None:
+    """Movement is clamped by norm: diagonal speed equals axis-aligned (B3)."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "sim": {"spawn_jitter": 0.0},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    start = env.state["agent_0"]["pos"].copy()
+    diagonal = np.array([1.0, 1.0, 0.0], dtype=np.float32)
+    noop = np.zeros(3, dtype=np.float32)
+    env.step({"agent_0": diagonal, "agent_1": noop})
+    displacement = float(np.linalg.norm(env.state["agent_0"]["pos"] - start))
+    assert abs(displacement - env.move_speed) < 1e-6, (
+        "diagonal displacement should equal move_speed, not move_speed * sqrt(2)"
+    )
+
+
+def test_arena_obs_normalized_and_visibility_disambiguates() -> None:
+    """Obs components are fraction-scaled, and the visibility flag separates
+    'out of range' from 'visible with near-zero health' (B4/B10)."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "morphology": {"health": 3.0},  # raw health != 1 to catch raw leakage
+        "battle_rules": {"sensing_radius": 0.5, "cooldown_steps": 4},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    env.state["agent_0"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
+    env.state["agent_1"]["pos"] = np.array([0.1, 0.0], dtype=np.float32)
+    env.state["agent_1"]["health"] = 0.0
+    env.state["agent_0"]["cooldown"] = 2
+
+    obs = env.observe("agent_0")
+    assert obs[2] == 1.0, "own health is a fraction of max, not raw health"
+    assert obs[5] == 0.0 and obs[7] == 1.0, (
+        "visible near-dead opponent: health 0 but visibility flag 1"
+    )
+    assert abs(obs[6] - 0.5) < 1e-6, "cooldown is a fraction of cooldown_steps"
+
+    env.state["agent_1"]["pos"] = np.array([5.0, 0.0], dtype=np.float32)
+    obs = env.observe("agent_0")
+    assert obs[5] == 0.0 and obs[7] == 0.0, (
+        "out-of-range opponent: zero block plus visibility flag 0"
+    )
