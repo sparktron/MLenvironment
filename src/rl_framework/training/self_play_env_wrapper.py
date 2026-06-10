@@ -135,10 +135,29 @@ class LeagueSampler:
         self._alpha = recent_bias_alpha
         self._rng = np.random.default_rng(seed)
         self._cache: dict[Path, FrozenPolicy] = {}
+        # File-list cache, refreshed only when the snapshot dir's mtime changes.
+        self._files: list[Path] = []
+        self._dir_mtime_ns: int | None = None
 
     def _league_files(self) -> list[Path]:
-        if not self._dir.exists():
-            return []
+        """Return league snapshot paths, re-globbing only on a directory change.
+
+        Adding or pruning a snapshot bumps the directory's mtime, so the sorted
+        file list is cached and re-scanned only when that mtime moves. This
+        avoids a glob + sort + int-parse on every episode reset, which is hot
+        under parallel self-play with short episodes. ``st_mtime_ns`` is used so
+        rapid successive changes are still detected.
+        """
+        try:
+            mtime_ns = self._dir.stat().st_mtime_ns
+        except FileNotFoundError:
+            self._files = []
+            self._dir_mtime_ns = None
+            return self._files
+        if mtime_ns == self._dir_mtime_ns:
+            return self._files
+
+        self._dir_mtime_ns = mtime_ns
         # Only numeric-suffixed snapshots belong to the league; a stray file
         # like selfplay_best.zip must not crash sampling at episode reset.
         files = [
@@ -146,14 +165,42 @@ class LeagueSampler:
             for p in self._dir.glob("selfplay_*.zip")
             if p.stem.rsplit("_", 1)[-1].isdigit()
         ]
-        return sorted(files, key=lambda p: int(p.stem.rsplit("_", 1)[-1]))
+        self._files = sorted(files, key=lambda p: int(p.stem.rsplit("_", 1)[-1]))
 
-    def sample(self) -> FrozenPolicy | None:
-        """Return a frozen opponent from the on-disk league, or ``None`` if empty.
+        # Drop cached models whose snapshot was pruned from disk.
+        live = set(self._files)
+        for cached in [p for p in self._cache if p not in live]:
+            self._cache.pop(cached, None)
+
+        # Pre-warm the newest snapshot off the hot sampling path — it is the
+        # most likely opponent under recent_bias and stays in the league until
+        # it ages out, so the load is inevitable. Gate on the obs-normaliser
+        # sidecar so we never cache a snapshot before SelfPlayCallback has
+        # finished writing it (the .zip lands first, the sidecar a beat later;
+        # the dir mtime bumps again when the sidecar appears, re-triggering
+        # this refresh). When no normaliser is ever saved the sidecar is simply
+        # absent and we skip the pre-warm — those raw-obs loads are correct and
+        # cheap to do lazily.
+        if self._files:
+            newest = self._files[-1]
+            if newest.with_name(newest.stem + VECNORM_SUFFIX).exists():
+                self._ensure_loaded(newest)
+        return self._files
+
+    def _ensure_loaded(self, path: Path) -> FrozenPolicy:
+        """Return the cached :class:`FrozenPolicy` for *path*, loading on miss.
 
         Each opponent is paired with its per-snapshot obs normaliser sidecar so
         it predicts on the same observation distribution it trained under.
         """
+        if path not in self._cache:
+            model = PPO.load(str(path))
+            normalizer = load_obs_normalizer(path.with_name(path.stem + VECNORM_SUFFIX))
+            self._cache[path] = FrozenPolicy(model, normalizer)
+        return self._cache[path]
+
+    def sample(self) -> FrozenPolicy | None:
+        """Return a frozen opponent from the on-disk league, or ``None`` if empty."""
         files = self._league_files()
         if not files:
             return None
@@ -162,18 +209,7 @@ class LeagueSampler:
             idx = int(self._rng.choice(len(files), p=weights / weights.sum()))
         else:
             idx = int(self._rng.integers(0, len(files)))
-        path = files[idx]
-
-        # Drop cached models whose snapshot was pruned from disk.
-        live = set(files)
-        for cached in [p for p in self._cache if p not in live]:
-            self._cache.pop(cached, None)
-
-        if path not in self._cache:
-            model = PPO.load(str(path))
-            normalizer = load_obs_normalizer(path.with_name(path.stem + VECNORM_SUFFIX))
-            self._cache[path] = FrozenPolicy(model, normalizer)
-        return self._cache[path]
+        return self._ensure_loaded(files[idx])
 
 
 class SelfPlayEnvWrapper(BaseParallelWrapper):

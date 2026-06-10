@@ -143,10 +143,10 @@ is therefore ~1/20th of what the walker path achieves. See roadmap R2 for the fi
 this is the highest-value engineering item in the file set.
 
 **E2. League sampling does disk I/O + possible `PPO.load` every episode reset.**
-`LeagueSampler.sample()` globs the directory per reset and pays a full model load
-(~50–200 ms) on each cache miss. Fine at current scale; will matter at higher
-episode rates after E1 is fixed. Consider caching the file list with an mtime check
-and pre-warming the newest snapshot.
+— ✅ FIXED (2026-06-10, R2c). `LeagueSampler` now caches the sorted file list
+and re-globs only on a directory `st_mtime_ns` change, prunes stale cache
+entries at refresh time, and pre-warms the newest snapshot (sidecar-gated) off
+the hot sampling path. Model loads remain cached per path as before.
 
 **E3. Matplotlib rendering is slow for video generation** (~tens of ms/frame,
 full patch rebuild via `ax.clear()` each frame). Adequate for occasional replays;
@@ -173,10 +173,13 @@ comparable. Batch them into one breaking change and retrain once.
 |----|------|--------|
 | R2 | **Parallel self-play training without SuperSuit.** — ✅ DONE (2026-06-10). New `SingleAgentArenaEnv` Gymnasium adapter wraps the single-agent `SelfPlayEnvWrapper` onto SB3's native `DummyVecEnv`/`SubprocVecEnv` path. Self-play with `num_envs > 1` now parallelizes across cores with working `env_method` (annealing/curriculum) and `Monitor` metrics; the `_ArenaVecEnvAdapter`/SuperSuit path is retained only for shared-policy mode, whose `num_envs == 1` guard now fires only when self-play is off. Disk-backed league sampling already survived subprocess cloning. | ~1 day |
 | R2b | Vary `LeagueSampler` seed per worker rank so parallel envs don't sample identical opponent sequences | ✅ DONE — each rank seeded `base_seed + 1000*rank` (env + sampler) |
-| R2c | League file-list caching / snapshot pre-warm (E2) | open, ~1 hr |
+| R2c | League file-list caching / snapshot pre-warm (E2) | ✅ DONE (2026-06-10) — `LeagueSampler` caches the sorted snapshot list and re-globs only when the dir's `st_mtime_ns` changes (was a glob+sort+parse every reset); model-cache pruning moved to refresh time; newest snapshot pre-warmed off the sampling path, gated on its obs-normaliser sidecar so a mid-write snapshot is never cached. |
 
 R2 also restored `rollout/ep_rew_mean` via `Monitor` on the self-play path
 (the shared-policy SuperSuit path still relies on ArenaMetricsCallback).
+
+**Phase 2 is complete** (R2, R2b, R2c all done). The remaining open work is
+Phase 3 (usability/tooling) and Phase 4 (env richness).
 
 ### Phase 3 — Usability & tooling
 | ID | Item | Effort |

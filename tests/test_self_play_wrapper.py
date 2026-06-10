@@ -208,3 +208,96 @@ def test_league_sampler_recent_bias_prefers_latest(monkeypatch, tmp_path) -> Non
     latest = sum(1 for s in samples if "selfplay_300" in s)
     earliest = sum(1 for s in samples if "selfplay_100" in s)
     assert latest > earliest
+
+
+def test_league_sampler_caches_file_list_until_dir_changes(monkeypatch, tmp_path):
+    """R2c: the snapshot dir is re-globbed only when its mtime changes, not on
+    every sample/reset."""
+    import os
+    import pathlib
+
+    (tmp_path / "selfplay_100.zip").write_text("x", encoding="utf-8")
+    globs = {"n": 0}
+    orig_glob = pathlib.Path.glob
+
+    def _counting_glob(self, pattern):
+        globs["n"] += 1
+        return orig_glob(self, pattern)
+
+    monkeypatch.setattr(pathlib.Path, "glob", _counting_glob)
+    sampler = LeagueSampler(tmp_path, seed=0)
+
+    sampler._league_files()
+    sampler._league_files()
+    sampler._league_files()
+    assert globs["n"] == 1, "unchanged dir must not be re-globbed every call"
+
+    # Adding a snapshot bumps the dir mtime; force a distinct mtime so the test
+    # does not depend on filesystem timestamp granularity.
+    (tmp_path / "selfplay_200.zip").write_text("x", encoding="utf-8")
+    st = (tmp_path).stat()
+    os.utime(tmp_path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
+    files = sampler._league_files()
+    assert globs["n"] == 2, "a changed dir must trigger exactly one re-glob"
+    assert [p.name for p in files] == ["selfplay_100.zip", "selfplay_200.zip"]
+
+
+def test_league_sampler_prewarms_newest_with_sidecar(monkeypatch, tmp_path):
+    """R2c: when the newest snapshot's obs-normaliser sidecar is present, it is
+    pre-warmed into the cache off the sampling path."""
+    for ts in (100, 200):
+        (tmp_path / f"selfplay_{ts}.zip").write_text("x", encoding="utf-8")
+    # Only the newest gets a sidecar (gate for a fully-written snapshot).
+    (tmp_path / "selfplay_200_vecnorm.pkl").write_text("x", encoding="utf-8")
+
+    loaded: list[str] = []
+    monkeypatch.setattr(
+        "rl_framework.training.self_play_env_wrapper.PPO.load",
+        lambda p: loaded.append(str(p)) or object(),
+    )
+    monkeypatch.setattr(
+        "rl_framework.training.self_play_env_wrapper.load_obs_normalizer",
+        lambda p: None,
+    )
+    sampler = LeagueSampler(tmp_path, seed=0)
+    sampler._league_files()  # no explicit sample
+    cached = {p.name for p in sampler._cache}
+    assert cached == {"selfplay_200.zip"}, "only the newest+sidecar is pre-warmed"
+
+
+def test_league_sampler_no_prewarm_without_sidecar(monkeypatch, tmp_path):
+    """R2c: without a sidecar the newest is not eagerly loaded (avoids caching a
+    snapshot mid-write); it still loads lazily on sample()."""
+    (tmp_path / "selfplay_100.zip").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(
+        "rl_framework.training.self_play_env_wrapper.PPO.load", lambda p: object()
+    )
+    sampler = LeagueSampler(tmp_path, seed=0)
+    sampler._league_files()
+    assert sampler._cache == {}, "no sidecar -> no pre-warm"
+    assert sampler.sample() is not None
+    assert len(sampler._cache) == 1, "lazy load still populates the cache"
+
+
+def test_league_sampler_drops_pruned_snapshot_from_cache(monkeypatch, tmp_path):
+    """R2c: a snapshot removed from disk is dropped from the model cache on the
+    next directory refresh."""
+    import os
+
+    (tmp_path / "selfplay_100.zip").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(
+        "rl_framework.training.self_play_env_wrapper.PPO.load", lambda p: object()
+    )
+    sampler = LeagueSampler(tmp_path, seed=0)
+    sampler.sample()
+    assert any(p.name == "selfplay_100.zip" for p in sampler._cache)
+
+    # Prune the snapshot and add a new one; force a distinct dir mtime.
+    (tmp_path / "selfplay_100.zip").unlink()
+    (tmp_path / "selfplay_200.zip").write_text("x", encoding="utf-8")
+    st = (tmp_path).stat()
+    os.utime(tmp_path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
+    sampler._league_files()
+    assert not any(p.name == "selfplay_100.zip" for p in sampler._cache), (
+        "pruned snapshot should be evicted from the cache"
+    )
