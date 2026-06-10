@@ -333,6 +333,74 @@ def test_list_outputs_includes_sweep_morph_run_variants(client, tmp_path):
     assert nested[0]["has_final_model"] is True
 
 
+# ----- self-play league dashboard -----
+
+
+def _make_league(seed_dir, timesteps, with_vecnorm=()):
+    league = seed_dir / "checkpoints" / "league"
+    league.mkdir(parents=True, exist_ok=True)
+    for ts in timesteps:
+        (league / f"selfplay_{ts}.zip").write_bytes(b"x")
+        if ts in with_vecnorm:
+            (league / f"selfplay_{ts}_vecnorm.pkl").write_bytes(b"x")
+    return league
+
+
+def test_list_outputs_reports_league_size(client):
+    c, _, base = client
+    seed_dir = base / "outputs" / "arena" / "seed_0"
+    (seed_dir / "checkpoints").mkdir(parents=True)
+    _make_league(seed_dir, [256, 512, 768])
+    # A stray non-numeric snapshot must not be counted.
+    (seed_dir / "checkpoints" / "league" / "selfplay_best.zip").write_bytes(b"x")
+
+    data = c.get("/api/outputs").get_json()
+    arena = next(d for d in data if d["experiment"] == "arena")
+    assert arena["league_size"] == 3
+
+
+def test_list_outputs_league_size_zero_without_league(client):
+    c, _, base = client
+    seed_dir = base / "outputs" / "walker" / "seed_0"
+    (seed_dir / "checkpoints").mkdir(parents=True)
+    data = c.get("/api/outputs").get_json()
+    assert next(d for d in data if d["experiment"] == "walker")["league_size"] == 0
+
+
+def test_get_league_returns_sorted_snapshot_detail(client):
+    c, _, base = client
+    seed_dir = base / "outputs" / "arena" / "seed_0"
+    (seed_dir / "checkpoints").mkdir(parents=True)
+    _make_league(seed_dir, [768, 256, 512], with_vecnorm=(512,))
+
+    resp = c.get("/api/league?path=arena/seed_0")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["league_size"] == 3
+    assert data["newest_timesteps"] == 768
+    # Sorted oldest -> newest by timestep regardless of glob order.
+    assert [s["timesteps"] for s in data["snapshots"]] == [256, 512, 768]
+    by_ts = {s["timesteps"]: s for s in data["snapshots"]}
+    assert by_ts[512]["has_vecnorm"] is True
+    assert by_ts[256]["has_vecnorm"] is False
+    assert all(s["age_seconds"] >= 0 for s in data["snapshots"])
+
+
+def test_get_league_empty_for_unknown_run(client):
+    c, _, _ = client
+    resp = c.get("/api/league?path=nope/seed_0")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["league_size"] == 0 and data["snapshots"] == []
+    assert data["newest_timesteps"] is None
+
+
+def test_get_league_rejects_path_traversal(client):
+    c, _, _ = client
+    assert c.get("/api/league?path=../../etc").status_code == 404
+    assert c.get("/api/league?path=").status_code == 404
+
+
 # ----- frames endpoint -----
 
 

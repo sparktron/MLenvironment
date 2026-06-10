@@ -684,6 +684,59 @@ def get_frames(run_id: str):
 
 _DEFAULT_OUTPUTS_DIR = Path(__file__).resolve().parents[3] / "outputs"
 
+# Sidecar suffix mirrors VECNORM_SUFFIX in training.self_play_env_wrapper;
+# hardcoded here to keep the GUI module free of a heavy training import.
+_VECNORM_SUFFIX = "_vecnorm.pkl"
+
+
+def _safe_output_subpath(rel_path: str) -> Path | None:
+    """Resolve *rel_path* under the outputs dir, or ``None`` if it escapes.
+
+    Guards the league endpoint against path traversal: only paths that stay
+    inside ``_DEFAULT_OUTPUTS_DIR`` are returned.
+    """
+    if not rel_path or ".." in Path(rel_path).parts:
+        return None
+    outputs_dir = _DEFAULT_OUTPUTS_DIR.resolve()
+    target = (outputs_dir / rel_path).resolve()
+    try:
+        target.relative_to(outputs_dir)
+    except ValueError:
+        return None
+    return target
+
+
+def _league_snapshots(league_dir: Path) -> list[dict[str, Any]]:
+    """Return per-snapshot metadata for a self-play league directory.
+
+    Each entry has the snapshot name, its timestep tag, byte size, age in
+    seconds, and whether its obs-normaliser sidecar is present. Non-numeric
+    stray files (e.g. a hand-copied ``selfplay_best.zip``) are skipped, matching
+    ``LeagueSampler``. Sorted oldest→newest by timestep.
+    """
+    if not league_dir.is_dir():
+        return []
+    import time
+
+    now = time.time()
+    snaps: list[dict[str, Any]] = []
+    for p in league_dir.glob("selfplay_*.zip"):
+        tag = p.stem.rsplit("_", 1)[-1]
+        if not tag.isdigit():
+            continue
+        st = p.stat()
+        snaps.append(
+            {
+                "name": p.name,
+                "timesteps": int(tag),
+                "size_bytes": st.st_size,
+                "age_seconds": max(0.0, now - st.st_mtime),
+                "has_vecnorm": p.with_name(p.stem + _VECNORM_SUFFIX).exists(),
+            }
+        )
+    snaps.sort(key=lambda s: s["timesteps"])
+    return snaps
+
 
 @app.route("/api/outputs", methods=["GET"])
 def list_outputs():
@@ -699,6 +752,7 @@ def list_outputs():
             if (seed_dir / "checkpoints").exists()
             else []
         )
+        league_dir = seed_dir / "checkpoints" / "league"
         results.append(
             {
                 "experiment": experiment,
@@ -709,6 +763,9 @@ def list_outputs():
                 "has_final_model": (
                     seed_dir / "checkpoints" / "final_model.zip"
                 ).exists(),
+                # Cheap count so the dashboard can flag self-play runs; full
+                # snapshot detail is served lazily by /api/league.
+                "league_size": len(_league_snapshots(league_dir)),
             }
         )
 
@@ -732,6 +789,32 @@ def list_outputs():
                     if _is_seed_dir(seed_dir):
                         _append_seed(exp_dir.name, run_dir.name, seed_dir)
     return jsonify(results)
+
+
+@app.route("/api/league", methods=["GET"])
+def get_league():
+    """Return self-play league detail for one seed run.
+
+    Query param ``path`` is a seed directory relative to the outputs root (the
+    ``path`` field returned by ``/api/outputs``). Responds with the league size,
+    the newest snapshot's timestep, and per-snapshot metadata. Unknown or
+    league-less runs return an empty league rather than an error.
+    """
+    rel = request.args.get("path", "")
+    target = _safe_output_subpath(rel)
+    if target is None:
+        abort(404)
+    league_dir = target / "checkpoints" / "league"
+    snapshots = _league_snapshots(league_dir)
+    return jsonify(
+        {
+            "path": rel,
+            "exists": league_dir.is_dir(),
+            "league_size": len(snapshots),
+            "newest_timesteps": snapshots[-1]["timesteps"] if snapshots else None,
+            "snapshots": snapshots,
+        }
+    )
 
 
 # ------------------------------------------------------------------

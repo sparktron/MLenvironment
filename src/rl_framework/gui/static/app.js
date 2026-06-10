@@ -691,6 +691,58 @@
   // ------------------------------------------------------------------
   // Outputs tab
   // ------------------------------------------------------------------
+  function formatAge(seconds) {
+    if (seconds < 60) return Math.round(seconds) + "s";
+    if (seconds < 3600) return Math.round(seconds / 60) + "m";
+    if (seconds < 86400) return Math.round(seconds / 3600) + "h";
+    return Math.round(seconds / 86400) + "d";
+  }
+
+  function appendLeaguePanel(item, o) {
+    if (!o.league_size || o.league_size <= 0) return;
+    var panel = document.createElement("div");
+    panel.className = "league-panel";
+
+    var badge = document.createElement("button");
+    badge.className = "league-badge";
+    badge.textContent =
+      "⚔ League: " + o.league_size +
+      (o.league_size === 1 ? " snapshot" : " snapshots") + " ▾";
+
+    var detail = document.createElement("div");
+    detail.className = "league-detail";
+    detail.style.display = "none";
+
+    var loaded = false;
+    badge.addEventListener("click", async function () {
+      var open = detail.style.display === "none";
+      detail.style.display = open ? "block" : "none";
+      if (!open || loaded) return;
+      loaded = true;
+      var data = await api("GET", "/api/league?path=" + encodeURIComponent(o.path));
+      detail.innerHTML = "";
+      if (!data.snapshots || data.snapshots.length === 0) {
+        detail.innerHTML = '<p class="hint">No league snapshots.</p>';
+        return;
+      }
+      // Newest first.
+      data.snapshots.slice().reverse().forEach(function (s) {
+        var row = document.createElement("div");
+        row.className = "league-row";
+        var size = (s.size_bytes / 1024).toFixed(0) + " KB";
+        var warn = s.has_vecnorm ? "" : "  ⚠ no vecnorm";
+        row.textContent =
+          "t=" + s.timesteps + "  ·  " + size +
+          "  ·  " + formatAge(s.age_seconds) + " ago" + warn;
+        detail.appendChild(row);
+      });
+    });
+
+    panel.appendChild(badge);
+    panel.appendChild(detail);
+    item.appendChild(panel);
+  }
+
   async function refreshOutputs() {
     var outputs = await api("GET", "/api/outputs");
     var container = $("#outputs-list");
@@ -722,6 +774,7 @@
       item.appendChild(h3);
       item.appendChild(metaDiv);
       item.appendChild(cpListDiv);
+      appendLeaguePanel(item, o);
       container.appendChild(item);
     });
   }

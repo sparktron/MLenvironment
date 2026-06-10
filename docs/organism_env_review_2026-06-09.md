@@ -185,13 +185,13 @@ Phase 3 (usability/tooling) and Phase 4 (env richness).
 | ID | Item | Effort |
 |----|------|--------|
 | R3a | **Tournament CLI** (`arena-tournament`) — ✅ DONE (2026-06-10). Round-robin over `--checkpoints` (files/dirs) + optional `--include-random`; Bradley-Terry ratings on an Elo scale (draws/timeouts = half-wins), JSON (`--output`) + markdown (`--markdown-out`) standings and win-rate matrix. New module `training/arena_tournament.py`; builds on `run_arena_eval`. | ~½ day |
-| R3b | **GUI league dashboard**: league size, snapshot ages, latest win-rate vs league, link to render replays (the GUI already has an arena schema at `gui/app.py:371`) | ~1 day |
+| R3b | **GUI league dashboard** — ✅ DONE (2026-06-10). `/api/outputs` now reports `league_size` per seed run; new `/api/league?path=<seed>` endpoint returns per-snapshot detail (timesteps, size, age, vecnorm-sidecar presence), path-traversal guarded. Outputs tab renders an expandable league panel per self-play run. (Live win-rate-vs-league deferred — use `arena-tournament` over the league dir for ratings.) | ~1 day |
 | R3c | Headless arena video rendering wired into `render-replay` (force Agg backend, B9 fix) | ~2 hr |
 | R3d | Config schema docs for `battle_rules` / `morphology` (incl. growth-vs-health semantics, B6) | ~1 hr |
 | R3e | Public `observe(agent)` API on the env; migrate `SelfPlayEnvWrapper` off `_obs` (B11) | ✅ DONE (2026-06-09, with B11) |
 
-Phase 3 status: R3a ✅, R3e ✅ done. R3b (GUI league dashboard), R3c (headless
-replay rendering), R3d (config schema docs) remain.
+Phase 3 status: R3a ✅, R3b ✅, R3e ✅ done. R3c (headless replay rendering)
+and R3d (config schema docs) remain.
 
 ### Phase 4 — Environment richness (design work, do after 1–3)
 - **Body collision** — agents currently overlap freely; contact pushes would make
