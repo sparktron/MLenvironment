@@ -107,6 +107,17 @@ def _arena_cfg(tmp_path: Path, timesteps: int = 256) -> dict:
     }
 
 
+def test_arena_n_agent_shared_policy_train(tmp_path: Path) -> None:
+    """A 3-agent free-for-all trains end to end via the shared-policy SuperSuit
+    path (constant agent set thanks to inert spectators)."""
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=256)
+    cfg["environment"]["num_agents"] = 3
+    model_path = train(cfg)
+    assert Path(str(model_path) + ".zip").exists()
+
+
 def test_arena_train_runs_and_logs_metrics(tmp_path: Path) -> None:
     """Arena PPO training starts (regression for the SuperSuit seed bug) and the
     ArenaMetricsCallback writes arena/* scalars to TensorBoard."""

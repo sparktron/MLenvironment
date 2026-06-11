@@ -32,8 +32,15 @@ class OrganismArenaParallelEnv(ParallelEnv):
     def __init__(self, cfg: dict[str, Any], render_mode: str | None = None):
         self.cfg = cfg
         self.render_mode = render_mode
-        self.possible_agents = ["agent_0", "agent_1"]
-        self.agents = []
+        self.num_agents_cfg = int(cfg.get("num_agents", 2))
+        if self.num_agents_cfg < 2:
+            raise ValueError(f"num_agents must be >= 2, got {self.num_agents_cfg}")
+        self.possible_agents = [f"agent_{i}" for i in range(self.num_agents_cfg)]
+        self.agents: list[str] = []
+        # Agents that have been knocked out this episode. They linger in the
+        # agent set as inert spectators (so the population — and the SuperSuit
+        # vec-env — stays a constant size) until the episode ends for everyone.
+        self._dead: set[str] = set()
         self._rng = np.random.default_rng(cfg.get("seed", 0))
         sim_cfg = cfg.get("sim", {})
         self.bounds = float(sim_cfg.get("arena_half_extent", 1.0))
@@ -93,14 +100,25 @@ class OrganismArenaParallelEnv(ParallelEnv):
         """
         return float(self.morphology.get("health", 1.0)) * float(size)
 
-    def _spawn_agent(self, name: str, sign: float) -> dict[str, Any]:
+    def _spawn_position(self, index: int) -> np.ndarray:
+        """Evenly space agent *index* on a spawn circle of radius 0.6.
+
+        ``theta = pi - 2*pi*index/N`` so the 2-agent case reduces exactly to the
+        legacy layout (agent_0 at ``(-0.6, 0)``, agent_1 at ``(+0.6, 0)``) while
+        N>2 spreads competitors symmetrically around the arena.
+        """
+        n = self.num_agents_cfg
+        theta = np.pi - 2.0 * np.pi * index / n
+        return 0.6 * np.array([np.cos(theta), np.sin(theta)])
+
+    def _spawn_agent(self, name: str, index: int) -> dict[str, Any]:
         base_size = float(self.morphology.get("base_size", 1.0))
         # step_count is 0 at spawn — store base_size and compute current size dynamically.
         size = float(np.clip(base_size, 0.5, 2.0))
         health = self._max_health_for_size(size)
         jitter = self._rng.uniform(-self.spawn_jitter, self.spawn_jitter, size=2)
         pos = np.clip(
-            np.array([0.6 * sign, 0.0]) + jitter, -self.bounds, self.bounds
+            self._spawn_position(index) + jitter, -self.bounds, self.bounds
         ).astype(np.float32)
         return {
             "pos": pos,
@@ -122,10 +140,11 @@ class OrganismArenaParallelEnv(ParallelEnv):
         if seed is not None:
             self._rng = np.random.default_rng(seed)
         self.agents = self.possible_agents[:]
+        self._dead = set()
         self.step_count = 0
         self.state = {
-            "agent_0": self._spawn_agent("agent_0", -1.0),
-            "agent_1": self._spawn_agent("agent_1", 1.0),
+            name: self._spawn_agent(name, i)
+            for i, name in enumerate(self.possible_agents)
         }
         # Seed previous positions so velocity reads zero on the first observation.
         self._prev_positions = {
@@ -135,30 +154,65 @@ class OrganismArenaParallelEnv(ParallelEnv):
         infos = {agent: {} for agent in self.agents}
         return observations, infos
 
+    def _is_alive(self, agent: str) -> bool:
+        return self.state[agent]["health"] > self.rules.win_health_threshold
+
+    def _nearest_opponent(
+        self, agent: str, candidates: set[str] | None = None
+    ) -> tuple[str | None, float]:
+        """Return the nearest opponent of *agent* and the distance to it.
+
+        Generalises the 2-agent "the other one" lookup to N agents: the policy
+        always perceives (and, in ``step``, attacks) its closest threat. For N=2
+        this is exactly the single opponent, so the observation is unchanged.
+
+        By default candidates are the currently-living opponents (used for
+        observations). ``step`` passes an explicit *candidates* set — the agents
+        alive at the start of the attack phase — so all attacks in a step
+        resolve simultaneously rather than letting an early kill cancel
+        retaliation. Returns ``(None, inf)`` when no candidate exists.
+        """
+        me_pos = self.state[agent]["pos"]
+        pool = (
+            candidates
+            if candidates is not None
+            else {o for o in self.possible_agents if self._is_alive(o)}
+        )
+        nearest: str | None = None
+        best = float("inf")
+        for other in pool:
+            if other == agent:
+                continue
+            dist = float(np.linalg.norm(me_pos - self.state[other]["pos"]))
+            if dist < best:
+                best, nearest = dist, other
+        return nearest, best
+
     def _obs(self, agent: str) -> np.ndarray:
         """Build the egocentric observation for *agent* (pure read — no state mutation).
 
         All components are pre-scaled to roughly ``[-1, 1]`` (see
         ``observation_space``). Self position is reported as velocity
         (displacement since the previous step, in units of ``move_speed``) so
-        both spawn slots share one input distribution. Opponent components are
-        relative (in units of the arena diameter) and zeroed when the opponent
-        is beyond ``sensing_radius``; the trailing visibility flag tells the
-        policy *why* they are zero.
+        every agent shares one input distribution. The opponent block describes
+        the *nearest living opponent* (relative position in arena-diameter
+        units, health fraction), zeroed and flagged invisible when none is
+        within ``sensing_radius``.
         """
-        opp = "agent_1" if agent == "agent_0" else "agent_0"
-        me, other = self.state[agent], self.state[opp]
+        me = self.state[agent]
         prev = self._prev_positions.get(agent, me["pos"])
         vel = (me["pos"] - prev) / max(self.move_speed, 1e-8)
-        rel = other["pos"] - me["pos"]
         diameter = max(2.0 * self.bounds, 1e-8)
-        visible = float(np.linalg.norm(rel)) <= self.rules.sensing_radius
+        nearest, dist = self._nearest_opponent(agent)
+        visible = nearest is not None and dist <= self.rules.sensing_radius
         if visible:
+            other = self.state[nearest]
+            rel = other["pos"] - me["pos"]
             rel_x = float(rel[0]) / diameter
             rel_y = float(rel[1]) / diameter
             opp_health = other["health"] / max(other["max_health"], 1e-8)
         else:
-            # Opponent out of sensing range — hide its relative position/health.
+            # No living opponent in sensing range — hide the opponent block.
             rel_x, rel_y, opp_health = 0.0, 0.0, 0.0
         health_frac = me["health"] / max(me["max_health"], 1e-8)
         cooldown_frac = float(me["cooldown"]) / max(self.rules.cooldown_steps, 1)
@@ -256,8 +310,10 @@ class OrganismArenaParallelEnv(ParallelEnv):
             agent: self.step_count >= self.rules.max_steps for agent in active_agents
         }
 
+        # Movement, cooldown decay, and growth — living agents only; knocked-out
+        # spectators are inert until the episode ends for everyone.
         for agent, action in actions.items():
-            if agent not in self.state:
+            if agent not in self.state or not self._is_alive(agent):
                 continue
             move = np.asarray(action[:2], dtype=np.float32)
             # Clamp the move *norm* (not per component) so diagonal movement
@@ -286,69 +342,77 @@ class OrganismArenaParallelEnv(ParallelEnv):
             self.state[agent]["max_health"] = new_max
             self.state[agent]["size"] = new_size
 
-        for attacker in list(self.agents):
-            defender = "agent_1" if attacker == "agent_0" else "agent_0"
-            if attacker not in actions:
+        # Attacks — each living attacker strikes its nearest living opponent
+        # within attack_range (single target, mirroring the nearest-opponent
+        # observation). For N=2 this is exactly the other agent. Targeting and
+        # attacker eligibility use a snapshot of the agents alive at the start
+        # of the attack phase, so all attacks in a step resolve simultaneously
+        # (an early kill does not cancel the victim's retaliation -> mutual KOs
+        # are draws, not wins).
+        combatants = {agent for agent in active_agents if self._is_alive(agent)}
+        for attacker in active_agents:
+            if attacker not in combatants or attacker not in actions:
                 continue
             trigger = float(actions[attacker][2]) > 0.5
             if not trigger or self.state[attacker]["cooldown"] > 0:
                 continue
-            dist = float(
-                np.linalg.norm(
-                    self.state[attacker]["pos"] - self.state[defender]["pos"]
-                )
-            )
+            target, dist = self._nearest_opponent(attacker, candidates=combatants)
+            if target is None or dist > self.rules.attack_range:
+                continue
             falloff = self._attack_falloff(dist)
             if falloff > 0.0:
                 damage = self.rules.damage * falloff * self.state[attacker]["size"]
-                self.state[defender]["health"] = max(
-                    0.0, self.state[defender]["health"] - damage
+                self.state[target]["health"] = max(
+                    0.0, self.state[target]["health"] - damage
                 )
                 # Health always takes full damage so combat resolves; only the
                 # dense reward is scaled (annealed toward the sparse win signal).
                 dense_reward = damage * self._damage_scale
                 rewards[attacker] += dense_reward
-                rewards[defender] -= dense_reward
+                rewards[target] -= dense_reward
                 self.state[attacker]["cooldown"] = self.rules.cooldown_steps
 
+        # Newly knocked-out agents take a one-time -1 and become inert.
         for agent in active_agents:
-            if self.state[agent]["health"] <= self.rules.win_health_threshold:
-                terminations[agent] = True
-                winner = "agent_1" if agent == "agent_0" else "agent_0"
-                if winner in rewards:
-                    rewards[winner] += 1.0
+            if agent not in self._dead and not self._is_alive(agent):
+                self._dead.add(agent)
                 rewards[agent] -= 1.0
 
-        # Build a per-episode outcome annotation for instrumentation (Feature 2).
-        # The same dict is attached to every agent's info so a metrics callback
-        # can read the result from whichever agent slot it observes.
-        terminated = [agent for agent in active_agents if terminations[agent]]
+        living = [agent for agent in active_agents if self._is_alive(agent)]
+        timeout = self.step_count >= self.rules.max_steps
+        ended_by_elimination = len(living) <= 1
+
+        # Build a per-episode outcome annotation for instrumentation. The same
+        # dict is attached to every agent's info so a metrics callback can read
+        # the result from whichever agent slot it observes.
         episode_outcome: dict[str, Any] | None = None
-        if terminated:
-            if len(terminated) == len(active_agents):
-                # Simultaneous knockout — no single winner.
+        if ended_by_elimination:
+            # Last-organism-standing: elimination *terminates* (not truncates).
+            truncations = {agent: False for agent in active_agents}
+            for agent in active_agents:
+                terminations[agent] = True
+            if len(living) == 1:
+                survivor = living[0]
+                rewards[survivor] += 1.0
+                episode_outcome = {
+                    "winner": survivor,
+                    "outcome": "ko",
+                    "step": self.step_count,
+                }
+            else:
+                # Zero survivors — simultaneous wipeout, no winner.
                 episode_outcome = {
                     "winner": None,
                     "outcome": "draw",
                     "step": self.step_count,
                 }
-            else:
-                loser = terminated[0]
-                winner = "agent_1" if loser == "agent_0" else "agent_0"
-                episode_outcome = {
-                    "winner": winner,
-                    "loser": loser,
-                    "outcome": "ko",
-                    "step": self.step_count,
-                }
-        elif all(truncations.values()):
+            self.agents = []
+        elif timeout:
             episode_outcome = {
                 "winner": None,
                 "outcome": "timeout",
                 "step": self.step_count,
             }
-
-        if any(terminations.values()) or all(truncations.values()):
             self.agents = []
 
         # All five dicts must have identical keys (active_agents) per PettingZoo Parallel API.
@@ -412,10 +476,21 @@ class OrganismArenaParallelEnv(ParallelEnv):
         )
         ax.add_patch(border)
 
-        _colors = {"agent_0": ("#4fc3f7", "#0288d1"), "agent_1": ("#ef9a9a", "#c62828")}
-        _labels = {"agent_0": "A0", "agent_1": "A1"}
+        # Per-agent fill/edge colours. The first two keep the legacy palette
+        # (blue A0, red A1); further agents are sampled from a qualitative
+        # colormap so N>2 arenas stay legible.
+        import matplotlib.colors as mcolors
+        from matplotlib import colormaps
 
-        for agent in self.possible_agents:
+        base_palette = [("#4fc3f7", "#0288d1"), ("#ef9a9a", "#c62828")]
+
+        def _agent_colors(index: int) -> tuple[str, str]:
+            if index < len(base_palette):
+                return base_palette[index]
+            hexc = mcolors.to_hex(colormaps["tab10"](index % 10))
+            return hexc, hexc
+
+        for index, agent in enumerate(self.possible_agents):
             if agent not in self.state:
                 continue
             s = self.state[agent]
@@ -424,7 +499,8 @@ class OrganismArenaParallelEnv(ParallelEnv):
             health = s["health"]
             max_health = s["max_health"]
             frac = np.clip(health / max_health, 0.0, 1.0) if max_health > 0 else 0.0
-            fill_color, edge_color = _colors[agent]
+            fill_color, edge_color = _agent_colors(index)
+            label = f"A{index}"
 
             # Agent body circle — radius scales with size, normalised to arena
             radius = 0.07 * size
@@ -481,7 +557,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
             ax.text(
                 pos[0],
                 pos[1],
-                _labels[agent],
+                label,
                 color="white",
                 fontsize=7,
                 ha="center",

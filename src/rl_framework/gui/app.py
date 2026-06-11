@@ -372,6 +372,13 @@ def get_schema():
             "environment": {
                 "type": {"value": "organism_arena_parallel", "type": "fixed"},
                 "seed": {"value": 11, "type": "int", "desc": "Environment random seed"},
+                "num_agents": {
+                    "value": 2,
+                    "type": "int",
+                    "desc": "Number of organisms (2 = duel, >2 = free-for-all)",
+                    "min": 2,
+                    "max": 8,
+                },
                 "sim": {
                     "arena_half_extent": {
                         "value": 1.2,

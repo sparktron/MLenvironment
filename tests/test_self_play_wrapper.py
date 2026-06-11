@@ -75,6 +75,31 @@ def test_wrapper_uses_random_action_when_league_empty() -> None:
         wrapped.step({"agent_0": np.zeros(3, dtype=np.float32)})
 
 
+def test_wrapper_drives_all_opponents_in_n_agent_arena() -> None:
+    """In a 3-agent arena the wrapper exposes only agent_0 and drives both
+    agent_1 and agent_2 from the frozen policy."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "num_agents": 3,
+        "battle_rules": {"max_steps": 20, "damage": 0.0},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    spy = _SpyPolicy([1.0, 0.0, 0.0])
+    wrapped = SelfPlayEnvWrapper(env, _StubSampler())
+    obs, _ = wrapped.reset()
+    assert set(obs) == {"agent_0"}
+    assert wrapped._opponent_agents == ["agent_1", "agent_2"]
+    wrapped._frozen_policy = spy
+    a1_x = env.state["agent_1"]["pos"][0]
+    a2_x = env.state["agent_2"]["pos"][0]
+    wrapped.step({"agent_0": np.zeros(3, dtype=np.float32)})
+    # Frozen policy queried once per opponent; both opponents moved +x.
+    assert spy.calls == 2
+    assert env.state["agent_1"]["pos"][0] > a1_x
+    assert env.state["agent_2"]["pos"][0] > a2_x
+
+
 def test_wrapper_routes_opponent_through_frozen_policy() -> None:
     """agent_1's action must come from the frozen policy's predict()."""
     env = _arena(max_steps=20, damage=0.0)

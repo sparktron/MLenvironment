@@ -5,8 +5,30 @@ are the values the env falls back to when a key is omitted; see
 `src/rl_framework/envs/organisms/arena_parallel.py` for the source of truth and
 `configs/experiments/organisms_fight_arena.yaml` for a worked example.
 
-The arena is a 2-agent PettingZoo `ParallelEnv` (`agent_0`, `agent_1`). Spaces
-are slot-symmetric, so one shared policy can fill either slot.
+The arena is an N-agent PettingZoo `ParallelEnv` (`agent_0` … `agent_{N-1}`,
+default N=2). Spaces are slot-symmetric, so one shared policy can fill any slot.
+
+## `environment.num_agents`
+
+| Key | Default | Meaning |
+|-----|--------:|---------|
+| `num_agents` | `2` | Number of organisms. `2` is a duel; `>2` is a free-for-all. Must be ≥ 2. Agents spawn evenly on a circle (the 2-agent case reduces exactly to the legacy `±0.6` layout). |
+
+**N-agent mechanics.** The observation stays a fixed 8-D and describes the
+*nearest living opponent*, so it is identical at N=2 and old checkpoints remain
+valid. An attack hits the attacker's nearest living opponent within
+`attack_range` (single target). All attacks in a step resolve against the
+agents alive at the start of that step, so mutual knockouts are draws, not
+order-dependent wins. A knocked-out agent takes a one-time `−1` and becomes an
+**inert spectator** (cannot move, attack, or be targeted; earns 0 reward) — the
+agent set stays a constant size so SuperSuit/VecNormalize see a fixed
+population. The episode ends (last-organism-standing) when ≤ 1 agent remains
+(the survivor gets `+1`) or at `max_steps`.
+
+**Tooling note.** `arena-eval` and `arena-tournament` are head-to-head (pairwise)
+and require `num_agents: 2`. Self-play (`SelfPlayEnvWrapper`) drives every
+non-live slot from one sampled frozen past-self, so N-agent self-play works; the
+shared-policy SuperSuit path also supports N > 2.
 
 ## Observation (8-D, `float32`, pre-scaled to ~[-1, 1])
 

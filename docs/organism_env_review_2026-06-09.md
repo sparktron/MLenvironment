@@ -195,16 +195,27 @@ Phase 4 (env richness: collision, energy/food, N-agent arenas, morphology
 co-evolution, speed/size tradeoff).
 
 ### Phase 4 — Environment richness (design work, do after 1–3)
+- **N-agent arenas** — ✅ DONE (2026-06-10). `environment.num_agents` (default 2)
+  enables free-for-alls. The obs generalizes to a fixed 8-D nearest-living-opponent
+  block (identical at N=2, so old checkpoints stay valid); attacks hit the nearest
+  opponent in range with simultaneous step resolution; knocked-out agents become
+  inert spectators (constant agent set for SuperSuit) until last-organism-standing
+  or timeout. `SelfPlayEnvWrapper` drives all N−1 opponent slots; shared-policy
+  SuperSuit training supports N>2. `arena-eval`/`arena-tournament` stay 2-agent
+  (guarded). Spawns on a circle reducing to the legacy `±0.6` 2-agent layout.
 - **Body collision** — agents currently overlap freely; contact pushes would make
   positioning meaningful.
 - **Energy/food mechanics** — attacks cost energy, food pellets restore it; gives
   the "organism" framing teeth and creates non-combat strategies.
-- **N-agent arenas** (the env hardcodes `agent_0`/`agent_1` opponent lookups in
-  `_obs` and `step`; generalizing the opponent indexing is a prerequisite).
 - **Morphology co-evolution** — let `morph-search` drive both competitors and
   score by tournament Elo instead of single-opponent win rate (depends on R3a).
 - **Speed/size tradeoff** — move the hardcoded `0.05` speed into config and scale
   it inversely with `size` so growth is a real strategic choice.
+
+Note: N-agent introduced one deliberate 2-agent behavior change — a simultaneous
+mutual KO now nets −1 to each (draw) instead of the old mutual +1/−1 (net 0).
+The win/loss case (winner +1, loser −1) is unchanged. The obs contract is
+unchanged (still 8-D).
 
 ### Testing gaps to close alongside
 - A regression test that two eval episodes with different seeds **differ** (locks in R1b).

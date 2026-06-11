@@ -89,6 +89,13 @@ def run_arena_eval(
     """
     env_cfg = cfg["environment"]
     env = make_env(env_cfg["type"], env_cfg)
+    if list(env.possible_agents) != list(_AGENTS):
+        env.close()
+        raise ValueError(
+            "run_arena_eval is a head-to-head harness and requires exactly 2 "
+            f"agents ({_AGENTS}); the env has {list(env.possible_agents)}. "
+            "Set environment.num_agents: 2 for head-to-head eval."
+        )
     base_seed = int(cfg.get("seed", 0))
 
     # Spaces are slot-symmetric, so either agent's action space works.

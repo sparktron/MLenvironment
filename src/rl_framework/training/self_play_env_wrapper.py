@@ -213,23 +213,32 @@ class LeagueSampler:
 
 
 class SelfPlayEnvWrapper(BaseParallelWrapper):
-    """Drive the opponent slot with a frozen policy, exposing only the live agent.
+    """Drive every opponent slot with a frozen policy, exposing only the live agent.
+
+    For the 2-agent arena this is the single ``agent_1`` slot; for N-agent
+    free-for-alls one sampled frozen past-self fills all of ``agent_1`` …
+    ``agent_{N-1}``.
 
     Parameters
     ----------
     env:
-        The underlying 2-agent arena ``ParallelEnv``.
+        The underlying N-agent arena ``ParallelEnv`` (N≥2).
     sampler:
         A :class:`LeagueSampler` that yields frozen opponent policies from disk.
     """
 
     LIVE_AGENT = "agent_0"
+    # Retained for back-compat; the wrapper now drives *every* non-live slot.
     FROZEN_AGENT = "agent_1"
 
     def __init__(self, env: Any, sampler: LeagueSampler) -> None:
         super().__init__(env)
         self._sampler = sampler
         self._frozen_policy: PPO | None = None
+        # Every non-live slot is driven by the frozen opponent (one sampled
+        # past-self fills all of them). For the 2-agent arena this is just
+        # agent_1; for N-agent free-for-alls it is agents 1..N-1.
+        self._opponent_agents = [a for a in env.possible_agents if a != self.LIVE_AGENT]
         # Present a single-agent env to SuperSuit/SB3.
         self.possible_agents = [self.LIVE_AGENT]
         self.agents = [self.LIVE_AGENT]
@@ -253,8 +262,9 @@ class SelfPlayEnvWrapper(BaseParallelWrapper):
     def step(self, actions: dict[str, np.ndarray]):
         live = self.LIVE_AGENT
         full_actions = dict(actions)
-        if self.FROZEN_AGENT in self.env.agents:
-            full_actions[self.FROZEN_AGENT] = self._opponent_action()
+        for opp in self._opponent_agents:
+            if opp in self.env.agents:
+                full_actions[opp] = self._opponent_action(opp)
 
         obs, rewards, terminations, truncations, infos = self.env.step(full_actions)
 
@@ -276,12 +286,12 @@ class SelfPlayEnvWrapper(BaseParallelWrapper):
         )
 
     # -- internals -----------------------------------------------------------
-    def _opponent_action(self) -> np.ndarray:
-        """Return the frozen opponent's action for the current state."""
+    def _opponent_action(self, agent: str) -> np.ndarray:
+        """Return the frozen opponent's action for *agent* at the current state."""
         if self._frozen_policy is None:
             # Empty league — random opponent keeps early training moving.
-            return self.env.action_space(self.FROZEN_AGENT).sample()
-        frozen_obs = self.env.unwrapped.observe(self.FROZEN_AGENT)
+            return self.env.action_space(agent).sample()
+        frozen_obs = self.env.unwrapped.observe(agent)
         action, _ = self._frozen_policy.predict(
             frozen_obs[np.newaxis], deterministic=True
         )

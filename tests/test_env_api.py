@@ -268,7 +268,6 @@ def test_organism_env_infos_episode_outcome_on_ko() -> None:
         assert "episode_outcome" in info
         assert info["episode_outcome"]["outcome"] == "ko"
         assert info["episode_outcome"]["winner"] == "agent_0"
-        assert info["episode_outcome"]["loser"] == "agent_1"
 
 
 def test_organism_env_infos_episode_outcome_on_timeout() -> None:
@@ -478,13 +477,14 @@ def test_arena_obs_normalized_and_visibility_disambiguates() -> None:
     env.reset(seed=0)
     env.state["agent_0"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
     env.state["agent_1"]["pos"] = np.array([0.1, 0.0], dtype=np.float32)
-    env.state["agent_1"]["health"] = 0.0
+    # Near-dead but still alive (a truly 0-health opponent is gone, not sensed).
+    env.state["agent_1"]["health"] = 0.003
     env.state["agent_0"]["cooldown"] = 2
 
     obs = env.observe("agent_0")
     assert obs[2] == 1.0, "own health is a fraction of max, not raw health"
-    assert obs[5] == 0.0 and obs[7] == 1.0, (
-        "visible near-dead opponent: health 0 but visibility flag 1"
+    assert obs[5] > 0.0 and obs[5] < 0.01 and obs[7] == 1.0, (
+        "visible near-dead opponent: tiny health fraction but visibility flag 1"
     )
     assert abs(obs[6] - 0.5) < 1e-6, "cooldown is a fraction of cooldown_steps"
 
@@ -564,3 +564,93 @@ def test_arena_no_growth_keeps_max_health_fixed() -> None:
     a = env.state["agent_0"]
     assert a["size"] == 1.0
     assert abs(a["max_health"] - 1.5) < 1e-6 and abs(a["health"] - 1.5) < 1e-6
+
+
+# ----- N-agent arenas (Phase 4) -----
+
+
+def test_arena_rejects_fewer_than_two_agents() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="num_agents must be >= 2"):
+        make_env("organism_arena_parallel", {"type": "organism_arena_parallel", "num_agents": 1})
+
+
+def test_arena_n_agents_reset_and_obs_shape() -> None:
+    cfg = {"type": "organism_arena_parallel", "seed": 0, "num_agents": 4}
+    env = make_env("organism_arena_parallel", cfg)
+    obs, infos = env.reset(seed=0)
+    assert set(obs) == {"agent_0", "agent_1", "agent_2", "agent_3"}
+    for a in obs:
+        # Obs stays a fixed 8-D (nearest-opponent block) regardless of N.
+        assert obs[a].shape == env.observation_space(a).shape == (8,)
+    # Spawns are distinct (circle layout + jitter).
+    positions = [tuple(env.state[a]["pos"]) for a in env.possible_agents]
+    assert len(set(positions)) == 4
+
+
+def test_arena_two_agent_spawn_unchanged_under_circle() -> None:
+    """The N-agent circle layout must reduce exactly to the legacy 2-agent spawn."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "num_agents": 2,
+        "sim": {"spawn_jitter": 0.0},
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    assert np.allclose(env.state["agent_0"]["pos"], [-0.6, 0.0], atol=1e-6)
+    assert np.allclose(env.state["agent_1"]["pos"], [0.6, 0.0], atol=1e-6)
+
+
+def test_arena_n_agent_last_standing_winner() -> None:
+    """With all but one knocked out, the episode ends with a single ko winner."""
+    cfg = {"type": "organism_arena_parallel", "seed": 0, "num_agents": 3}
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    # Knock out agent_1 and agent_2 directly; agent_0 survives.
+    env.state["agent_1"]["health"] = 0.0
+    env.state["agent_2"]["health"] = 0.0
+    noop = np.zeros(3, dtype=np.float32)
+    obs, rewards, terms, truncs, infos = env.step({a: noop for a in env.agents})
+    assert all(terms.values()), "elimination terminates every agent together"
+    assert rewards["agent_0"] == 1.0, "lone survivor gets +1"
+    assert rewards["agent_1"] == -1.0 and rewards["agent_2"] == -1.0
+    assert infos["agent_0"]["episode_outcome"] == {
+        "winner": "agent_0",
+        "outcome": "ko",
+        "step": 1,
+    }
+    assert env.agents == []
+
+
+def test_arena_n_agent_death_is_inert_spectator_until_end() -> None:
+    """A death with >1 survivor does not end the episode; the dead agent lingers
+    as an inert, zero-reward spectator with a constant agent set."""
+    cfg = {"type": "organism_arena_parallel", "seed": 0, "num_agents": 3}
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    env.state["agent_2"]["health"] = 0.0  # only agent_2 dies
+    noop = np.zeros(3, dtype=np.float32)
+    obs, rewards, terms, truncs, infos = env.step({a: noop for a in env.agents})
+    assert not any(terms.values()), "episode continues with 2 alive"
+    assert rewards["agent_2"] == -1.0, "death is penalised once"
+    assert "episode_outcome" not in infos["agent_0"]
+    assert len(env.agents) == 3, "agent set stays constant (spectator lingers)"
+
+    # Next step: the spectator earns no further reward and cannot act/be hit.
+    _, rewards2, _, _, _ = env.step({a: noop for a in env.agents})
+    assert rewards2["agent_2"] == 0.0
+
+
+def test_arena_n_agent_simultaneous_wipeout_is_draw() -> None:
+    cfg = {"type": "organism_arena_parallel", "seed": 0, "num_agents": 3}
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    for a in ("agent_0", "agent_1", "agent_2"):
+        env.state[a]["health"] = 0.0
+    noop = np.zeros(3, dtype=np.float32)
+    _, rewards, terms, _, infos = env.step({a: noop for a in env.agents})
+    assert all(terms.values())
+    assert infos["agent_0"]["episode_outcome"]["outcome"] == "draw"
+    assert all(rewards[a] == -1.0 for a in ("agent_0", "agent_1", "agent_2"))
