@@ -106,7 +106,7 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 
 | Package | Version | Purpose |
 |---|---|---|
-| pytest | >= 8.0 | Test runner |
+| pytest | >= 8.0, != 9.0.2 | Test runner |
 | pytest-cov | >= 7.1 | Coverage reporting and CI coverage gate |
 | ruff | >= 0.4 | Linting and formatting |
 
@@ -120,7 +120,7 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 git clone https://github.com/sparktron/MLenvironment.git && cd MLenvironment
 python -m venv .venv && source .venv/bin/activate
 pip install -e .                    # Core dependencies
-pip install -e ".[dev]"             # + dev tools (pytest, ruff)
+pip install -e ".[dev]"             # + dev tools (pytest, pytest-cov, ruff)
 # CI uses pinned dependencies from requirements-lock.txt
 ```
 
