@@ -107,6 +107,7 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 | Package | Version | Purpose |
 |---|---|---|
 | pytest | >= 8.0 | Test runner |
+| pytest-cov | >= 7.1 | Coverage reporting and CI coverage gate |
 | ruff | >= 0.4 | Linting and formatting |
 
 ---
