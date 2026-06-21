@@ -23,66 +23,16 @@ from rl_framework.training.self_play_env_wrapper import (
     SelfPlayEnvWrapper,
     SingleAgentArenaEnv,
 )
+from rl_framework.utils.checkpoint import (
+    find_vecnormalize_path_for_model as _find_vecnormalize_path_for_model,
+    validate_resume_path as _validate_resume_path,
+    vecnormalize_path_for_model as _vecnormalize_path_for_model,
+)
 from rl_framework.utils.logging_utils import create_experiment_paths
 from rl_framework.utils.reproducibility import (
     check_resume_provenance,
     write_run_metadata,
 )
-
-
-def _model_zip_path(path: str | Path) -> Path:
-    path = Path(path)
-    return path if str(path).endswith(".zip") else Path(str(path) + ".zip")
-
-
-def _vecnormalize_path_for_model(model_path: str | Path) -> Path:
-    """Return the model-specific VecNormalize sidecar path.
-
-    Periodic checkpoints need their own normaliser snapshot because a shared
-    ``vecnormalize.pkl`` can drift after the model was written.
-    """
-    path = _model_zip_path(model_path)
-    return path.with_name(path.stem + "_vecnormalize.pkl")
-
-
-def _legacy_vecnormalize_path_for_model(model_path: str | Path) -> Path:
-    return _model_zip_path(model_path).with_name("vecnormalize.pkl")
-
-
-def _find_vecnormalize_path_for_model(model_path: str | Path) -> Path | None:
-    specific = _vecnormalize_path_for_model(model_path)
-    if specific.exists():
-        return specific
-    legacy = _legacy_vecnormalize_path_for_model(model_path)
-    if legacy.exists():
-        return legacy
-    return None
-
-
-def _validate_resume_path(resume_from: Path, normalize: bool) -> None:
-    """Raise FileNotFoundError early with a clear message if resume files are missing."""
-    import zipfile
-
-    model_path = _model_zip_path(resume_from)
-    if not model_path.exists():
-        raise FileNotFoundError(
-            f"resume_from model not found: {model_path}. "
-            "Check that the checkpoint path is correct."
-        )
-    if not zipfile.is_zipfile(model_path):
-        raise ValueError(
-            f"Checkpoint {model_path} appears corrupt (not a valid zip file). "
-            "The file may have been truncated by an interrupted write."
-        )
-    if normalize:
-        if _find_vecnormalize_path_for_model(model_path) is None:
-            raise FileNotFoundError(
-                f"VecNormalize sidecar not found for model {model_path}. "
-                f"Expected {_vecnormalize_path_for_model(model_path).name} "
-                f"(or legacy {_legacy_vecnormalize_path_for_model(model_path).name}). "
-                "Move the model and normalizer together, or set "
-                "normalize_observations: false."
-            )
 
 
 class StopOnEvent(BaseCallback):
