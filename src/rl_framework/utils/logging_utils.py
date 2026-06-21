@@ -7,6 +7,15 @@ from pathlib import Path
 from typing import Any
 
 
+class CsvSchemaError(Exception):
+    """Raised when appending to a CSV whose header doesn't match the new data.
+
+    This catches silent data corruption from unintentional schema drift: new
+    columns would be silently dropped and missing columns would be filled with
+    empty strings if we didn't check first.
+    """
+
+
 @dataclass
 class ExperimentPaths:
     run_dir: Path
@@ -61,17 +70,39 @@ def create_experiment_paths(
 
 
 def append_metrics_csv(path: Path, metrics: dict[str, Any]) -> None:
-    # Determine whether we need to write a header row. Check actual file
-    # content rather than just file existence, so a pre-created empty file
-    # still gets a header on first write.
-    write_header = not path.exists() or path.stat().st_size == 0
+    """Append one row of *metrics* to the CSV at *path*.
+
+    On the first write (empty or absent file) the header is derived from
+    ``metrics.keys()``. On subsequent writes the existing header is read and
+    validated: if the keys differ a :class:`CsvSchemaError` is raised rather
+    than silently dropping new columns or padding missing ones with empty
+    strings.
+    """
+    is_new = not path.exists() or path.stat().st_size == 0
+    if not is_new:
+        with path.open(newline="", encoding="utf-8") as fh:
+            existing_fields = next(csv.reader(fh), None)
+        if existing_fields is not None:
+            new_keys = list(metrics.keys())
+            if existing_fields != new_keys:
+                added = [k for k in new_keys if k not in existing_fields]
+                removed = [k for k in existing_fields if k not in new_keys]
+                parts = []
+                if added:
+                    parts.append(f"new keys not in header: {added}")
+                if removed:
+                    parts.append(f"header keys missing from data: {removed}")
+                raise CsvSchemaError(
+                    f"CSV schema mismatch in {path}: {'; '.join(parts)}. "
+                    "Delete the file to reset, or migrate it to the new schema."
+                )
     with path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
             fieldnames=list(metrics.keys()),
-            extrasaction="ignore",  # silently drop keys not in fieldnames
-            restval="",  # fill missing keys with empty string
+            extrasaction="ignore",
+            restval="",
         )
-        if write_header:
+        if is_new:
             writer.writeheader()
         writer.writerow(metrics)
