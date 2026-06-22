@@ -21,36 +21,49 @@ def _mock_policy():
     return p
 
 
-def _mock_env():
-    env = MagicMock()
-    obs_dict = {"agent_0": np.zeros(8, dtype=np.float32), "agent_1": np.zeros(8, dtype=np.float32)}
+def _make_mock_env():
+    """Factory function to create fresh mock environments for each test."""
+    def _mock_env():
+        env = MagicMock()
+        obs_dict = {
+            "agent_0": np.zeros(8, dtype=np.float32),
+            "agent_1": np.zeros(8, dtype=np.float32),
+        }
 
-    def reset_side_effect(*args, **kwargs):
-        env.agents = ["agent_0", "agent_1"]
-        return (obs_dict, {})
+        # Track call count for side effects
+        env._reset_called = False
 
-    def step_side_effect(actions):
-        env.agents = []
-        return (
-            obs_dict,
-            {"agent_0": 0.0, "agent_1": 0.0},
-            {},
-            {},
-            {"agent_0": {"episode_outcome": {"outcome": "ko", "winner": "agent_0"}}}
+        def reset_impl(*args, **kwargs):
+            env._reset_called = True
+            env.agents = ["agent_0", "agent_1"]
+            return (obs_dict, {})
+
+        def step_impl(actions):
+            env.agents = []
+            return (
+                obs_dict,
+                {"agent_0": 0.0, "agent_1": 0.0},
+                {},
+                {},
+                {"agent_0": {"episode_outcome": {"outcome": "ko", "winner": "agent_0"}}},
+            )
+
+        env.reset.side_effect = reset_impl
+        env.step.side_effect = step_impl
+        env.action_space.return_value.sample.return_value = np.zeros(
+            3, dtype=np.float32
         )
+        env.close = MagicMock(return_value=None)
+        return env
 
-    env.reset.side_effect = reset_side_effect
-    env.step.side_effect = step_side_effect
-    env.action_space.return_value.sample.return_value = np.zeros(3, dtype=np.float32)
-    env.close.return_value = None
-    return env
+    return _mock_env()
 
 
 @patch("rl_framework.training.arena_eval.make_env")
 @patch("rl_framework.training.arena_eval.PPO")
 def test_arena_eval_returns_correct_keys(mock_ppo, mock_make_env):
     mock_ppo.load.return_value = _mock_policy()
-    mock_make_env.side_effect = lambda *args, **kwargs: _mock_env()
+    mock_make_env.side_effect = lambda *args, **kwargs: _make_mock_env()
     result = run_arena_eval(
         "mock_policy", "random", _cfg(), n_episodes=4, swap_roles=False
     )
@@ -68,7 +81,7 @@ def test_arena_eval_returns_correct_keys(mock_ppo, mock_make_env):
 @patch("rl_framework.training.arena_eval.PPO")
 def test_arena_eval_win_rates_sum_to_lte_one(mock_ppo, mock_make_env):
     mock_ppo.load.return_value = _mock_policy()
-    mock_make_env.side_effect = lambda *args, **kwargs: _mock_env()
+    mock_make_env.side_effect = lambda *args, **kwargs: _make_mock_env()
     result = run_arena_eval(
         "mock_policy", "random", _cfg(), n_episodes=10, swap_roles=False
     )
@@ -79,7 +92,7 @@ def test_arena_eval_win_rates_sum_to_lte_one(mock_ppo, mock_make_env):
 @patch("rl_framework.training.arena_eval.PPO")
 def test_arena_eval_role_swap_doubles_episode_count(mock_ppo, mock_make_env):
     mock_ppo.load.return_value = _mock_policy()
-    mock_make_env.side_effect = lambda *args, **kwargs: _mock_env()
+    mock_make_env.side_effect = lambda *args, **kwargs: _make_mock_env()
     result = run_arena_eval(
         "mock_policy", "random", _cfg(), n_episodes=10, swap_roles=True
     )
@@ -91,7 +104,7 @@ def test_arena_eval_role_swap_doubles_episode_count(mock_ppo, mock_make_env):
 def test_arena_eval_random_opponent_no_load(mock_ppo, mock_make_env):
     """Passing opponent_path='random' must not call PPO.load for the opponent."""
     mock_ppo.load.return_value = _mock_policy()
-    mock_make_env.side_effect = lambda *args, **kwargs: _mock_env()
+    mock_make_env.side_effect = lambda *args, **kwargs: _make_mock_env()
     run_arena_eval("mock_policy", "random", _cfg(), n_episodes=2, swap_roles=False)
     # PPO.load called exactly once (for the policy, not the opponent)
     assert mock_ppo.load.call_count == 1
