@@ -12,15 +12,16 @@ import copy
 from typing import Any
 
 from rl_framework.evolution.simple_search import RandomMorphologySearch
+from rl_framework.utils.checkpoint import model_zip_path
 
 
 def _as_model_zip_path(model_path: str) -> str:
-    """Return a Stable-Baselines3 model zip path.
+    """Return a Stable-Baselines3 model zip path as a string.
 
-    SB3 ``save('foo')`` writes ``foo.zip``.  Keep paths that already end with
-    ``.zip`` unchanged to avoid producing ``.zip.zip``.
+    Thin string-returning wrapper over :func:`model_zip_path` so the morphology
+    loop shares the one canonical path-normalisation helper.
     """
-    return model_path if model_path.endswith(".zip") else f"{model_path}.zip"
+    return str(model_zip_path(model_path))
 
 
 def run_morphology_search(

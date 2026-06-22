@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from rl_framework.utils.checkpoint import model_zip_path as _as_zip_path
+
 _log = logging.getLogger(__name__)
 
 
@@ -175,14 +177,6 @@ def _report(messages: list[str], *, strict: bool) -> list[str]:
     for msg in messages:
         _log.warning("Resume provenance: %s", msg)
     return messages
-
-
-def _as_zip_path(resume_from: Path) -> Path:
-    return (
-        resume_from
-        if str(resume_from).endswith(".zip")
-        else Path(str(resume_from) + ".zip")
-    )
 
 
 def _find_source_manifest(model_path: Path) -> Path | None:
