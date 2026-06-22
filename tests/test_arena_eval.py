@@ -59,9 +59,9 @@ def _make_mock_env():
     return _mock_env()
 
 
-@patch("rl_framework.training.arena_eval.make_env")
 @patch("rl_framework.training.arena_eval.PPO")
-def test_arena_eval_returns_correct_keys(mock_ppo, mock_make_env):
+@patch("rl_framework.training.arena_eval.make_env")
+def test_arena_eval_returns_correct_keys(mock_make_env, mock_ppo):
     mock_ppo.load.return_value = _mock_policy()
     mock_make_env.side_effect = lambda *args, **kwargs: _make_mock_env()
     result = run_arena_eval(
@@ -77,9 +77,9 @@ def test_arena_eval_returns_correct_keys(mock_ppo, mock_make_env):
     }.issubset(result.keys())
 
 
-@patch("rl_framework.training.arena_eval.make_env")
 @patch("rl_framework.training.arena_eval.PPO")
-def test_arena_eval_win_rates_sum_to_lte_one(mock_ppo, mock_make_env):
+@patch("rl_framework.training.arena_eval.make_env")
+def test_arena_eval_win_rates_sum_to_lte_one(mock_make_env, mock_ppo):
     mock_ppo.load.return_value = _mock_policy()
     mock_make_env.side_effect = lambda *args, **kwargs: _make_mock_env()
     result = run_arena_eval(
@@ -88,9 +88,9 @@ def test_arena_eval_win_rates_sum_to_lte_one(mock_ppo, mock_make_env):
     assert result["policy_win_rate"] + result["opponent_win_rate"] <= 1.0 + 1e-6
 
 
-@patch("rl_framework.training.arena_eval.make_env")
 @patch("rl_framework.training.arena_eval.PPO")
-def test_arena_eval_role_swap_doubles_episode_count(mock_ppo, mock_make_env):
+@patch("rl_framework.training.arena_eval.make_env")
+def test_arena_eval_role_swap_doubles_episode_count(mock_make_env, mock_ppo):
     mock_ppo.load.return_value = _mock_policy()
     mock_make_env.side_effect = lambda *args, **kwargs: _make_mock_env()
     result = run_arena_eval(
@@ -99,9 +99,9 @@ def test_arena_eval_role_swap_doubles_episode_count(mock_ppo, mock_make_env):
     assert result["n_episodes"] == 20
 
 
-@patch("rl_framework.training.arena_eval.make_env")
 @patch("rl_framework.training.arena_eval.PPO")
-def test_arena_eval_random_opponent_no_load(mock_ppo, mock_make_env):
+@patch("rl_framework.training.arena_eval.make_env")
+def test_arena_eval_random_opponent_no_load(mock_make_env, mock_ppo):
     """Passing opponent_path='random' must not call PPO.load for the opponent."""
     mock_ppo.load.return_value = _mock_policy()
     mock_make_env.side_effect = lambda *args, **kwargs: _make_mock_env()
