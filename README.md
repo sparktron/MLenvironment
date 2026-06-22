@@ -106,7 +106,8 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 
 | Package | Version | Purpose |
 |---|---|---|
-| pytest | >= 8.0 | Test runner |
+| pytest | >= 8.0, != 9.0.2 | Test runner |
+| pytest-cov | >= 7.1 | Coverage reporting and CI coverage gate |
 | ruff | >= 0.4 | Linting and formatting |
 
 ---
@@ -119,7 +120,7 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 git clone https://github.com/sparktron/MLenvironment.git && cd MLenvironment
 python -m venv .venv && source .venv/bin/activate
 pip install -e .                    # Core dependencies
-pip install -e ".[dev]"             # + dev tools (pytest, ruff)
+pip install -e ".[dev]"             # + dev tools (pytest, pytest-cov, ruff)
 # CI uses pinned dependencies from requirements-lock.txt
 ```
 
@@ -146,7 +147,7 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" \
 **New!** Launch the interactive web GUI to set up and monitor experiments without touching YAML or the terminal.
 
 ```bash
-python -m rl_framework.cli.main gui              # http://127.0.0.1:5000
+python -m rl_framework.cli.main gui              # http://127.0.0.1:5001
 python -m rl_framework.cli.main gui --port 8080   # custom port
 ```
 
@@ -183,6 +184,7 @@ python -m rl_framework.cli.main gui --port 8080   # custom port
 | `--model-path` | Eval/replay only | — | Path to trained model `.zip` |
 | `--seeds` | multi-seed only | — | Comma-separated: `0,1,2,3,4` |
 | `--max-workers` | multi-seed only | cpu count | Parallel worker processes (pass `1` for sequential) |
+| `--device` | No | config value | Override training device for this run: `auto`, `cpu`, `cuda`, `cuda:<N>` |
 | `--resume` | train only | — | Path to a saved PPO `.zip` to continue training from |
 | `--trials` | morph-search only | 5 | Number of morphology mutations to evaluate |
 
@@ -251,12 +253,86 @@ python -m rl_framework.cli.main multi-seed \
 python -m rl_framework.cli.main multi-seed \
   --config-name robot_walk_basic --seeds 0,1,2,3,4 --max-workers 4
 
+# Force CPU for this invocation (without editing YAML):
+python -m rl_framework.cli.main multi-seed \
+  --config-name robot_walk_basic --seeds 0,1,2,3,4 --max-workers 4 --device cpu
+
 # Force sequential (useful when training already saturates CPUs via num_envs):
 python -m rl_framework.cli.main multi-seed \
   --config-name robot_walk_basic --seeds 0,1,2 --max-workers 1
 ```
 
 Trains and evaluates **the same config** across multiple random seeds for statistical rigor. Seeds run in **parallel by default** using separate processes.
+
+### 🧪 Automated 4-run CPU/GPU benchmark matrix (CLI only)
+
+Run the fixed matrix:
+- `CPU-4workers`
+- `CPU-8workers`
+- `GPU-1worker`
+- `GPU-2workers`
+
+```bash
+python scripts/benchmark_device_matrix.py \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3
+```
+
+If your shell cannot find the script path, run the module entrypoint instead:
+
+```bash
+python -m rl_framework.benchmark_device_matrix \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3
+```
+
+By default, the benchmark overrides each run to `--total-timesteps 20000` so the matrix completes quickly.
+
+The script runs regimes from smaller to larger worker counts (`CPU-4workers` → `CPU-8workers` → `GPU-1worker` → `GPU-2workers`). It prints the matrix version, resolved script path, and execution order before launching any workers. It streams each regime's terminal output live, prints periodic heartbeats while waiting, appends progress events to `outputs/benchmark_device_matrix_progress.jsonl`, measures wall-clock runtime, and prints a JSON summary plus a winner. If a later regime crashes, the progress log and `[partial-results]` output show which earlier regimes completed.
+
+If the first run line still shows `CPU-10workers` or lacks `[matrix] version:` / `[matrix] script:` lines, you are running an older checkout or a different copy of `scripts/benchmark_device_matrix.py`; update that checkout before rerunning.
+
+**Decision rule (default):**
+- Find the best `mean_return_mean` across the 4 regimes.
+- Keep regimes within **3%** of that best reward.
+- Choose the **fastest** (lowest wall-clock time) among those.
+
+You can tighten/relax reward guardrails:
+
+```bash
+python scripts/benchmark_device_matrix.py \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3 \
+  --reward-tolerance-ratio 0.02
+```
+
+Run a longer benchmark:
+
+```bash
+python scripts/benchmark_device_matrix.py \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3 \
+  --total-timesteps 100000
+```
+
+If you suspect a stall, tune watchdogs:
+
+```bash
+python scripts/benchmark_device_matrix.py \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3 \
+  --inactivity-timeout-s 600 \
+  --heartbeat-s 15
+```
+
+Maximum debug tracing (default is already enabled):
+
+```bash
+python scripts/benchmark_device_matrix.py \
+  --config-name robot_walk_basic \
+  --seeds 0,1,2,3 \
+  --debug
+```
 
 **Output:**
 
@@ -780,6 +856,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 - Historical audit artifact: `docs/exhaustive_repo_review_2026-04-22.md`
 - Incremental fixes report: `docs/fixes_2026-04-22.md`
 - Open items and future plan: `docs/open_items_todo.md`
+- Agent workflow notes: `AGENTS.md`
 
 ---
 
@@ -788,6 +865,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 ### v0.4.0
 
 **🐛 Bug Fixes:**
+- `eval_runner.py` — Arena eval now treats `episode_outcome: timeout` as truncation and uses the same SuperSuit/SB3 adapter as training, so timeout rates and done masks are recorded correctly
 - `gui/app.py` — Fixed path traversal vulnerability in `GET /api/outputs`: the `base_dir` query parameter is now ignored; the server always uses its own `_DEFAULT_OUTPUTS_DIR`
 - `gui/app.py` — `POST /api/train/stop/<run_id>` now returns **409 Conflict** (not 404) when the run exists but is not in a stoppable state; 404 is still returned for unknown run IDs
 - `live_tuning_callback.py` — Removed redundant `self.model.learning_rate = lr` assignment; SB3 uses `lr_schedule` (not the `learning_rate` attribute) to drive optimizer updates, so the stale write had no effect and was misleading

@@ -13,9 +13,15 @@ from rl_framework.training.eval_runner import evaluate
 from rl_framework.training.sb3_runner import train
 
 
-def _run_one_seed(args: tuple[int, dict[str, Any]]) -> tuple[int, str, dict[str, float]]:
+def _run_one_seed(
+    args: tuple[int, dict[str, Any]],
+) -> tuple[int, str, dict[str, float]]:
     """Train + evaluate a single seed. Runs in a subprocess when parallelised."""
     seed, cfg = args
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("BLAS_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
     model_path = train(cfg)
     metrics = evaluate(cfg, str(model_path) + ".zip")
     return seed, str(model_path), metrics
@@ -51,12 +57,16 @@ def run_multi_seed(
     if max_workers is None:
         max_workers = min(len(seeds), os.cpu_count() or 1)
 
-    # Build per-seed configs up front.
+    # Build per-seed configs up front. The seed is the only thing that varies;
+    # create_experiment_paths already nests each run under seed_<seed>/, so the
+    # experiment_name is left untouched. Each seed lands at the natural sibling
+    # path outputs/<experiment_name>/seed_<seed>/, co-located with the
+    # multi_seed_summary/ written below.
     seed_args: list[tuple[int, dict[str, Any]]] = []
     for seed in seeds:
         run_cfg = deepcopy(cfg)
         run_cfg["seed"] = seed
-        run_cfg["experiment_name"] = f"{cfg['experiment_name']}__seed_{seed}"
+        run_cfg.setdefault("environment", {})["seed"] = seed
         seed_args.append((seed, run_cfg))
 
     per_seed_metrics: dict[int, dict[str, float]] = {}
@@ -76,7 +86,9 @@ def run_multi_seed(
                 print(f"[MultiSeed] seed={seed}  FAILED: {exc}")
     else:
         with ProcessPoolExecutor(max_workers=max_workers) as exe:
-            future_to_seed = {exe.submit(_run_one_seed, args): args[0] for args in seed_args}
+            future_to_seed = {
+                exe.submit(_run_one_seed, args): args[0] for args in seed_args
+            }
             for future in as_completed(future_to_seed):
                 seed = future_to_seed[future]
                 try:
@@ -96,7 +108,9 @@ def run_multi_seed(
     # Collect only successful seeds for aggregation.
     successful_seeds = [s for s in seeds if s in per_seed_metrics]
     ordered_metrics = [per_seed_metrics[s] for s in successful_seeds]
-    all_returns = [m.get("mean_return", m.get("mean_reward", 0.0)) for m in ordered_metrics]
+    all_returns = [
+        m.get("mean_return", m.get("mean_reward", 0.0)) for m in ordered_metrics
+    ]
     aggregate: dict[str, Any] = {
         "mean_return_mean": float(np.mean(all_returns)),
         "mean_return_std": float(np.std(all_returns)),
@@ -122,8 +136,12 @@ def run_multi_seed(
         writer.writerow(["aggregate_mean", aggregate["mean_return_mean"]])
         writer.writerow(["aggregate_std", aggregate["mean_return_std"]])
 
-    print(f"[MultiSeed] Aggregate: {aggregate['mean_return_mean']:.4f} +/- {aggregate['mean_return_std']:.4f}")
+    print(
+        f"[MultiSeed] Aggregate: {aggregate['mean_return_mean']:.4f} +/- {aggregate['mean_return_std']:.4f}"
+    )
     if failed_seeds:
-        print(f"[MultiSeed] WARNING: {len(failed_seeds)} seed(s) failed: {list(failed_seeds.keys())}")
+        print(
+            f"[MultiSeed] WARNING: {len(failed_seeds)} seed(s) failed: {list(failed_seeds.keys())}"
+        )
     print(f"[MultiSeed] Summary written to {summary_path}")
     return aggregate

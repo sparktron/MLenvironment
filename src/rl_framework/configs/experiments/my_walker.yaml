@@ -16,30 +16,51 @@ environment:
     position_xy_noise: 0.02
     yaw_noise: 0.08
   reward:
-    alive_bonus: 1
-    forward_velocity_weight: 2
-    orientation_penalty_weight: 1
+    alive_bonus: 5
+    fall_penalty: 10
+    forward_velocity_weight: 1.5
+    orientation_penalty_weight: 0.3
     target_velocity: 1
     torque_penalty_weight: 0.01
+    velocity_sigma: 0.5
   sim:
+    body_half_extents:
+    - 0.2
+    - 0.1
+    - 0.08
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1
+    frame_skip: 4
     friction: 0.9
     gravity: -9.81
-    mass: 3
-    max_torque: 35
+    mass: 28
+    max_force: 35
+    settle_steps: 30
+    timestep: 0.004166666666666667
   termination:
+    max_height: 1.5
     max_steps: 800
-    max_tilt_radians: 0.8
-    min_height: 0.38
+    min_height: 0.18
 training:
-  batch_size: 256
-  checkpoint_every: 5000
-  device: auto
+  batch_size: 512
+  checkpoint_every: 50000
+  clip_range: 0.2
+  device: cpu
+  ent_coef: 0.005
+  gae_lambda: 0.95
+  gamma: 0.99
   learning_rate: 0.0003
-  n_steps: 1024
+  learning_rate_end: 5.0e-05
+  max_grad_norm: 0.5
+  n_epochs: 10
+  n_steps: 2048
   normalize_observations: true
-  num_envs: 1
+  num_envs: 8
   policy: MlpPolicy
-  total_timesteps: 20000
+  total_timesteps: 2000000
+  vf_coef: 0.5
 evaluation:
   episodes: 5
 output:

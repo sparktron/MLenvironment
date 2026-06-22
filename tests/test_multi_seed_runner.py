@@ -89,3 +89,21 @@ def test_aggregate_mean_uses_only_successful_seeds(tmp_path: Path, monkeypatch) 
     result = ms_module.run_multi_seed(cfg, seeds=[0, 1, 2], max_workers=1)
 
     assert abs(result["mean_return_mean"] - 1.5) < 1e-9
+
+
+def test_per_seed_configs_update_environment_seed(tmp_path: Path, monkeypatch) -> None:
+    """Arena env construction reads environment.seed, so it must vary too."""
+    seen: dict[int, int] = {}
+
+    def _capture(args: tuple) -> tuple:
+        seed, cfg = args
+        seen[seed] = cfg["environment"]["seed"]
+        return seed, f"/fake/model_seed_{seed}", {"mean_return": float(seed)}
+
+    monkeypatch.setattr(ms_module, "_run_one_seed", _capture)
+
+    cfg = _base_cfg(tmp_path)
+    cfg["environment"]["seed"] = 999
+    ms_module.run_multi_seed(cfg, seeds=[3, 4], max_workers=1)
+
+    assert seen == {3: 3, 4: 4}

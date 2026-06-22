@@ -179,6 +179,15 @@ main {
   border-bottom: 1px solid var(--border);
   margin-top: 0.5rem;
 }
+.form-group-subtitle {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0.25rem;
+}
 label {
   display: flex;
   flex-direction: column;
@@ -373,6 +382,32 @@ input[type="checkbox"] { width: auto; margin-right: 0.4rem; }
   font-family: monospace;
 }
 .checkpoint-tag.final { border-color: var(--success); color: var(--success); }
+
+/* ---- Self-play league panel ---- */
+.league-panel { margin-top: 0.6rem; }
+.league-badge {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.league-badge:hover { border-color: var(--accent, var(--success)); }
+.league-detail {
+  margin-top: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.league-row {
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  padding: 0.15rem 0.4rem;
+  border-left: 2px solid var(--border);
+}
 
 /* ---- Toast ---- */
 #toast-container {

@@ -6,11 +6,12 @@ environment:
   seed: 7
   sim:
     arena_half_extent: 1.0
+    move_speed: 0.05
+    spawn_jitter: 0.1
   morphology:
     base_size: 1.0
     episode_growth_scale: 0.002
     health: 1.0
-    energy: 1.0
   battle_rules:
     damage: 0.04
     attack_range: 0.25

@@ -1,0 +1,238 @@
+# Organism Arena Environment — Code Review & Development Roadmap
+
+**Date:** 2026-06-09
+**Status update (2026-06-09):** B2, B5, B7, B8, B9, and B11 are fixed (with
+regression tests).
+**Status update (2026-06-10):** B1, B3, B4, and B10 are fixed as one batched
+obs/dynamics contract change: spawn jitter (`sim.spawn_jitter`, default 0.1),
+norm-clamped movement (`sim.move_speed`, default 0.05), and a normalized 8D
+observation with a visibility flag. **Breaking:** arena checkpoints and league
+snapshots trained before this change are incompatible (obs 7D → 8D) — retrain.
+**Status update (2026-06-10, cont.):** B6 fixed — episode growth now scales
+`max_health` in lockstep with `size`, and current health is rescaled by the
+same factor so the health *fraction* is preserved (growth makes an organism
+tankier as well as harder-hitting). **All bugs from this review are now
+closed**; remaining items are the Part 2/3/4 efficiency and feature roadmap.
+**Scope reviewed:**
+- `src/rl_framework/envs/organisms/arena_parallel.py` (full)
+- `src/rl_framework/training/self_play_env_wrapper.py` (full)
+- `src/rl_framework/training/arena_eval.py` (full)
+- `src/rl_framework/training/sb3_runner.py` (arena adapter + arena training path)
+- `src/rl_framework/training/self_play_callback.py` (outline)
+
+---
+
+## Executive summary
+
+The arena env is a clean, well-commented 2-agent PettingZoo implementation, and the
+self-play plumbing (disk-backed league, vecnorm sidecars, SuperSuit patches) shows
+hard-won correctness work. However, **two high-severity bugs make head-to-head
+evaluation results untrustworthy today**:
+
+1. The environment is **fully deterministic** — the seeded RNG is never used, spawn
+   positions are fixed. With two deterministic policies, all `n_episodes` of an
+   `arena-eval` run replay the *identical* episode, so reported win rates are only
+   ever 0%, 50%, or 100% and the per-episode statistics are meaningless.
+2. `arena_eval` **counts draws (simultaneous KO) as losses** for the policy under
+   test, biasing win-rate comparisons.
+
+The biggest efficiency problem is structural: arena training is hard-capped at
+`num_envs == 1` (single process) on a 24-core machine. There is a clean escape
+hatch — in self-play mode the wrapped env is effectively single-agent, so it can
+bypass SuperSuit entirely and use the standard `SubprocVecEnv` path.
+
+---
+
+## Part 1 — Bugs
+
+### P0 — break correctness of results
+
+**B1. Env has zero stochasticity; eval episodes are identical replays**
+`arena_parallel.py:36,96` — `self._rng` is created in `__init__` and re-created in
+`reset(seed=...)` but **never used anywhere**. Spawn positions are fixed at
+`(±0.6, 0)` (`_spawn_agent`, line 79). Consequences:
+- `run_arena_eval` seeds each episode (`base_seed + i`) to no effect. Two
+  deterministic checkpoints produce N identical episodes per slot — the win-rate
+  denominators are fiction and the compute is wasted.
+- During training, episode diversity comes only from PPO's stochastic action
+  sampling; eval-time behavior cliffs are invisible.
+
+*Fix:* randomize spawn (position jitter and/or angle) from `self._rng` in
+`_spawn_agent`, and/or add small action/observation noise. Optionally add a
+`deterministic: bool` flag to `run_arena_eval` to allow stochastic policy sampling.
+Until then, `n_episodes > 1` against a fixed opponent is misleading.
+
+**B2. Draws counted as losses in head-to-head eval**
+`arena_eval.py:48-53` — `_play_episode` classifies `outcome == "draw"`
+(simultaneous KO, `winner: None`) as a **loss** because the `elif winner ==
+policy_slot` check falls through to `"loss"`. Draws inflate `opponent_win_rate`.
+*Fix:* add an explicit draw branch and a `draw_rate` field in the result dict.
+
+### P1 — wrong behavior, currently survivable
+
+**B3. Diagonal movement is 41% faster than axis-aligned**
+`arena_parallel.py:194` — `move = action[:2] * 0.05` clips per-component, so
+`(1,1)` moves at `0.05·√2 ≈ 0.0707` while `(1,0)` moves at `0.05`. Policies will
+exploit this (diagonal kiting). *Fix:* clamp the move vector's norm to the speed
+limit instead of per-component scaling.
+
+**B4. "Out of sensing range" is encoded identically to "opponent at zero health, on top of me"**
+`arena_parallel.py:126-128` — when the opponent is beyond `sensing_radius`, the obs
+zeroes `rel_x, rel_y, opp_health`. The policy cannot distinguish this from a real
+adjacent near-dead opponent. *Fix:* add an 8th obs dimension `opponent_visible ∈
+{0,1}`. (Note also: default `sensing_radius=2.0` covers almost the whole default
+arena — max possible separation is `2√2·bounds ≈ 2.83` — so the gate almost never
+fires with default config; tune defaults when fixing.)
+
+**B5. Unknown `battle_rules` keys in YAML are silently dropped**
+`arena_parallel.py:38-44` — the dict-comprehension filter
+(`if k in BattleRules.__annotations__`) means a typo like `dammage: 0.1` silently
+runs with defaults. *Fix:* warn (or raise) on unrecognized keys.
+
+**B6. Episode growth scales damage but not max health** — ✅ FIXED (2026-06-10)
+`_current_size` grows `size` each step (up to 2.0); damage scales with attacker
+`size` but `max_health` was frozen at spawn — an undocumented asymmetry.
+*Resolution:* `max_health` now tracks `size` each step via the shared
+`_max_health_for_size` helper, and current health is rescaled by the same
+factor so the health fraction is preserved across growth. Growth now buffs
+defense and offense together. `episode_growth_scale`/`health` schema docs
+updated to say so.
+
+### P2 — robustness / hygiene
+
+**B7. `LeagueSampler._league_files` crashes on non-numeric snapshot names**
+`self_play_env_wrapper.py:136-139` — `int(p.stem.rsplit("_", 1)[-1])` raises
+`ValueError` if anything else matching `selfplay_*.zip` (e.g. a hand-copied
+`selfplay_best.zip`) lands in the league dir, killing training at the next reset.
+*Fix:* filter to numeric stems, skip others with a warning.
+
+**B8. Step-after-done returns a spurious timeout outcome**
+`arena_parallel.py` `step()` — if called after `agents == []`, `truncations == {}`
+and `all({}) is True`, so the code takes the timeout branch and rebuilds an
+"episode over" state. Harmless under SuperSuit's auto-reset, but a latent trap for
+any direct user of the env. *Fix:* guard `step()` with `if not self.agents: raise`
+(or no-op return), and use `active_agents and all(...)`.
+
+**B9. `matplotlib.use("TkAgg")` on every human-mode `render()` call**
+`arena_parallel.py:286` — calling `use()` after pyplot is loaded is ignored or
+warns; it also breaks headless boxes if `render_mode="human"` is requested without
+a display. *Fix:* select backend once at first render, wrap in try/except with a
+clear error, never force a backend for `rgb_array` (Agg works headless).
+
+**B10. Obs feature scales are wildly mismatched**
+Velocity components max ±0.07/step; health ~1.0; rel-pos up to ±2·bounds; cooldown
+raw int 0–3. `VecNormalize` rescues training (it's on by default), but any run with
+`normalize_observations: false`, and the raw-obs path in `FrozenPolicy` fallback
+("if no sidecar, use raw"), will see badly conditioned inputs. *Fix:* normalize in
+the env (health/max_health, cooldown/cooldown_steps, rel/bounds).
+
+**B11. `SelfPlayEnvWrapper` reaches into env privates**
+`self_play_env_wrapper.py:240` — `self.env._obs(self.FROZEN_AGENT)` breaks if any
+wrapper is inserted between it and the arena env (see the existing memory note on
+chain-wrapper rules). *Fix:* expose a public `observe(agent)` on the arena env.
+
+---
+
+## Part 2 — Efficiency issues
+
+**E1. Arena training is capped at 1 env / 1 core (the dominant cost).**
+`sb3_runner.py:288` deliberately raises on `num_envs > 1` because SuperSuit's
+subprocess mode breaks `env_method` (annealing/curriculum become silent no-ops) and
+is unstable in SuperSuit 3.10. The machine has 24 physical cores; arena throughput
+is therefore ~1/20th of what the walker path achieves. See roadmap R2 for the fix —
+this is the highest-value engineering item in the file set.
+
+**E2. League sampling does disk I/O + possible `PPO.load` every episode reset.**
+— ✅ FIXED (2026-06-10, R2c). `LeagueSampler` now caches the sorted file list
+and re-globs only on a directory `st_mtime_ns` change, prunes stale cache
+entries at refresh time, and pre-warms the newest snapshot (sidecar-gated) off
+the hot sampling path. Model loads remain cached per path as before.
+
+**E3. Matplotlib rendering is slow for video generation** (~tens of ms/frame,
+full patch rebuild via `ax.clear()` each frame). Adequate for occasional replays;
+a tiny pygame/PIL rasterizer would render 100–1000× faster if arena videos become
+routine.
+
+---
+
+## Part 3 — Development roadmap
+
+### Phase 1 — Trustworthy evaluation (small, do first)
+| ID | Item | Effort |
+|----|------|--------|
+| R1a | Fix draw-as-loss in `arena_eval` (+ `draw_rate` output) — bug B2 | ~½ hr |
+| R1b | Spawn randomization from `self._rng` (jitter radius in config); makes seeds meaningful — bug B1 | ~1–2 hr |
+| R1c | `deterministic` flag + per-episode result list in `run_arena_eval` (enables confidence intervals) | ~1 hr |
+| R1d | Movement-norm clamp (B3), visibility flag in obs (B4), config-key validation (B5) | ~2 hr |
+
+Note: R1b and R1d change the obs/dynamics contract — old checkpoints will not be
+comparable. Batch them into one breaking change and retrain once.
+
+### Phase 2 — Throughput (the big win)
+| ID | Item | Effort |
+|----|------|--------|
+| R2 | **Parallel self-play training without SuperSuit.** — ✅ DONE (2026-06-10). New `SingleAgentArenaEnv` Gymnasium adapter wraps the single-agent `SelfPlayEnvWrapper` onto SB3's native `DummyVecEnv`/`SubprocVecEnv` path. Self-play with `num_envs > 1` now parallelizes across cores with working `env_method` (annealing/curriculum) and `Monitor` metrics; the `_ArenaVecEnvAdapter`/SuperSuit path is retained only for shared-policy mode, whose `num_envs == 1` guard now fires only when self-play is off. Disk-backed league sampling already survived subprocess cloning. | ~1 day |
+| R2b | Vary `LeagueSampler` seed per worker rank so parallel envs don't sample identical opponent sequences | ✅ DONE — each rank seeded `base_seed + 1000*rank` (env + sampler) |
+| R2c | League file-list caching / snapshot pre-warm (E2) | ✅ DONE (2026-06-10) — `LeagueSampler` caches the sorted snapshot list and re-globs only when the dir's `st_mtime_ns` changes (was a glob+sort+parse every reset); model-cache pruning moved to refresh time; newest snapshot pre-warmed off the sampling path, gated on its obs-normaliser sidecar so a mid-write snapshot is never cached. |
+
+R2 also restored `rollout/ep_rew_mean` via `Monitor` on the self-play path
+(the shared-policy SuperSuit path still relies on ArenaMetricsCallback).
+
+**Phase 2 is complete** (R2, R2b, R2c all done). The remaining open work is
+Phase 3 (usability/tooling) and Phase 4 (env richness).
+
+### Phase 3 — Usability & tooling
+| ID | Item | Effort |
+|----|------|--------|
+| R3a | **Tournament CLI** (`arena-tournament`) — ✅ DONE (2026-06-10). Round-robin over `--checkpoints` (files/dirs) + optional `--include-random`; Bradley-Terry ratings on an Elo scale (draws/timeouts = half-wins), JSON (`--output`) + markdown (`--markdown-out`) standings and win-rate matrix. New module `training/arena_tournament.py`; builds on `run_arena_eval`. | ~½ day |
+| R3b | **GUI league dashboard** — ✅ DONE (2026-06-10). `/api/outputs` now reports `league_size` per seed run; new `/api/league?path=<seed>` endpoint returns per-snapshot detail (timesteps, size, age, vecnorm-sidecar presence), path-traversal guarded. Outputs tab renders an expandable league panel per self-play run. (Live win-rate-vs-league deferred — use `arena-tournament` over the league dir for ratings.) | ~1 day |
+| R3c | Headless arena video rendering wired into `render-replay` — ✅ DONE (2026-06-10). Arena replay already rendered headlessly via `rgb_array` after the B9 backend fix; `render-replay` now also takes `--replay-opponent` (checkpoint or `random`) to drive `agent_1`, and loads both slots through `load_frozen_policy` so obs-normaliser sidecars are applied (fixes a latent raw-obs mismatch in the old shared-policy replay). | ~2 hr |
+| R3d | Config schema docs for `battle_rules` / `morphology` — ✅ DONE (2026-06-10). New `docs/organism_arena_config.md` documents obs/action layout, all `sim`/`morphology`/`battle_rules` keys + defaults (incl. growth-vs-health, B6), and the self-play/annealing/curriculum sections; linked from CLAUDE.md. | ~1 hr |
+| R3e | Public `observe(agent)` API on the env; migrate `SelfPlayEnvWrapper` off `_obs` (B11) | ✅ DONE (2026-06-09, with B11) |
+
+**Phase 3 is complete** (R3a, R3b, R3c, R3d, R3e all done). Remaining work is
+Phase 4 (env richness: collision, energy/food, N-agent arenas, morphology
+co-evolution, speed/size tradeoff).
+
+### Phase 4 — Environment richness (design work, do after 1–3)
+- **N-agent arenas** — ✅ DONE (2026-06-10). `environment.num_agents` (default 2)
+  enables free-for-alls. The obs generalizes to a fixed 8-D nearest-living-opponent
+  block (identical at N=2, so old checkpoints stay valid); attacks hit the nearest
+  opponent in range with simultaneous step resolution; knocked-out agents become
+  inert spectators (constant agent set for SuperSuit) until last-organism-standing
+  or timeout. `SelfPlayEnvWrapper` drives all N−1 opponent slots; shared-policy
+  SuperSuit training supports N>2. `arena-eval`/`arena-tournament` stay 2-agent
+  (guarded). Spawns on a circle reducing to the legacy `±0.6` 2-agent layout.
+- **Body collision** — agents currently overlap freely; contact pushes would make
+  positioning meaningful.
+- **Energy/food mechanics** — attacks cost energy, food pellets restore it; gives
+  the "organism" framing teeth and creates non-combat strategies.
+- **Morphology co-evolution** — let `morph-search` drive both competitors and
+  score by tournament Elo instead of single-opponent win rate (depends on R3a).
+- **Speed/size tradeoff** — move the hardcoded `0.05` speed into config and scale
+  it inversely with `size` so growth is a real strategic choice.
+
+Note: N-agent introduced one deliberate 2-agent behavior change — a simultaneous
+mutual KO now nets −1 to each (draw) instead of the old mutual +1/−1 (net 0).
+The win/loss case (winner +1, loser −1) is unchanged. The obs contract is
+unchanged (still 8-D).
+
+### Testing gaps to close alongside
+- A regression test that two eval episodes with different seeds **differ** (locks in R1b).
+- A draw-classification test for `arena_eval` (locks in R1a).
+- A test that league dirs containing non-numeric `selfplay_*.zip` files don't crash sampling (B7).
+- A `step()`-after-done contract test (B8).
+
+---
+
+## What's in good shape (keep as-is)
+
+- PettingZoo Parallel API compliance: consistent dict keys across all five return
+  values, correct terminal/truncation semantics, egocentric slot-symmetric obs.
+- The disk-backed league design and the vecnorm-sidecar pairing for frozen
+  opponents — both solve real cloudpickle/normalization traps and are well
+  documented in-line.
+- Role-swapped, seed-paired eval design in `run_arena_eval` (it will become fully
+  meaningful once B1 is fixed).
+- `_ArenaVecEnvAdapter`'s uint8-dones and `seed()` patches are correct and well
+  explained.

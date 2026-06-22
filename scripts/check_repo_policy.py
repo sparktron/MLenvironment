@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-import os
 from pathlib import Path
 
 
@@ -13,7 +12,12 @@ def _tracked_files() -> list[str]:
 def _check_no_generated_files(tracked_files: list[str]) -> list[str]:
     violations: list[str] = []
     for path in tracked_files:
-        if "__pycache__/" in path or path.endswith(".pyc") or ".egg-info/" in path or path.startswith(".venv/"):
+        if (
+            "__pycache__/" in path
+            or path.endswith(".pyc")
+            or ".egg-info/" in path
+            or path.startswith(".venv/")
+        ):
             violations.append(path)
     return violations
 
@@ -48,13 +52,12 @@ def _dependency_names_from_lockfile(lockfile_path: Path) -> set[str]:
 
 
 def main() -> int:
-    if os.environ.get("STRICT_REPO_CLEAN", "0") == "1":
-        generated = _check_no_generated_files(_tracked_files())
-        if generated:
-            print("Generated files must not be tracked:")
-            for path in generated:
-                print(f" - {path}")
-            return 1
+    generated = _check_no_generated_files(_tracked_files())
+    if generated:
+        print("Generated files must not be tracked:")
+        for path in generated:
+            print(f" - {path}")
+        return 1
 
     pyproject_path = Path("pyproject.toml")
     lockfile_path = Path("requirements-lock.txt")

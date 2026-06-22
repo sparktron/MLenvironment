@@ -7,12 +7,15 @@ the training stack.
 
 They are slower than unit tests (~5-15 s each) but still fast enough for CI.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
 
-def _walker_cfg(tmp_path: Path, timesteps: int = 256, checkpoint_every: int = 128) -> dict:
+def _walker_cfg(
+    tmp_path: Path, timesteps: int = 256, checkpoint_every: int = 128
+) -> dict:
     return {
         "experiment_name": "integ_walker",
         "seed": 0,
@@ -34,7 +37,11 @@ def _walker_cfg(tmp_path: Path, timesteps: int = 256, checkpoint_every: int = 12
                 "orientation_penalty_weight": 0.1,
                 "torque_penalty_weight": 0.01,
             },
-            "termination": {"min_height": -0.5, "max_tilt_radians": 1.5, "max_steps": 50},
+            "termination": {
+                "min_height": -0.5,
+                "max_tilt_radians": 1.5,
+                "max_steps": 50,
+            },
             "domain_randomization": {
                 "mass_scale_range": [1.0, 1.0],
                 "friction_range": [0.8, 0.8],
@@ -63,11 +70,202 @@ def test_walker_train_produces_model_and_vecnorm(tmp_path: Path) -> None:
     cfg = _walker_cfg(tmp_path)
     model_path = train(cfg)
 
-    zip_path = Path(str(model_path) + ".zip") if not str(model_path).endswith(".zip") else Path(model_path)
+    zip_path = (
+        Path(str(model_path) + ".zip")
+        if not str(model_path).endswith(".zip")
+        else Path(model_path)
+    )
     assert zip_path.exists(), f"Model zip not found: {zip_path}"
 
     vecnorm_path = zip_path.with_name("vecnormalize.pkl")
     assert vecnorm_path.exists(), f"vecnormalize.pkl not found alongside {zip_path}"
+
+
+def _arena_cfg(tmp_path: Path, timesteps: int = 256) -> dict:
+    return {
+        "experiment_name": "integ_arena",
+        "seed": 0,
+        "output": {"base_dir": str(tmp_path)},
+        "environment": {
+            "type": "organism_arena_parallel",
+            "sim": {"arena_half_extent": 1.0},
+            "battle_rules": {
+                "max_steps": 20,
+                "damage": 0.2,
+                "attack_range": 0.5,
+                "cooldown_steps": 0,
+            },
+        },
+        "training": {
+            "total_timesteps": timesteps,
+            "n_steps": 64,
+            "batch_size": 64,
+            "num_envs": 1,
+            "device": "cpu",
+            "normalize_observations": True,
+        },
+    }
+
+
+def test_arena_n_agent_shared_policy_train(tmp_path: Path) -> None:
+    """A 3-agent free-for-all trains end to end via the shared-policy SuperSuit
+    path (constant agent set thanks to inert spectators)."""
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=256)
+    cfg["environment"]["num_agents"] = 3
+    model_path = train(cfg)
+    assert Path(str(model_path) + ".zip").exists()
+
+
+def test_arena_train_runs_and_logs_metrics(tmp_path: Path) -> None:
+    """Arena PPO training starts (regression for the SuperSuit seed bug) and the
+    ArenaMetricsCallback writes arena/* scalars to TensorBoard."""
+    import glob
+
+    from tensorboard.backend.event_processing.event_accumulator import (
+        EventAccumulator,
+    )
+
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path)
+    model_path = train(cfg)
+
+    zip_path = Path(str(model_path) + ".zip")
+    assert zip_path.exists(), f"Arena model zip not found: {zip_path}"
+
+    events = glob.glob(str(tmp_path / "**" / "events.out.tfevents.*"), recursive=True)
+    assert events, "no TensorBoard event file written"
+    acc = EventAccumulator(events[0])
+    acc.Reload()
+    arena_tags = [t for t in acc.Tags()["scalars"] if t.startswith("arena/")]
+    assert "arena/episode_outcomes" in arena_tags, (
+        f"arena metrics missing from TensorBoard; got {arena_tags}"
+    )
+
+
+def test_arena_selfplay_train_writes_league(tmp_path: Path) -> None:
+    """Self-play arena training runs end to end and writes league snapshots that
+    the env's LeagueSampler can consume (regression for the single-agent
+    VecNormalize/uint8-dones crash and the cloudpickle-cloned-callback no-op)."""
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=320)
+    cfg["self_play"] = {"enabled": True, "snapshot_freq": 128, "max_league_size": 5}
+    model_path = train(cfg)
+
+    assert Path(str(model_path) + ".zip").exists()
+    league = list(
+        (
+            Path(tmp_path)
+            / cfg["experiment_name"]
+            / f"seed_{cfg['seed']}"
+            / "checkpoints"
+            / "league"
+        ).glob("selfplay_*.zip")
+    )
+    assert league, "self-play training wrote no league snapshots"
+
+
+def test_arena_selfplay_parallel_envs_train_and_propagate(tmp_path: Path) -> None:
+    """Self-play arena training runs with num_envs > 1 (R2): it bypasses
+    SuperSuit, uses SB3's native SubprocVecEnv, writes one Monitor CSV per
+    worker, and reward annealing propagates to workers via env_method without
+    crashing. Regression for the single-process arena cap."""
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=512)
+    cfg["training"]["num_envs"] = 2
+    cfg["training"]["n_steps"] = 128
+    cfg["self_play"] = {"enabled": True, "snapshot_freq": 256, "max_league_size": 5}
+    cfg["reward_annealing"] = {"enabled": True, "anneal_steps": 512}
+
+    model_path = train(cfg)
+    assert Path(str(model_path) + ".zip").exists()
+
+    base = Path(tmp_path) / cfg["experiment_name"] / f"seed_{cfg['seed']}"
+    league = list((base / "checkpoints" / "league").glob("selfplay_*.zip"))
+    assert league, "parallel self-play training wrote no league snapshots"
+    # One Monitor CSV per worker proves the native vec-env path (not SuperSuit).
+    monitors = list((base / "logs").glob("monitor_env*.csv"))
+    assert len(monitors) == 2, f"expected one monitor csv per worker, got {monitors}"
+
+
+def test_arena_render_replay_headless(tmp_path: Path) -> None:
+    """Arena render-replay produces a GIF headlessly, both as a shared-policy
+    replay and against an explicit opponent (R3c)."""
+    from rl_framework.cli.main import _render_replay
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=256)
+    model_path = train(cfg)
+    checkpoint = str(model_path) + ".zip"
+
+    # Shared-policy replay (opponent mirrors the main policy).
+    shared = _render_replay(cfg, checkpoint)
+    assert shared["frames"] > 0
+    assert shared["opponent"] == "self"
+    assert Path(shared["saved_replay"]).exists()
+    assert shared["saved_replay"].endswith("replay.gif")
+
+    # Matchup vs a random opponent.
+    versus = _render_replay(cfg, checkpoint, opponent_path="random")
+    assert versus["frames"] > 0
+    assert versus["opponent"] == "random"
+    assert Path(versus["saved_replay"]).exists()
+
+
+def test_arena_eval_on_trained_checkpoint(tmp_path: Path) -> None:
+    """Train a real arena checkpoint, then run head-to-head eval vs random.
+
+    Exercises load_frozen_policy on a real PPO checkpoint with sibling
+    vecnormalize.pkl discovery and the full episode-driving loop."""
+    from rl_framework.training.arena_eval import run_arena_eval
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=256)
+    model_path = train(cfg)
+    checkpoint = str(model_path) + ".zip"
+
+    result = run_arena_eval(checkpoint, "random", cfg, n_episodes=5, swap_roles=True)
+    assert result["n_episodes"] == 10
+    total = (
+        result["policy_win_rate"]
+        + result["opponent_win_rate"]
+        + result["draw_rate"]
+        + result["timeout_rate"]
+    )
+    assert abs(total - 1.0) < 1e-6
+
+
+def test_arena_tournament_on_trained_checkpoint(tmp_path: Path) -> None:
+    """Train one arena checkpoint, then run a round-robin tournament of it vs a
+    random baseline through the real run_arena_eval path. Exercises competitor
+    resolution, the Bradley-Terry rating, and JSON/markdown output end to end."""
+    from rl_framework.training.arena_tournament import run_tournament
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=256)
+    model_path = train(cfg)
+    checkpoint = str(model_path) + ".zip"
+
+    json_out = tmp_path / "tourney.json"
+    md_out = tmp_path / "tourney.md"
+    result = run_tournament(
+        [checkpoint],
+        cfg,
+        n_episodes=3,
+        include_random=True,
+        output_path=str(json_out),
+        markdown_path=str(md_out),
+    )
+    assert len(result["competitors"]) == 2
+    assert set(result["ratings"]) == {"final_model", "random"}
+    assert [s["rank"] for s in result["standings"]] == [1, 2]
+    assert json_out.exists() and md_out.exists()
+    # Ratings are centred on the Elo zero-point.
+    assert all(1000 < e < 2000 for e in result["ratings"].values())
 
 
 def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
@@ -77,7 +275,11 @@ def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
 
     cfg = _walker_cfg(tmp_path)
     model_path = train(cfg)
-    zip_path = str(model_path) + ".zip" if not str(model_path).endswith(".zip") else str(model_path)
+    zip_path = (
+        str(model_path) + ".zip"
+        if not str(model_path).endswith(".zip")
+        else str(model_path)
+    )
 
     metrics = evaluate(cfg, zip_path)
 
@@ -96,20 +298,22 @@ def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
 
 
 def test_walker_checkpoint_saved_at_interval(tmp_path: Path) -> None:
-    """At least one intermediate checkpoint is written when checkpoint_every fires."""
+    """Intermediate checkpoints include model-specific VecNormalize sidecars."""
     from rl_framework.training.sb3_runner import train
 
     cfg = _walker_cfg(tmp_path, timesteps=256, checkpoint_every=64)
     model_path = train(cfg)
 
     ckpt_dir = (
-        Path(tmp_path)
-        / cfg["experiment_name"]
-        / f"seed_{cfg['seed']}"
-        / "checkpoints"
+        Path(tmp_path) / cfg["experiment_name"] / f"seed_{cfg['seed']}" / "checkpoints"
     )
     checkpoints = list(ckpt_dir.glob("*.zip"))
     assert len(checkpoints) >= 1, (
         f"Expected at least one intermediate checkpoint in {ckpt_dir}, found none.\n"
         f"Final model: {model_path}"
     )
+    periodic = [path for path in checkpoints if path.name.startswith("ppo_model_")]
+    assert periodic, f"Expected periodic checkpoints in {ckpt_dir}, found {checkpoints}"
+    for checkpoint in periodic:
+        sidecar = checkpoint.with_name(checkpoint.stem + "_vecnormalize.pkl")
+        assert sidecar.exists(), f"VecNormalize sidecar missing for {checkpoint}"

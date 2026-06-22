@@ -130,7 +130,12 @@
     configs.forEach(function (c) {
       var btn = document.createElement("button");
       btn.className = "template-btn";
-      btn.innerHTML = c.name + '<span class="env-type">' + c.env_type + "</span>";
+      var nameText = document.createTextNode(c.name);
+      var envTypeSpan = document.createElement("span");
+      envTypeSpan.className = "env-type";
+      envTypeSpan.textContent = c.env_type;
+      btn.appendChild(nameText);
+      btn.appendChild(envTypeSpan);
       btn.addEventListener("click", async function () {
         var full = await api("GET", "/api/configs/" + c.name);
         selectedEnv = full.environment.type;
@@ -180,16 +185,37 @@
 
       var group = document.createElement("div");
       group.className = "form-group";
-
-      Object.keys(sectionData).forEach(function (key) {
-        var spec = sectionData[key];
-        var prefillVal = prefillEnv && prefillEnv[section] ? prefillEnv[section][key] : null;
-        var val = prefillVal != null ? prefillVal : spec.value;
-        var inputEl = createInput("env." + section + "." + key, spec, val);
-        group.appendChild(inputEl);
-      });
-
+      populateGroup(
+        "env." + section,
+        sectionData,
+        prefillEnv ? prefillEnv[section] : null,
+        group
+      );
       container.appendChild(group);
+    });
+  }
+
+  // Recursively populate a form group. Schema entries with a `type` field are
+  // leaves and get an <input>; entries without `type` are sub-groups and get
+  // a subtitle + recursive render. This preserves nested groups like
+  // `sim.control` when the wizard later assembles the config.
+  function populateGroup(pathPrefix, groupSpec, prefillData, container) {
+    Object.keys(groupSpec).forEach(function (key) {
+      var spec = groupSpec[key];
+      var prefillVal = prefillData ? prefillData[key] : null;
+
+      if (spec && spec.type) {
+        // leaf
+        var val = (prefillVal != null) ? prefillVal : spec.value;
+        container.appendChild(createInput(pathPrefix + "." + key, spec, val));
+      } else if (spec && typeof spec === "object") {
+        // nested group — render sub-heading and recurse
+        var sub = document.createElement("div");
+        sub.className = "form-group-subtitle";
+        sub.textContent = key.replace(/_/g, " ");
+        container.appendChild(sub);
+        populateGroup(pathPrefix + "." + key, spec, prefillVal, container);
+      }
     });
   }
 
@@ -665,6 +691,58 @@
   // ------------------------------------------------------------------
   // Outputs tab
   // ------------------------------------------------------------------
+  function formatAge(seconds) {
+    if (seconds < 60) return Math.round(seconds) + "s";
+    if (seconds < 3600) return Math.round(seconds / 60) + "m";
+    if (seconds < 86400) return Math.round(seconds / 3600) + "h";
+    return Math.round(seconds / 86400) + "d";
+  }
+
+  function appendLeaguePanel(item, o) {
+    if (!o.league_size || o.league_size <= 0) return;
+    var panel = document.createElement("div");
+    panel.className = "league-panel";
+
+    var badge = document.createElement("button");
+    badge.className = "league-badge";
+    badge.textContent =
+      "⚔ League: " + o.league_size +
+      (o.league_size === 1 ? " snapshot" : " snapshots") + " ▾";
+
+    var detail = document.createElement("div");
+    detail.className = "league-detail";
+    detail.style.display = "none";
+
+    var loaded = false;
+    badge.addEventListener("click", async function () {
+      var open = detail.style.display === "none";
+      detail.style.display = open ? "block" : "none";
+      if (!open || loaded) return;
+      loaded = true;
+      var data = await api("GET", "/api/league?path=" + encodeURIComponent(o.path));
+      detail.innerHTML = "";
+      if (!data.snapshots || data.snapshots.length === 0) {
+        detail.innerHTML = '<p class="hint">No league snapshots.</p>';
+        return;
+      }
+      // Newest first.
+      data.snapshots.slice().reverse().forEach(function (s) {
+        var row = document.createElement("div");
+        row.className = "league-row";
+        var size = (s.size_bytes / 1024).toFixed(0) + " KB";
+        var warn = s.has_vecnorm ? "" : "  ⚠ no vecnorm";
+        row.textContent =
+          "t=" + s.timesteps + "  ·  " + size +
+          "  ·  " + formatAge(s.age_seconds) + " ago" + warn;
+        detail.appendChild(row);
+      });
+    });
+
+    panel.appendChild(badge);
+    panel.appendChild(detail);
+    item.appendChild(panel);
+  }
+
   async function refreshOutputs() {
     var outputs = await api("GET", "/api/outputs");
     var container = $("#outputs-list");
@@ -676,14 +754,27 @@
     outputs.forEach(function (o) {
       var item = document.createElement("div");
       item.className = "output-item";
-      var cps = o.checkpoints.map(function (c) {
-        var cls = c === "final_model.zip" ? "checkpoint-tag final" : "checkpoint-tag";
-        return '<span class="' + cls + '">' + c + "</span>";
-      }).join("");
-      item.innerHTML =
-        "<h3>" + o.experiment + " / " + o.seed + "</h3>" +
-        '<div class="meta">' + o.path + "</div>" +
-        '<div class="checkpoint-list">' + cps + "</div>";
+
+      var h3 = document.createElement("h3");
+      h3.textContent = o.experiment + " / " + o.seed;
+
+      var metaDiv = document.createElement("div");
+      metaDiv.className = "meta";
+      metaDiv.textContent = o.path;
+
+      var cpListDiv = document.createElement("div");
+      cpListDiv.className = "checkpoint-list";
+      o.checkpoints.forEach(function (c) {
+        var span = document.createElement("span");
+        span.className = c === "final_model.zip" ? "checkpoint-tag final" : "checkpoint-tag";
+        span.textContent = c;
+        cpListDiv.appendChild(span);
+      });
+
+      item.appendChild(h3);
+      item.appendChild(metaDiv);
+      item.appendChild(cpListDiv);
+      appendLeaguePanel(item, o);
       container.appendChild(item);
     });
   }

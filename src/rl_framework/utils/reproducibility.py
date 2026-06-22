@@ -35,7 +35,9 @@ def write_run_metadata(
         lockfile_path=Path(lockfile_path),
     )
     out_path = run_dir / "run_metadata.json"
-    out_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+    out_path.write_text(
+        json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8"
+    )
     return out_path
 
 
@@ -62,8 +64,13 @@ def _build_metadata(
 
     if strict:
         _require(config_hash, "Missing config hash in strict reproducibility mode.")
-        _require(git_info["commit"], "Missing git commit in strict reproducibility mode.")
-        _require(lockfile_hash, f"Missing lockfile hash for {lockfile_path} in strict reproducibility mode.")
+        _require(
+            git_info["commit"], "Missing git commit in strict reproducibility mode."
+        )
+        _require(
+            lockfile_hash,
+            f"Missing lockfile hash for {lockfile_path} in strict reproducibility mode.",
+        )
 
     return {
         "schema_version": 1,
@@ -94,6 +101,136 @@ def _stable_config_json(cfg: dict[str, Any]) -> str:
     return json.dumps(cfg, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def check_resume_provenance(
+    resume_from: str | Path,
+    cfg: dict[str, Any],
+    *,
+    strict: bool,
+) -> list[str]:
+    """Verify a resuming run is compatible with the checkpoint it continues.
+
+    Stable-Baselines3 already rejects a resume whose observation/action spaces
+    differ (``PPO.load(env=...)`` calls ``check_for_correct_spaces``). This
+    catches the *silent* drift it misses: a changed ``environment`` block,
+    flipped observation normalization, or a different policy architecture /
+    discount, any of which would make the loaded weights or ``vecnormalize.pkl``
+    statistics wrong for the new run without raising on its own.
+
+    The comparison is against the source checkpoint's ``run_metadata.json``
+    (written by :func:`write_run_metadata`). Fields that legitimately vary across
+    a resume — ``total_timesteps``, learning rate, seed, output paths — are
+    excluded.
+
+    Parameters
+    ----------
+    resume_from:
+        Path to the checkpoint being resumed (``.zip`` or extension-less).
+    cfg:
+        The resolved config for the resuming run.
+    strict:
+        When True, any drift — or an unverifiable provenance chain (missing
+        source manifest) — raises :class:`RuntimeError`. When False, drift is
+        logged as a warning and returned.
+
+    Returns
+    -------
+    The list of human-readable drift messages (empty when fully compatible).
+    """
+    model_path = _as_zip_path(Path(resume_from))
+    meta_path = _find_source_manifest(model_path)
+    if meta_path is None:
+        return _report(
+            [
+                f"cannot verify resume provenance: no run_metadata.json found near "
+                f"{model_path} (pre-manifest checkpoint?)"
+            ],
+            strict=strict,
+        )
+
+    try:
+        source_cfg = json.loads(meta_path.read_text(encoding="utf-8")).get("config")
+    except (OSError, ValueError) as exc:
+        return _report(
+            [f"cannot verify resume provenance: failed to read {meta_path}: {exc}"],
+            strict=strict,
+        )
+    if not isinstance(source_cfg, dict):
+        return _report(
+            [f"cannot verify resume provenance: {meta_path} has no 'config' block"],
+            strict=strict,
+        )
+
+    drift = _fingerprint_diffs(
+        _resume_fingerprint(source_cfg), _resume_fingerprint(cfg)
+    )
+    return _report(drift, strict=strict)
+
+
+def _report(messages: list[str], *, strict: bool) -> list[str]:
+    if messages and strict:
+        raise RuntimeError(
+            "Resume provenance check failed (strict reproducibility):\n  - "
+            + "\n  - ".join(messages)
+        )
+    for msg in messages:
+        _log.warning("Resume provenance: %s", msg)
+    return messages
+
+
+def _as_zip_path(resume_from: Path) -> Path:
+    return (
+        resume_from
+        if str(resume_from).endswith(".zip")
+        else Path(str(resume_from) + ".zip")
+    )
+
+
+def _find_source_manifest(model_path: Path) -> Path | None:
+    """Locate the run_metadata.json for a checkpoint.
+
+    The standard layout is ``<run_dir>/checkpoints/<name>.zip`` with the
+    manifest at ``<run_dir>/run_metadata.json``, so the run dir is two levels
+    up. Fall back to the checkpoint's own directory for non-standard layouts.
+    """
+    for run_dir in (model_path.parent.parent, model_path.parent):
+        candidate = run_dir / "run_metadata.json"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _resume_fingerprint(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Project a config down to the fields that must match across a resume.
+
+    The whole ``environment`` block is included (env type, physics, reward,
+    termination, morphology) since changing any of it alters the task or the
+    observation distribution the loaded normalization stats describe. The seed
+    is dropped — like the top-level seed, it is a legitimate per-run knob.
+    """
+    env = {k: v for k, v in cfg.get("environment", {}).items() if k != "seed"}
+    training = cfg.get("training", {})
+    return {
+        "environment": env,
+        "training.policy": training.get("policy", "MlpPolicy"),
+        "training.policy_kwargs": training.get("policy_kwargs"),
+        "training.normalize_observations": training.get("normalize_observations", True),
+        "training.gamma": training.get("gamma", 0.99),
+    }
+
+
+def _fingerprint_diffs(source: Any, current: Any, prefix: str = "") -> list[str]:
+    """Return dotted-path messages for every leaf that differs between two trees."""
+    if isinstance(source, dict) and isinstance(current, dict):
+        diffs: list[str] = []
+        for key in sorted(set(source) | set(current)):
+            sub = f"{prefix}.{key}" if prefix else str(key)
+            diffs.extend(_fingerprint_diffs(source.get(key), current.get(key), sub))
+        return diffs
+    if source != current:
+        return [f"{prefix or '<root>'}: checkpoint={source!r} -> resume={current!r}"]
+    return []
+
+
 def _git_info() -> dict[str, Any]:
     return {
         "commit": _git_cmd(["rev-parse", "HEAD"]),
@@ -104,7 +241,12 @@ def _git_info() -> dict[str, Any]:
 
 def _git_cmd(args: list[str]) -> str | None:
     try:
-        return subprocess.check_output(["git", *args], text=True, stderr=subprocess.STDOUT).strip() or None
+        return (
+            subprocess.check_output(
+                ["git", *args], text=True, stderr=subprocess.STDOUT
+            ).strip()
+            or None
+        )
     except Exception as exc:
         _log.debug("git %s failed: %s", " ".join(args), exc)
         return None
@@ -112,10 +254,12 @@ def _git_cmd(args: list[str]) -> str | None:
 
 def _git_dirty() -> bool | None:
     try:
-        subprocess.check_output(["git", "diff", "--quiet"], stderr=subprocess.STDOUT)
-        return False
-    except subprocess.CalledProcessError:
-        return True
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            text=True,
+            stderr=subprocess.STDOUT,
+        )
+        return bool(status.strip())
     except Exception:
         return None
 

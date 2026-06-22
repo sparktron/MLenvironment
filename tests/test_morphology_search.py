@@ -3,6 +3,7 @@
 Uses monkeypatching to replace ``train`` and ``evaluate`` with deterministic
 stubs, so this exercises the search loop without pulling SB3/torch in.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -29,7 +30,7 @@ def test_morphology_search_picks_highest_score(monkeypatch):
     model_paths_seen: list[str] = []
 
     def fake_train(cfg, **kw):
-        return f"/tmp/{cfg['experiment_name']}.zip"
+        return f"/tmp/{cfg['experiment_name']}_{cfg['output']['run_id']}.zip"
 
     def fake_eval(cfg, model_path):
         model_paths_seen.append(model_path)
@@ -38,6 +39,7 @@ def test_morphology_search_picks_highest_score(monkeypatch):
         return {"mean_return": score}
 
     from rl_framework.training import eval_runner, sb3_runner
+
     monkeypatch.setattr(sb3_runner, "train", fake_train)
     monkeypatch.setattr(eval_runner, "evaluate", fake_eval)
 
@@ -46,10 +48,14 @@ def test_morphology_search_picks_highest_score(monkeypatch):
     assert len(result["results"]) == 4
     assert result["best_trial"] in range(4)
     assert result["best_score"] == max(scores)
-    assert result["best_params"] == result["results"][result["best_trial"]]["morphology"]
-    # Experiment names are suffixed so outputs don't collide.
-    names = [r["experiment_name"] for r in result["results"]]
-    assert len(set(names)) == 4
+    assert (
+        result["best_params"] == result["results"][result["best_trial"]]["morphology"]
+    )
+    # experiment_name stays fixed; trials are separated by run_id so outputs
+    # don't collide (outputs/<experiment_name>/runs/<run_id>/).
+    assert {r["experiment_name"] for r in result["results"]} == {"exp"}
+    run_ids = [r["run_id"] for r in result["results"]]
+    assert run_ids == ["morph_000", "morph_001", "morph_002", "morph_003"]
     assert all(path.endswith(".zip") for path in model_paths_seen)
 
 

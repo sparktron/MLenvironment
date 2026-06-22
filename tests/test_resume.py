@@ -6,6 +6,7 @@ Verifies that:
 (c) _validate_resume_path raises FileNotFoundError with clear messages
     when the model zip or sibling vecnormalize.pkl is missing.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -35,7 +36,11 @@ def _base_cfg(tmp_path: Path, timesteps: int = 128) -> dict:
                 "orientation_penalty_weight": 0.1,
                 "torque_penalty_weight": 0.01,
             },
-            "termination": {"min_height": -0.5, "max_tilt_radians": 1.5, "max_steps": 50},
+            "termination": {
+                "min_height": -0.5,
+                "max_tilt_radians": 1.5,
+                "max_steps": 50,
+            },
             "domain_randomization": {
                 "mass_scale_range": [1.0, 1.0],
                 "friction_range": [0.8, 0.8],
@@ -68,7 +73,11 @@ def test_resume_continues_from_checkpoint(tmp_path: Path) -> None:
     cfg = _base_cfg(tmp_path, timesteps=128)
     first_model = train(cfg)
 
-    zip_first = Path(str(first_model) + ".zip") if not str(first_model).endswith(".zip") else Path(first_model)
+    zip_first = (
+        Path(str(first_model) + ".zip")
+        if not str(first_model).endswith(".zip")
+        else Path(first_model)
+    )
     assert zip_first.exists()
 
     # Resume for another 128 steps from the model written by the first run.
@@ -76,7 +85,11 @@ def test_resume_continues_from_checkpoint(tmp_path: Path) -> None:
     cfg2["experiment_name"] = "resume_test_continued"
     resumed_model = train(cfg2, resume_from=str(zip_first))
 
-    zip_resumed = Path(str(resumed_model) + ".zip") if not str(resumed_model).endswith(".zip") else Path(resumed_model)
+    zip_resumed = (
+        Path(str(resumed_model) + ".zip")
+        if not str(resumed_model).endswith(".zip")
+        else Path(resumed_model)
+    )
     assert zip_resumed.exists(), "Resumed training did not produce a model zip"
 
     vecnorm_resumed = zip_resumed.with_name("vecnormalize.pkl")
@@ -92,23 +105,45 @@ def test_validate_resume_path_missing_zip(tmp_path: Path) -> None:
         _validate_resume_path(nonexistent, normalize=False)
 
 
+def _make_fake_zip(path: Path) -> None:
+    """Write a minimal valid zip archive so zipfile.is_zipfile() passes."""
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("placeholder", "fake")
+
+
 def test_validate_resume_path_missing_vecnorm(tmp_path: Path) -> None:
     """_validate_resume_path raises FileNotFoundError when vecnormalize.pkl is absent."""
     from rl_framework.training.sb3_runner import _validate_resume_path
 
     zip_path = tmp_path / "model.zip"
-    zip_path.write_bytes(b"fake")  # file must exist; vecnorm must not
+    _make_fake_zip(zip_path)  # valid zip; vecnorm must not exist
 
-    with pytest.raises(FileNotFoundError, match="vecnormalize.pkl not found"):
+    with pytest.raises(FileNotFoundError, match="VecNormalize sidecar not found"):
         _validate_resume_path(zip_path, normalize=True)
 
 
 def test_validate_resume_path_passes_when_files_present(tmp_path: Path) -> None:
-    """_validate_resume_path succeeds when both files exist."""
+    """_validate_resume_path succeeds with the legacy shared vecnormalize file."""
     from rl_framework.training.sb3_runner import _validate_resume_path
 
     zip_path = tmp_path / "model.zip"
-    zip_path.write_bytes(b"fake")
+    _make_fake_zip(zip_path)
     (tmp_path / "vecnormalize.pkl").write_bytes(b"fake")
+
+    _validate_resume_path(zip_path, normalize=True)  # should not raise
+
+
+def test_validate_resume_path_accepts_model_specific_vecnorm(tmp_path: Path) -> None:
+    """Periodic checkpoints can resume from their exact normaliser sidecar."""
+    from rl_framework.training.sb3_runner import (
+        _validate_resume_path,
+        _vecnormalize_path_for_model,
+    )
+
+    zip_path = tmp_path / "ppo_model_64_steps.zip"
+    _make_fake_zip(zip_path)
+    _vecnormalize_path_for_model(zip_path).write_bytes(b"fake")
 
     _validate_resume_path(zip_path, normalize=True)  # should not raise

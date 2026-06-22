@@ -4,6 +4,7 @@ These exercise config CRUD, schema, training manager error paths, and outputs
 listing through Flask's in-process test client. Real training is not spun up
 because only the error/validation branches of the training endpoints are hit.
 """
+
 from __future__ import annotations
 
 
@@ -39,6 +40,7 @@ def _minimal_cfg(name: str = "demo") -> dict:
 
 
 # ----- config CRUD -----
+
 
 def test_list_configs_empty(client):
     c, _, _ = client
@@ -113,6 +115,7 @@ def test_create_config_rejects_traversal_name(client):
 
 # ----- schema -----
 
+
 def test_schema_returns_both_envs(client):
     c, _, _ = client
     resp = c.get("/api/schema")
@@ -123,7 +126,18 @@ def test_schema_returns_both_envs(client):
     assert data["walker_bullet"]["training"]["device"]["value"] == "auto"
 
 
+def test_schema_sets_single_process_arena_training_default(client):
+    c, _, _ = client
+    resp = c.get("/api/schema")
+
+    assert resp.status_code == 200
+    training = resp.get_json()["organism_arena_parallel"]["training"]
+    assert training["num_envs"]["value"] == 1
+    assert training["num_envs"]["max"] == 1
+
+
 # ----- training manager error paths -----
+
 
 def test_train_start_empty_payload(client):
     c, _, _ = client
@@ -157,6 +171,27 @@ def test_train_start_invalid_seed_type_returns_400(client):
     assert "error" in resp.get_json()
 
 
+def test_train_start_rejects_stopping_run(client):
+    """A draining stop request still owns the single training slot."""
+    import threading
+    from rl_framework.gui import app as gui_app
+    from rl_framework.gui.training_manager import _RunState
+
+    c, _, _ = client
+    state = _RunState(
+        run_id="run_stopping",
+        cfg={"experiment_name": "exp"},
+        status="stopping",
+        stop_event=threading.Event(),
+    )
+    gui_app.manager._runs["run_stopping"] = state
+
+    resp = c.post("/api/train/start", json=_minimal_cfg("next_run"))
+
+    assert resp.status_code == 409
+    assert "already active" in resp.get_json()["error"]
+
+
 def test_train_stop_unknown_run(client):
     c, _, _ = client
     resp = c.post("/api/train/stop/does_not_exist")
@@ -167,6 +202,29 @@ def test_train_status_unknown_run(client):
     c, _, _ = client
     resp = c.get("/api/train/status/does_not_exist")
     assert resp.status_code == 404
+
+
+def test_train_status_known_run_returns_200(client):
+    import threading
+    from rl_framework.gui import app as gui_app
+    from rl_framework.gui.training_manager import _RunState
+
+    c, _, _ = client
+    state = _RunState(
+        run_id="run_known",
+        cfg={"experiment_name": "exp"},
+        status="failed",
+        error="traceback text",
+        stop_event=threading.Event(),
+    )
+    gui_app.manager._runs["run_known"] = state
+
+    resp = c.get("/api/train/status/run_known")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["run_id"] == "run_known"
+    assert data["status"] == "failed"
+    assert data["error"] == "traceback text"
 
 
 def test_train_stop_already_stopped_run_returns_409(client):
@@ -193,6 +251,32 @@ def test_train_tune_unknown_run(client):
     assert resp.status_code == 400
 
 
+def test_training_manager_sigterm_chains_previous_handler() -> None:
+    import signal
+    from rl_framework.gui.training_manager import TrainingManager
+
+    called: list[int] = []
+    manager = TrainingManager()
+    manager._previous_sigterm_handler = lambda signum, _frame: called.append(signum)
+
+    manager._sigterm_handler(signal.SIGTERM, None)
+
+    assert called == [signal.SIGTERM]
+
+
+def test_training_manager_sigterm_exits_for_default_handler() -> None:
+    import signal
+    from rl_framework.gui.training_manager import TrainingManager
+
+    manager = TrainingManager()
+    manager._previous_sigterm_handler = signal.SIG_DFL
+
+    with pytest.raises(SystemExit) as exc:
+        manager._sigterm_handler(signal.SIGTERM, None)
+
+    assert exc.value.code == 128 + signal.SIGTERM
+
+
 def test_list_runs_initially_empty(client):
     c, _, _ = client
     resp = c.get("/api/train/runs")
@@ -201,6 +285,7 @@ def test_list_runs_initially_empty(client):
 
 
 # ----- outputs -----
+
 
 def test_list_outputs_empty_when_missing(client):
     c, _, _ = client
@@ -220,10 +305,104 @@ def test_list_outputs_lists_experiments(client, tmp_path):
     data = resp.get_json()
     assert len(data) == 1
     assert data[0]["experiment"] == "exp1"
+    assert data[0]["run_id"] is None
     assert data[0]["has_final_model"] is True
 
 
+def test_list_outputs_includes_sweep_morph_run_variants(client, tmp_path):
+    c, _, base = client
+    outputs = base / "outputs"
+    # Plain seed run directly under the experiment.
+    (outputs / "exp1" / "seed_0" / "checkpoints").mkdir(parents=True)
+    # A sweep/morph variant nested under runs/<run_id>/seed_<seed>/.
+    variant = outputs / "exp1" / "runs" / "lr_0.001" / "seed_0" / "checkpoints"
+    variant.mkdir(parents=True)
+    (variant / "final_model.zip").write_bytes(b"")
+
+    resp = c.get(f"/api/outputs?base_dir={outputs}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+
+    plain = [d for d in data if d["run_id"] is None]
+    nested = [d for d in data if d["run_id"] == "lr_0.001"]
+    assert len(plain) == 1 and plain[0]["experiment"] == "exp1"
+    assert len(nested) == 1
+    assert nested[0]["experiment"] == "exp1"
+    assert nested[0]["seed"] == "seed_0"
+    assert nested[0]["path"] == "exp1/runs/lr_0.001/seed_0"
+    assert nested[0]["has_final_model"] is True
+
+
+# ----- self-play league dashboard -----
+
+
+def _make_league(seed_dir, timesteps, with_vecnorm=()):
+    league = seed_dir / "checkpoints" / "league"
+    league.mkdir(parents=True, exist_ok=True)
+    for ts in timesteps:
+        (league / f"selfplay_{ts}.zip").write_bytes(b"x")
+        if ts in with_vecnorm:
+            (league / f"selfplay_{ts}_vecnorm.pkl").write_bytes(b"x")
+    return league
+
+
+def test_list_outputs_reports_league_size(client):
+    c, _, base = client
+    seed_dir = base / "outputs" / "arena" / "seed_0"
+    (seed_dir / "checkpoints").mkdir(parents=True)
+    _make_league(seed_dir, [256, 512, 768])
+    # A stray non-numeric snapshot must not be counted.
+    (seed_dir / "checkpoints" / "league" / "selfplay_best.zip").write_bytes(b"x")
+
+    data = c.get("/api/outputs").get_json()
+    arena = next(d for d in data if d["experiment"] == "arena")
+    assert arena["league_size"] == 3
+
+
+def test_list_outputs_league_size_zero_without_league(client):
+    c, _, base = client
+    seed_dir = base / "outputs" / "walker" / "seed_0"
+    (seed_dir / "checkpoints").mkdir(parents=True)
+    data = c.get("/api/outputs").get_json()
+    assert next(d for d in data if d["experiment"] == "walker")["league_size"] == 0
+
+
+def test_get_league_returns_sorted_snapshot_detail(client):
+    c, _, base = client
+    seed_dir = base / "outputs" / "arena" / "seed_0"
+    (seed_dir / "checkpoints").mkdir(parents=True)
+    _make_league(seed_dir, [768, 256, 512], with_vecnorm=(512,))
+
+    resp = c.get("/api/league?path=arena/seed_0")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["league_size"] == 3
+    assert data["newest_timesteps"] == 768
+    # Sorted oldest -> newest by timestep regardless of glob order.
+    assert [s["timesteps"] for s in data["snapshots"]] == [256, 512, 768]
+    by_ts = {s["timesteps"]: s for s in data["snapshots"]}
+    assert by_ts[512]["has_vecnorm"] is True
+    assert by_ts[256]["has_vecnorm"] is False
+    assert all(s["age_seconds"] >= 0 for s in data["snapshots"])
+
+
+def test_get_league_empty_for_unknown_run(client):
+    c, _, _ = client
+    resp = c.get("/api/league?path=nope/seed_0")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["league_size"] == 0 and data["snapshots"] == []
+    assert data["newest_timesteps"] is None
+
+
+def test_get_league_rejects_path_traversal(client):
+    c, _, _ = client
+    assert c.get("/api/league?path=../../etc").status_code == 404
+    assert c.get("/api/league?path=").status_code == 404
+
+
 # ----- frames endpoint -----
+
 
 def _inject_run_with_callback(manager, run_id: str, callback=None) -> None:
     """Insert a synthetic _RunState directly into manager._runs."""
