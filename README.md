@@ -47,6 +47,8 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 - [CLI Reference](#-cli-commands)
   - [train](#train)
   - [eval](#eval)
+  - [arena-eval](#arena-eval--head-to-head-policy-evaluation)
+  - [arena-tournament](#arena-tournament--multi-policy-ranking)
   - [sweep](#sweep)
   - [multi-seed](#multi-seed)
   - [render-replay](#render-replay)
@@ -226,6 +228,82 @@ python -m rl_framework.cli.main eval \
 - CSV append: `outputs/<experiment>/seed_<N>/logs/eval_metrics.csv`
 
 Works for **locomotion** (Gymnasium) and **organism arena** (PettingZoo).
+
+### ⚔️ `arena-eval` — Head-to-head policy evaluation
+
+Evaluate a trained policy against an opponent in a competitive arena environment.
+
+```bash
+python -m rl_framework.cli.main arena-eval \
+  --config-name organisms_fight_arena \
+  --policy outputs/organism_arena/seed_0/checkpoints/final_model.zip \
+  --opponent outputs/organism_arena/seed_1/checkpoints/final_model.zip \
+  --n-episodes 20 \
+  --swap-roles
+
+# Evaluate against random baseline
+python -m rl_framework.cli.main arena-eval \
+  --config-name organisms_fight_arena \
+  --policy outputs/organism_arena/seed_0/checkpoints/final_model.zip \
+  --opponent random \
+  --n-episodes 10
+```
+
+**Flags:**
+- `--policy`: Path to trained policy checkpoint (required)
+- `--opponent`: Path to opponent checkpoint, or `"random"` for random baseline (required)
+- `--n-episodes`: Number of episodes to run (default: 100)
+- `--swap-roles`: Run half episodes with policy as agent_0 and half as agent_1 to control for positional bias (flag, default: False)
+- `--output`: Optional JSON file to save results
+
+**Output:**
+```json
+{
+  "policy_win_rate": 0.65,
+  "opponent_win_rate": 0.25,
+  "timeout_rate": 0.10,
+  "policy_mean_return": 2.34,
+  "opponent_mean_return": -0.45,
+  "n_episodes": 20
+}
+```
+
+### 🏆 `arena-tournament` — Multi-policy ranking
+
+Run a round-robin tournament across multiple policies and generate Bradley-Terry Elo rankings.
+
+```bash
+# Tournament across all checkpoints in a directory
+python -m rl_framework.cli.main arena-tournament \
+  --config-name organisms_fight_arena \
+  --checkpoints outputs/organism_arena/seed_0/checkpoints/,outputs/organism_arena/seed_1/checkpoints/ \
+  --include-random \
+  --markdown-out tournament_results.md
+
+# Tournament with specific checkpoint files
+python -m rl_framework.cli.main arena-tournament \
+  --config-name organisms_fight_arena \
+  --checkpoints model_a.zip,model_b.zip,model_c.zip \
+  --output tournament_results.json
+```
+
+**Flags:**
+- `--checkpoints`: Comma-separated list of checkpoint files or directories (required). Directories are recursively searched for `*.zip` files.
+- `--include-random`: Include a random-action baseline in the tournament (flag, default: False)
+- `--output`: JSON file to save detailed results
+- `--markdown-out`: Markdown file to save formatted rankings table
+
+**Output (Markdown):**
+```
+| Rank | Policy | Elo Rating | Wins | Losses | Draws |
+|------|--------|-----------|------|--------|-------|
+| 1    | model_a.zip | 1650 | 8 | 2 | 0 |
+| 2    | model_c.zip | 1590 | 6 | 3 | 1 |
+| 3    | model_b.zip | 1510 | 4 | 5 | 1 |
+| 4    | random | 1000 | 0 | 10 | 0 |
+```
+
+The Bradley-Terry model estimates each player's win probability based on pairwise matchup results.
 
 ### 🔍 `sweep` — Hyperparameter grid search
 
