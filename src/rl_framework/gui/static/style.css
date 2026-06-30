@@ -95,6 +95,7 @@ main {
   font-weight: 500;
   transition: var(--transition);
   border-right: 1px solid var(--border);
+  min-width: 0;
 }
 .wizard-steps .step:last-child { border-right: none; }
 .wizard-steps .step.active { background: var(--accent); color: #fff; }
@@ -227,6 +228,12 @@ input[type="checkbox"] { width: auto; margin-right: 0.4rem; }
   transition: var(--transition);
 }
 .btn:hover { background: var(--bg-hover); }
+.btn:disabled,
+.btn:disabled:hover {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--bg-card);
+}
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: var(--accent-hover); }
 .btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -312,13 +319,22 @@ input[type="checkbox"] { width: auto; margin-right: 0.4rem; }
 .metric-label { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.03em; }
 .metric-value { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 
+/* ---- Dashboard Main Grid ---- */
+.dashboard-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 1.5rem;
+}
+
 /* ---- Chart ---- */
 .chart-container {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0;
 }
 .chart-container h3 { font-size: 1rem; margin-bottom: 0.75rem; }
 #reward-chart { width: 100%; }
@@ -440,7 +456,7 @@ input[type="checkbox"] { width: auto; margin-right: 0.4rem; }
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
-  margin-bottom: 2rem;
+  margin-bottom: 0;
 }
 .visualization-panel h3 {
   margin-bottom: 1rem;
@@ -453,7 +469,6 @@ input[type="checkbox"] { width: auto; margin-right: 0.4rem; }
 }
 #frame-canvas {
   width: 100%;
-  max-width: 640px;
   height: auto;
   background: #000;
   border-radius: var(--radius);
@@ -516,6 +531,29 @@ footer {
 /* ---- Responsive ---- */
 @media (max-width: 700px) {
   .header-inner { flex-direction: column; }
+  nav { width: 100%; justify-content: center; flex-wrap: wrap; }
+  main { padding: 1rem; }
+  .wizard-steps { position: relative; margin-bottom: 2.75rem; }
+  .wizard-steps .step { padding: 0.6rem 0.25rem; }
+  .wizard-steps .step-label { display: none; }
+  .wizard-steps .step.active::after {
+    content: attr(data-label);
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 0.45rem);
+    color: var(--text);
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-align: center;
+  }
+  .step-num { margin-right: 0; }
   .card-grid { grid-template-columns: 1fr; }
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+  .dashboard-main { grid-template-columns: 1fr; }
+  .dash-header { align-items: flex-start; }
+  #run-selector { width: 100%; flex-wrap: wrap; }
+  #active-run-select { flex: 1 1 180px; }
+  .wizard-nav { gap: 0.75rem; }
+  .wizard-nav .btn { flex: 1; }
 }

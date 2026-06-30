@@ -26,10 +26,10 @@
       <div class="wizard">
         <!-- Progress bar -->
         <div class="wizard-steps">
-          <div class="step active" data-step="1"><span class="step-num">1</span> Environment</div>
-          <div class="step" data-step="2"><span class="step-num">2</span> Parameters</div>
-          <div class="step" data-step="3"><span class="step-num">3</span> Training</div>
-          <div class="step" data-step="4"><span class="step-num">4</span> Review &amp; Launch</div>
+          <div class="step active" data-step="1" data-label="Environment"><span class="step-num">1</span><span class="step-label">Environment</span></div>
+          <div class="step" data-step="2" data-label="Parameters"><span class="step-num">2</span><span class="step-label">Parameters</span></div>
+          <div class="step" data-step="3" data-label="Training"><span class="step-num">3</span><span class="step-label">Training</span></div>
+          <div class="step" data-step="4" data-label="Review & Launch"><span class="step-num">4</span><span class="step-label">Review &amp; Launch</span></div>
         </div>
 
         <!-- Step 1: Choose environment -->
@@ -43,8 +43,8 @@
               <h3>Walker (Locomotion)</h3>
               <p>Single-agent bipedal locomotion using PyBullet physics. Teach an agent to walk with configurable rewards, domain randomization, and curriculum learning.</p>
               <ul class="env-features">
-                <li>Observation: 13-dim (pose + velocity)</li>
-                <li>Action: 3-dim (force x/y + torque z)</li>
+                <li>Observation: 35-dim (pose, velocity, joints, DR scales)</li>
+                <li>Action: 10-dim joint targets/torques</li>
                 <li>Physics: PyBullet</li>
               </ul>
             </div>
@@ -137,7 +137,7 @@
           <div id="run-selector">
             <select id="active-run-select"><option value="">No active runs</option></select>
             <span id="run-status-badge" class="badge">--</span>
-            <button class="btn small danger" id="stop-run-btn">&#9632; Stop</button>
+            <button class="btn small danger" id="stop-run-btn" disabled>&#9632; Stop</button>
           </div>
         </div>
 
@@ -177,33 +177,35 @@
           </div>
         </div>
 
-        <!-- Live environment visualization -->
-        <div class="visualization-panel">
-          <h3>Live Environment Visualization</h3>
-          <div class="video-viewer">
-            <canvas id="frame-canvas" width="640" height="480"></canvas>
-            <div class="video-controls">
-              <button id="play-pause-btn" class="btn small">▶ Play</button>
-              <label>Speed:
-                <select id="playback-speed">
-                  <option value="0.5">0.5x</option>
-                  <option value="1" selected>1x</option>
-                  <option value="2">2x</option>
-                  <option value="4">4x</option>
-                </select>
-              </label>
-              <div class="timeline">
-                <input type="range" id="frame-scrubber" min="0" max="100" value="0" />
-                <span id="frame-indicator">0 / 0</span>
+        <div class="dashboard-main">
+          <!-- Live environment visualization -->
+          <div class="visualization-panel">
+            <h3>Live Environment Visualization</h3>
+            <div class="video-viewer">
+              <canvas id="frame-canvas" width="640" height="480"></canvas>
+              <div class="video-controls">
+                <button id="play-pause-btn" class="btn small">▶ Play</button>
+                <label>Speed:
+                  <select id="playback-speed">
+                    <option value="0.5">0.5x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="2">2x</option>
+                    <option value="4">4x</option>
+                  </select>
+                </label>
+                <div class="timeline">
+                  <input type="range" id="frame-scrubber" min="0" max="100" value="0" />
+                  <span id="frame-indicator">0 / 0</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Reward chart -->
-        <div class="chart-container">
-          <h3>Reward History</h3>
-          <canvas id="reward-chart" height="200"></canvas>
+          <!-- Reward chart -->
+          <div class="chart-container">
+            <h3>Reward History</h3>
+            <canvas id="reward-chart" height="200"></canvas>
+          </div>
         </div>
 
         <!-- Live tuning -->
@@ -215,7 +217,7 @@
             <div class="tuning-row">
               <label>Learning Rate</label>
               <input type="number" id="tune-lr" step="0.00001" value="0.0003" />
-              <button class="btn small" data-tune="learning_rate" data-input="tune-lr">Apply</button>
+              <button class="btn small" data-tune="learning_rate" data-input="tune-lr" disabled>Apply</button>
             </div>
           </div>
 

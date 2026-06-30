@@ -1,5 +1,6 @@
 import numpy as np
 import pybullet as p
+import pytest
 
 from rl_framework.envs.registry import make_env
 
@@ -50,6 +51,49 @@ def test_walker_domain_randomization_preserves_link_mass_ratios() -> None:
         assert masses[2] == 2.0
         assert masses[5] == 2.0
         assert masses[10] == 1.5
+    finally:
+        env.close()
+
+
+@pytest.mark.parametrize(
+    "termination_cfg",
+    [
+        {"min_height": 999.0, "max_height": 1000.0, "max_steps": 100},
+        {"min_height": 0.0, "max_height": 0.1, "max_steps": 100},
+    ],
+)
+def test_walker_terminal_fallbacks_penalize_clipped_action(termination_cfg) -> None:
+    """Low-height and max-height terminal paths should count as falls."""
+    cfg = {
+        "type": "walker_bullet",
+        "seed": 1,
+        "sim": {"gravity": -9.81, "mass": 3.0, "friction": 0.8, "max_force": 30.0},
+        "reward": {
+            "alive_bonus": 0.0,
+            "forward_velocity_weight": 0.0,
+            "orientation_penalty_weight": 0.0,
+            "torque_penalty_weight": 1.0,
+            "fall_penalty": 7.0,
+        },
+        "termination": termination_cfg,
+    }
+    env = make_env("walker_bullet", cfg)
+    captured = {}
+    original_compute = env.reward_fn.compute
+
+    def _capture_compute(**kwargs):
+        captured.update(kwargs)
+        return original_compute(**kwargs)
+
+    env.reward_fn.compute = _capture_compute
+    try:
+        env.reset(seed=1)
+        action = np.full(env.action_space.shape, 2.0, dtype=np.float32)
+        _, reward, terminated, _, _ = env.step(action)
+        assert terminated
+        assert captured["fell"] is True
+        np.testing.assert_allclose(captured["action"], np.ones_like(action))
+        assert reward == -17.0
     finally:
         env.close()
 

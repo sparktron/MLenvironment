@@ -169,8 +169,10 @@ def _render_replay(
     from gymnasium.wrappers import RecordVideo
     from pettingzoo.utils.env import ParallelEnv
     from stable_baselines3 import PPO
+    from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
     from rl_framework.envs.registry import make_env
+    from rl_framework.utils.checkpoint import find_vecnormalize_path_for_model
 
     env_cfg = cfg["environment"]
     env_cfg["render_mode"] = "rgb_array"
@@ -221,28 +223,34 @@ def _render_replay(
         finally:
             env.close()
 
-    model = PPO.load(model_path)
-
     if not isinstance(env, gym.Env):
         raise ValueError(f"Unsupported env type for replay: {type(env).__name__}")
     wrapped = RecordVideo(
         env, video_folder=str(out_dir), episode_trigger=lambda idx: idx == 0
     )
+    vec_env = DummyVecEnv([lambda: wrapped])
+    vn_path = find_vecnormalize_path_for_model(model_path)
+    if vn_path is not None:
+        vec_env = VecNormalize.load(str(vn_path), vec_env)
+        vec_env.training = False
+        vec_env.norm_reward = False
+    model = PPO.load(model_path)
     try:
-        obs, _ = wrapped.reset(seed=cfg["seed"])
+        vec_env.seed(cfg["seed"])
+        obs = vec_env.reset()
         done = False
         frame_count = 0
         while not done:
             action, _ = model.predict(obs, deterministic=True)
-            obs, _, term, trunc, _ = wrapped.step(action)
-            done = bool(term or trunc)
+            obs, _, dones, _ = vec_env.step(action)
+            done = bool(dones[0])
             frame_count += 1
         # RecordVideo writes an mp4; find it for the result dict.
         mp4_files = list(out_dir.glob("*.mp4"))
         saved = str(mp4_files[0]) if mp4_files else str(out_dir)
         return {"saved_replay": saved, "frames": frame_count}
     finally:
-        wrapped.close()
+        vec_env.close()
 
 
 def main() -> None:

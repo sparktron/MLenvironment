@@ -9,7 +9,6 @@ environment:
     mass: 3.2
     friction: 0.85
     max_force: 45.0
-    body_half_extents: [0.2, 0.1, 0.08]
     control:
       mode: pd
       position_gain: 0.1

@@ -1,8 +1,9 @@
 # UI Review Roadmap
 
 Last reviewed: 2026-06-30
+Implementation status: completed for the P1/P2/P3 items listed below on 2026-06-30.
 
-Scope: Flask experiment GUI in `src/rl_framework/gui`, including the new-experiment wizard, dashboard, outputs browser, and responsive layout. This is a review and fix plan, not a completed implementation pass.
+Scope: Flask experiment GUI in `src/rl_framework/gui`, including the new-experiment wizard, dashboard, outputs browser, and responsive layout. This file now records the review, implementation decisions, and regression checklist for the completed UI pass.
 
 ## Review Evidence
 
@@ -14,6 +15,8 @@ Scope: Flask experiment GUI in `src/rl_framework/gui`, including the new-experim
 ## Confirmed Bugs
 
 ### P1: Walker environment card shows obsolete observation/action sizes
+
+Status: **Done** — `index.html` now shows 35-dimensional observations and 10-dimensional actions; `tests/test_gui_api.py` checks the rendered template text.
 
 `src/rl_framework/gui/templates/index.html` says the walker has a 13-dimensional observation and 3-dimensional action. The current `WalkerBulletEnv` exposes 35 observations and 10 actions.
 
@@ -29,6 +32,8 @@ Validation:
 - Run the narrow GUI API/template test that covers the card metadata once added.
 
 ### P1: Template-loaded training state can bleed into another environment
+
+Status: **Done** — switching environment cards clears incompatible template state and resets visible top-level defaults; training/evaluation prefill now only reuses `currentConfig` when it matches the selected environment.
 
 Loading a walker template sets `currentConfig`, then returning to step 1 and choosing the arena carries template training values into the new arena flow. In browser verification, direct arena selection produced `num_envs: 1`, but switching from `robot_walk_basic` to arena produced `num_envs: 8` in the review preview.
 
@@ -48,6 +53,8 @@ Validation:
 - Add a focused JS/browser test if frontend test tooling is introduced; otherwise document this manual browser check.
 
 ### P2: Dashboard controls remain active when no run is selectable
+
+Status: **Done** — dashboard state is centralized in `setDashboardRunState()`, no-run state clears metrics/frame history, and Stop/live-tuning controls are enabled only for running runs.
 
 With no active runs, the dashboard shows a "No runs" selector while the Stop button and live tuning Apply button remain enabled. Clicking them only yields error toasts.
 
@@ -72,6 +79,8 @@ Validation:
 
 ### P2: Outputs titles omit variant `run_id`
 
+Status: **Done** — output item titles render `experiment / run_id / seed` for nested variants and keep the full path in muted metadata.
+
 The outputs API returns `run_id` for sweep and morphology variants, but the UI title only renders `experiment / seed`; the variant is only visible inside the path line.
 
 Impact: repeated variants under the same experiment are harder to scan, compare, and select.
@@ -84,6 +93,8 @@ Validation:
 - Browser check outputs containing `runs/<run_id>/seed_<seed>` and plain `experiment/seed_<seed>` layouts.
 
 ### P3: Mobile wizard progress labels wrap awkwardly
+
+Status: **Done** — step labels are wrapped in dedicated spans; mobile CSS switches to compact step numbers and shows the active step label below the progress bar.
 
 At 390px width the four-step progress bar remains a single row. "Review & Launch" wraps into multiple lines and consumes disproportionate height.
 
@@ -98,6 +109,8 @@ Validation:
 
 ### P3: Dashboard visualization wastes horizontal space on desktop
 
+Status: **Done** — desktop dashboard uses a two-column `dashboard-main` grid pairing visualization with reward history while preserving single-column mobile layout.
+
 The visualization panel is full-width while the canvas is capped at 640px, leaving a large empty area to the right on desktop.
 
 Impact: dashboard scan density is lower than necessary, and users must scroll farther to reach reward/tuning sections.
@@ -111,11 +124,11 @@ Validation:
 
 ## Implementation Order
 
-1. Fix confirmed P1 correctness issues: walker card metadata and template environment-switch state.
-2. Fix dashboard disabled/empty states for Stop and tuning controls.
-3. Improve outputs titles for variant runs.
-4. Polish responsive wizard progress and dashboard desktop layout.
-5. Add the smallest practical frontend regression harness, or document the browser checklist in tests if the repo continues without frontend tooling.
+1. ~~Fix confirmed P1 correctness issues: walker card metadata and template environment-switch state.~~
+2. ~~Fix dashboard disabled/empty states for Stop and tuning controls.~~
+3. ~~Improve outputs titles for variant runs.~~
+4. ~~Polish responsive wizard progress and dashboard desktop layout.~~
+5. ~~Add the smallest practical frontend regression harness, or document the browser checklist in tests if the repo continues without frontend tooling.~~
 
 ## Regression Checklist
 

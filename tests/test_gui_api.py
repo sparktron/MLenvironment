@@ -124,6 +124,7 @@ def test_schema_returns_both_envs(client):
     assert "walker_bullet" in data and "organism_arena_parallel" in data
     assert "training" in data["walker_bullet"]
     assert data["walker_bullet"]["training"]["device"]["value"] == "auto"
+    assert data["walker_bullet"]["training"]["check_nans"]["value"] is False
 
 
 def test_schema_sets_single_process_arena_training_default(client):
@@ -134,6 +135,26 @@ def test_schema_sets_single_process_arena_training_default(client):
     training = resp.get_json()["organism_arena_parallel"]["training"]
     assert training["num_envs"]["value"] == 1
     assert training["num_envs"]["max"] == 1
+
+
+def test_schema_no_longer_exposes_ignored_walker_geometry(client):
+    c, _, _ = client
+    resp = c.get("/api/schema")
+
+    assert resp.status_code == 200
+    sim = resp.get_json()["walker_bullet"]["environment"]["sim"]
+    assert "body_half_extents" not in sim
+    assert sim["timestep"]["value"] > 0
+
+
+def test_index_walker_card_matches_env_contract(client):
+    c, _, _ = client
+    resp = c.get("/")
+
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Observation: 35-dim" in html
+    assert "Action: 10-dim" in html
 
 
 # ----- training manager error paths -----

@@ -98,6 +98,13 @@ def test_validate_experiment_config_rejects_non_bool_repro_strict() -> None:
         validate_experiment_config(cfg)
 
 
+def test_validate_experiment_config_rejects_non_bool_check_nans() -> None:
+    cfg = _base_cfg()
+    cfg["training"]["check_nans"] = "true"
+    with pytest.raises(TypeError, match="training.check_nans"):
+        validate_experiment_config(cfg)
+
+
 def test_validate_experiment_config_rejects_multi_env_arena() -> None:
     cfg = _base_cfg()
     cfg["environment"] = {"type": "organism_arena_parallel"}

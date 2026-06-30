@@ -367,6 +367,9 @@ python -m rl_framework.cli.main render-replay \
 - Gymnasium envs (locomotion): MP4 in `outputs/<experiment>/seed_<N>/videos/`
 - PettingZoo parallel envs (organism arena): animated GIF (`replay.gif`) in the same folder
 
+For policies trained with `normalize_observations: true`, replay loads the saved
+VecNormalize sidecar next to the model before calling `predict()`.
+
 ### ⏯️ Resuming training
 
 Pass `--resume <checkpoint.zip>` to `train` to continue from a saved model.
@@ -415,7 +418,6 @@ environment:
     mass: 3.0                        # Robot base mass (kg)
     friction: 0.9                    # Ground lateral friction coefficient
     max_force: 35.0                  # Maximum applied force (N)
-    body_half_extents: [0.2, 0.1, 0.08]   # Box collision shape half-extents [x, y, z]
 
   reward:
     alive_bonus: 1.0                 # Reward per step for staying upright
@@ -464,6 +466,7 @@ training:
   batch_size: 256                    # Minibatch size
   checkpoint_every: 5000             # Save a checkpoint every N environment steps
   normalize_observations: true       # Wrap env in VecNormalize
+  check_nans: false                  # Set true to fail fast on NaN/Inf values
   num_envs: 8                        # >1 uses SubprocVecEnv for parallelism
   device: auto                       # "auto" (default) | "cuda" | "cuda:0" | "cpu"
 
@@ -623,6 +626,7 @@ larger rollout batches can change PPO update stability.
 ```yaml
 training:
   num_envs: 8                       # SubprocVecEnv (1 = DummyVecEnv, no overhead)
+  check_nans: false                 # Set true while diagnosing unstable runs
 ```
 
 ### 📈 Multi-Seed Aggregation

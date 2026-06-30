@@ -195,11 +195,6 @@ def get_schema():
                         "min": 1,
                         "max": 500,
                     },
-                    "body_half_extents": {
-                        "value": [0.2, 0.1, 0.08],
-                        "type": "list_float",
-                        "desc": "Body size [x, y, z]",
-                    },
                     "timestep": {
                         "value": 1.0 / 240.0,
                         "type": "float",
@@ -572,7 +567,7 @@ def _training_schema(env_type: str) -> dict[str, Any]:
         "checkpoint_every": {
             "value": 50000,
             "type": "int",
-            "desc": "Save checkpoint every N steps",
+            "desc": "Save checkpoint every N environment steps",
             "min": 100,
             "max": 1000000,
         },
@@ -580,6 +575,11 @@ def _training_schema(env_type: str) -> dict[str, Any]:
             "value": True,
             "type": "bool",
             "desc": "Normalize observations with VecNormalize",
+        },
+        "check_nans": {
+            "value": False,
+            "type": "bool",
+            "desc": "Fail fast on NaN/Inf observations, rewards, or actions",
         },
         "device": {
             "value": "auto",

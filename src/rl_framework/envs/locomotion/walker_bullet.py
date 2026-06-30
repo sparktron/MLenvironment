@@ -447,7 +447,7 @@ class WalkerBulletEnv(gym.Env):
         return obs, {}
 
     def step(self, action: np.ndarray):
-        action = np.asarray(action, dtype=np.float32)
+        action = np.clip(np.asarray(action, dtype=np.float32), -1.0, 1.0)
         # Action latency: buffer the current action and apply the delayed one.
         if self._action_latency_steps > 0:
             self._action_buffer.append(action)
@@ -487,7 +487,7 @@ class WalkerBulletEnv(gym.Env):
             pitch_roll_penalty=abs(roll) + abs(pitch),
             action=action,
             alive=not terminated,
-            fell=torso_contact,  # only ground contact is a fall; max-height ceiling hits must not trigger fall_penalty
+            fell=terminated,
         )
         info = {
             "x_position": pos[0],

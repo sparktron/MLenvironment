@@ -11,7 +11,12 @@ import supersuit as ss
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import (
+    DummyVecEnv,
+    SubprocVecEnv,
+    VecCheckNan,
+    VecNormalize,
+)
 from stable_baselines3.common.vec_env.base_vec_env import VecEnvWrapper
 
 from rl_framework.envs.registry import make_env
@@ -415,6 +420,7 @@ def train(
 
     try:
         normalize = cfg["training"].get("normalize_observations", True)
+        vecnormalize_env = None
         if normalize:
             vecnorm_path = None
             if resume_from is not None:
@@ -426,6 +432,10 @@ def train(
                 vec_env.norm_reward = False
             else:
                 vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=False)
+            vecnormalize_env = vec_env
+
+        if cfg["training"].get("check_nans", False):
+            vec_env = VecCheckNan(vec_env, raise_exception=True)
 
         if resume_from is not None:
             model = PPO.load(
@@ -525,9 +535,9 @@ def train(
         )
         final_path = paths.checkpoints_dir / "final_model"
         model.save(str(final_path))
-        if isinstance(vec_env, VecNormalize):
-            vec_env.save(str(_vecnormalize_path_for_model(final_path)))
-            vec_env.save(str(paths.checkpoints_dir / "vecnormalize.pkl"))
+        if vecnormalize_env is not None:
+            vecnormalize_env.save(str(_vecnormalize_path_for_model(final_path)))
+            vecnormalize_env.save(str(paths.checkpoints_dir / "vecnormalize.pkl"))
         return final_path
     finally:
         if "vec_env" in locals():

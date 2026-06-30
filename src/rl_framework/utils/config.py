@@ -53,6 +53,11 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
                 UserWarning,
                 stacklevel=2,
             )
+    if "check_nans" in cfg["training"] and not isinstance(cfg["training"]["check_nans"], bool):
+        raise TypeError(
+            "Config key 'training.check_nans' must be bool, "
+            f"got {type(cfg['training']['check_nans']).__name__}"
+        )
 
     if "batch_size" in cfg["training"]:
         n_steps = int(cfg["training"].get("n_steps", 1024))

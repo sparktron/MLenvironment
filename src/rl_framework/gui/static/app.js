@@ -12,6 +12,7 @@
   let selectedEnv = null;         // 'walker_bullet' | 'organism_arena_parallel'
   let currentConfig = {};         // assembled config object
   let activeRunId = null;         // run_id being monitored
+  let activeRunStatus = null;     // status for selected dashboard run
   let pollTimer = null;           // setInterval id for dashboard polling
   let rewardHistory = [];         // [{x: timestep, y: reward}, ...]
   let frameData = [];             // all captured frames (client-side buffer)
@@ -115,9 +116,22 @@
   // ------------------------------------------------------------------
   $$(".env-card").forEach(function (card) {
     card.addEventListener("click", function () {
+      var nextEnv = card.dataset.env;
+      var resetVisibleDefaults = false;
+      if (selectedEnv && selectedEnv !== nextEnv) {
+        currentConfig = {};
+        resetVisibleDefaults = true;
+      } else if (currentConfig.environment && currentConfig.environment.type !== nextEnv) {
+        currentConfig = {};
+        resetVisibleDefaults = true;
+      }
       $$(".env-card").forEach(function (c) { c.classList.remove("selected"); });
       card.classList.add("selected");
-      selectedEnv = card.dataset.env;
+      selectedEnv = nextEnv;
+      if (resetVisibleDefaults) {
+        $("#cfg-experiment-name").value = selectedEnv === "walker_bullet" ? "my_walker" : "my_arena";
+        $("#cfg-seed").value = 42;
+      }
       $("#wiz-next-1").disabled = false;
     });
   });
@@ -229,7 +243,11 @@
     if (!envSchema) return;
 
     var trainFields = envSchema.training;
-    var prefillTrain = (prefill || currentConfig).training || null;
+    var selectedConfig =
+      currentConfig.environment && currentConfig.environment.type === selectedEnv
+        ? currentConfig
+        : {};
+    var prefillTrain = (prefill || selectedConfig).training || null;
 
     var title = document.createElement("div");
     title.className = "form-group-title";
@@ -258,7 +276,7 @@
     var evalGroup = document.createElement("div");
     evalGroup.className = "form-group";
     var evalFields = envSchema.evaluation;
-    var prefillEval = (prefill || currentConfig).evaluation || null;
+    var prefillEval = (prefill || selectedConfig).evaluation || null;
     Object.keys(evalFields).forEach(function (key) {
       var spec = evalFields[key];
       var prefillVal = prefillEval ? prefillEval[key] : null;
@@ -418,6 +436,7 @@
       return;
     }
     activeRunId = result.run_id;
+    setDashboardRunState({ run_id: activeRunId, status: "running" });
     toast("Training started: " + activeRunId, "success");
     // Switch to dashboard
     $$(".nav-btn").forEach(function (b) { b.classList.remove("active"); });
@@ -431,6 +450,7 @@
     frameDisplayGen = 0;
     stopFramePlayback();
     buildEnvTuningControls();
+    setTuningEnabled(true);
     startPolling();
   });
 
@@ -449,22 +469,77 @@
     if (framePollTimer) { clearInterval(framePollTimer); framePollTimer = null; }
   }
 
+  function setTuningEnabled(enabled) {
+    $$(".tuning-row input, .tuning-row button").forEach(function (el) {
+      el.disabled = !enabled;
+    });
+  }
+
+  function resetMetrics() {
+    [
+      "#m-timesteps",
+      "#m-reward",
+      "#m-ep-len",
+      "#m-loss",
+      "#m-pg-loss",
+      "#m-val-loss",
+      "#m-entropy",
+      "#m-lr",
+    ].forEach(function (sel) {
+      $(sel).textContent = "--";
+    });
+  }
+
+  function resetFrameViewer() {
+    frameData = [];
+    nextFrameSince = 0;
+    currentFrameIndex = 0;
+    frameDisplayGen++;
+    $("#frame-scrubber").value = 0;
+    $("#frame-scrubber").max = 0;
+    stopFramePlayback();
+    updateFrameDisplay();
+  }
+
+  function setDashboardRunState(run) {
+    activeRunId = run ? run.run_id : null;
+    activeRunStatus = run ? run.status : null;
+
+    var badge = $("#run-status-badge");
+    badge.textContent = activeRunStatus || "--";
+    badge.className = activeRunStatus ? "badge " + activeRunStatus : "badge";
+
+    var isRunning = activeRunStatus === "running";
+    $("#stop-run-btn").disabled = !isRunning;
+    setTuningEnabled(isRunning);
+
+    if (!run) {
+      rewardHistory = [];
+      resetMetrics();
+      drawRewardChart();
+      resetFrameViewer();
+    }
+  }
+
   async function refreshRuns() {
     var runs = await api("GET", "/api/train/runs");
     var sel = $("#active-run-select");
     sel.innerHTML = "";
     if (runs.length === 0) {
       sel.innerHTML = '<option value="">No runs</option>';
+      setDashboardRunState(null);
       return;
     }
     runs.forEach(function (r) {
       var opt = document.createElement("option");
       opt.value = r.run_id;
+      opt.dataset.status = r.status;
       opt.textContent = r.run_id + " (" + r.experiment + ") - " + r.status;
       sel.appendChild(opt);
     });
-    if (activeRunId) sel.value = activeRunId;
-    else activeRunId = runs[runs.length - 1].run_id;
+    var selectedRun = runs.find(function (r) { return r.run_id === activeRunId; }) || runs[runs.length - 1];
+    sel.value = selectedRun.run_id;
+    setDashboardRunState(selectedRun);
     // Do NOT call startPolling() here — startPolling already calls refreshRuns()
     // once at startup; calling it back creates an unbounded async loop.
   }
@@ -487,7 +562,13 @@
     currentFrameIndex = 0;
     frameDisplayGen = 0;
     stopFramePlayback();
-    if (activeRunId) startPolling();
+    if (activeRunId) {
+      var opt = this.options[this.selectedIndex];
+      setDashboardRunState({ run_id: activeRunId, status: opt ? opt.dataset.status : null });
+      startPolling();
+    } else {
+      setDashboardRunState(null);
+    }
   });
 
   async function pollStatus() {
@@ -499,6 +580,10 @@
     var badge = $("#run-status-badge");
     badge.textContent = data.status;
     badge.className = "badge " + data.status;
+    activeRunStatus = data.status;
+    var isRunning = data.status === "running";
+    $("#stop-run-btn").disabled = !isRunning;
+    setTuningEnabled(isRunning);
 
     // Metrics
     var m = data.metrics || {};
@@ -669,10 +754,12 @@
 
       container.appendChild(grid);
     });
+    setTuningEnabled(activeRunStatus === "running");
   }
 
   async function applyTuning(key, value) {
     if (!activeRunId) { toast("No active run", "error"); return; }
+    if (activeRunStatus !== "running") { toast("Run is not active", "error"); return; }
     var params = {};
     params[key] = value;
     var result = await api("POST", "/api/train/tune/" + activeRunId, params);
@@ -756,7 +843,9 @@
       item.className = "output-item";
 
       var h3 = document.createElement("h3");
-      h3.textContent = o.experiment + " / " + o.seed;
+      h3.textContent = o.run_id
+        ? o.experiment + " / " + o.run_id + " / " + o.seed
+        : o.experiment + " / " + o.seed;
 
       var metaDiv = document.createElement("div");
       metaDiv.className = "meta";

@@ -27,7 +27,6 @@ def _walker_cfg(
                 "mass": 3.0,
                 "friction": 0.8,
                 "max_force": 30.0,
-                "body_half_extents": [0.15, 0.15, 0.15],
                 "arena_half_extent": 5.0,
             },
             "reward": {

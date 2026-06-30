@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pytest
 
 from rl_framework.cli import main as cli_main
@@ -72,3 +73,73 @@ def test_json_out_writes_file(monkeypatch, tmp_path, _patched_config):
     assert out_file.exists()
     payload = json.loads(out_file.read_text())
     assert payload == {"saved_model": "/out/model.zip"}
+
+
+def test_walker_render_replay_loads_vecnormalize_sidecar(monkeypatch, tmp_path):
+    import gymnasium as gym
+    from gymnasium import spaces
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.vec_env import VecNormalize
+
+    from rl_framework.cli.main import _render_replay
+
+    class _FakeEnv(gym.Env):
+        metadata = {"render_modes": ["rgb_array"], "render_fps": 30}
+
+        def __init__(self) -> None:
+            self.observation_space = spaces.Box(
+                low=-np.inf, high=np.inf, shape=(2,), dtype=np.float32
+            )
+            self.action_space = spaces.Box(
+                low=-1.0, high=1.0, shape=(1,), dtype=np.float32
+            )
+
+        def reset(self, *, seed=None, options=None):
+            super().reset(seed=seed)
+            return np.zeros(2, dtype=np.float32), {}
+
+        def step(self, action):
+            return np.zeros(2, dtype=np.float32), 0.0, True, False, {}
+
+        def render(self):
+            return np.zeros((8, 8, 3), dtype=np.uint8)
+
+    class _FakeRecordVideo(gym.Wrapper):
+        def __init__(self, env, video_folder, episode_trigger):
+            super().__init__(env)
+            self.video_folder = video_folder
+            self.episode_trigger = episode_trigger
+
+    class _FakeModel:
+        def predict(self, obs, deterministic=True):
+            return np.zeros((1, 1), dtype=np.float32), None
+
+    import rl_framework.envs.registry as registry_mod
+
+    monkeypatch.setattr(registry_mod, "make_env", lambda _env_type, _cfg: _FakeEnv())
+    monkeypatch.setattr("gymnasium.wrappers.RecordVideo", _FakeRecordVideo)
+    monkeypatch.setattr(PPO, "load", staticmethod(lambda _path: _FakeModel()))
+
+    loaded = {}
+
+    def _fake_vecnormalize_load(path, venv):
+        loaded["path"] = path
+        return venv
+
+    monkeypatch.setattr(VecNormalize, "load", staticmethod(_fake_vecnormalize_load))
+
+    model_path = tmp_path / "final_model.zip"
+    model_path.write_bytes(b"fake")
+    sidecar = tmp_path / "final_model_vecnormalize.pkl"
+    sidecar.write_bytes(b"fake")
+    cfg = {
+        "experiment_name": "replay_test",
+        "seed": 0,
+        "output": {"base_dir": str(tmp_path / "outputs")},
+        "environment": {"type": "walker_bullet"},
+    }
+
+    result = _render_replay(cfg, str(model_path))
+
+    assert loaded["path"] == str(sidecar)
+    assert result["frames"] == 1
