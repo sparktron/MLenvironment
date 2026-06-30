@@ -270,6 +270,17 @@ def _make_lr_schedule(start: float, end: float | None):
     return schedule
 
 
+def _callback_freq_from_timesteps(timesteps: int, num_envs: int) -> int:
+    """Convert an env-timestep cadence to SB3 callback calls.
+
+    SB3 calls callbacks once per vector-env step, where each call advances
+    ``num_envs`` environment timesteps. Config values stay expressed in real
+    environment timesteps because that is what operators see in logs/checkpoint
+    names.
+    """
+    return max(int(timesteps) // max(int(num_envs), 1), 1)
+
+
 def train(
     cfg: dict[str, Any],
     extra_callbacks: list[BaseCallback] | None = None,
@@ -449,7 +460,10 @@ def train(
             )
 
         checkpoint_cb = VecNormalizeCheckpointCallback(
-            save_freq=cfg["training"].get("checkpoint_every", 10000),
+            save_freq=_callback_freq_from_timesteps(
+                cfg["training"].get("checkpoint_every", 10000),
+                num_envs,
+            ),
             save_path=str(paths.checkpoints_dir),
             name_prefix="ppo_model",
         )

@@ -462,9 +462,9 @@ training:
   learning_rate: 0.0003              # PPO learning rate
   n_steps: 1024                      # Steps per rollout buffer
   batch_size: 256                    # Minibatch size
-  checkpoint_every: 5000             # Save a checkpoint every N steps
+  checkpoint_every: 5000             # Save a checkpoint every N environment steps
   normalize_observations: true       # Wrap env in VecNormalize
-  num_envs: 1                        # >1 uses SubprocVecEnv for parallelism
+  num_envs: 8                        # >1 uses SubprocVecEnv for parallelism
   device: auto                       # "auto" (default) | "cuda" | "cuda:0" | "cpu"
 
 # ─── Evaluation ─────────────────────────────────────────────────
@@ -616,11 +616,13 @@ Accepted values: `auto`, `cpu`, `cuda`, `cuda:<N>` (e.g. `cuda:0`). Any other st
 
 ### ⚡ Parallel CPU Rollouts
 
-Run multiple envs across processes for **~3-4× speedup** on 4 cores.
+Run multiple envs across processes for faster PyBullet rollout collection.
+Benchmark before pushing walker runs toward the physical core count, because
+larger rollout batches can change PPO update stability.
 
 ```yaml
 training:
-  num_envs: 4                       # SubprocVecEnv (1 = DummyVecEnv, no overhead)
+  num_envs: 8                       # SubprocVecEnv (1 = DummyVecEnv, no overhead)
 ```
 
 ### 📈 Multi-Seed Aggregation
@@ -856,6 +858,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 - Historical audit artifact: `docs/exhaustive_repo_review_2026-04-22.md`
 - Incremental fixes report: `docs/fixes_2026-04-22.md`
 - Open items and future plan: `docs/open_items_todo.md`
+- UI review roadmap: `docs/ui_roadmap.md`
 - Agent workflow notes: `AGENTS.md`
 
 ---

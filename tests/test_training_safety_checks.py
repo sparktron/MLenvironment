@@ -30,6 +30,15 @@ def test_shared_policy_arena_rejects_multiple_envs(tmp_path) -> None:
         train(cfg)
 
 
+def test_callback_frequency_scales_with_vector_env_count() -> None:
+    from rl_framework.training.sb3_runner import _callback_freq_from_timesteps
+
+    assert _callback_freq_from_timesteps(50_000, 1) == 50_000
+    assert _callback_freq_from_timesteps(50_000, 8) == 6_250
+    assert _callback_freq_from_timesteps(50_000, 24) == 2_083
+    assert _callback_freq_from_timesteps(4, 24) == 1
+
+
 def test_set_nested_requires_existing_leaf_key() -> None:
     cfg = {"training": {"learning_rate": 3e-4}}
     with pytest.raises(KeyError, match="leaf key 'missing_key' not found"):

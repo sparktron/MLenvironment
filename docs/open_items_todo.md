@@ -13,6 +13,7 @@
 ## Larger changes (separate session)
 - ~~Rework experiment storage layout to avoid name mutation in multi-seed and sweep orchestration.~~ **Done** — variants now route through `output.run_id` (`<experiment>/runs/<run_id>/seed_<seed>/`); multi-seed no longer mutates the name. See `create_experiment_paths`.
 - Replace file-based GUI tuning/status IPC with atomic event stream (SSE/WebSocket or durable queue).
+- Work through the GUI correctness and layout plan in `docs/ui_roadmap.md`: stale environment metadata, template-to-environment state reset, dashboard disabled states, variant run labels, and responsive polish.
 - Introduce end-to-end reproducibility mode (deterministic settings + enforcement + metadata).
 - ~~Add CI pipeline for lint/test/type checks and lockfile validation.~~ **Done** — `.github/workflows/ci.yml` runs pytest+coverage, ruff, advisory mypy, security audit, and `check_repo_policy.py` (lockfile completeness). Checkout/setup-python use Node 24-compatible action majors.
 - ~~Remove tracked generated artifacts (`__pycache__`, `.egg-info`) and enforce clean repository hygiene.~~ **Done** — `.egg-info` untracked; `check_repo_policy.py` now fails on any tracked `__pycache__`/`.pyc`/`.egg-info`/`.venv` unconditionally (was gated behind `STRICT_REPO_CLEAN`).
@@ -21,3 +22,28 @@
 - Single active GUI run policy.
 - Floating dependency ranges in `pyproject.toml` (not lockfile-backed yet).
 - No first-class run registry for comparing experiments by immutable metadata.
+
+## Bipedal walker training review plan (2026-06-29)
+
+### Confirmed bugs / correctness gaps
+- ~~Scale checkpoint cadence by `training.num_envs`.~~ **Done** — SB3 callback calls advance by vector-env step, so `training.checkpoint_every` must be converted from environment timesteps to callback calls. Without this, `robot_walk_basic` with `num_envs: 8` saved every 400k env steps instead of every 50k.
+- Load `VecNormalize` statistics in `render-replay` for `walker_bullet`, matching `eval_runner.evaluate()`. Current replay loads the PPO zip directly, so policies trained with normalized observations are rendered on raw observations.
+- Penalize all terminal fall modes consistently. `WalkerTermination` can terminate on torso contact, low COM height, or excessive height, but `WalkerReward.compute()` only applies `fall_penalty` for torso contact. Low-height falls can therefore end without the configured fall penalty, and high launches get no explicit anti-exploit penalty.
+- Make action clipping explicit in `WalkerBulletEnv.step()` before both control and reward accounting. The actuator clips in `WalkerDynamics.apply_action()`, but reward uses the pre-clipped delayed action.
+- Either wire or remove `environment.sim.body_half_extents`. The GUI, README, and bundled YAML expose it, but `WalkerBulletEnv` currently uses class-level geometry constants and ignores the config field.
+- Add NaN diagnostics for walker training, such as optional `VecCheckNan`, reward/return range logging, and a short high-parallelism smoke test. A `num_envs: 24` probe produced finite rollout metrics but NaN policy means during the first PPO update.
+- Add regression tests for reward/termination edge cases: low-height fall without contact, max-height launch, clipped action penalty, and normalized replay.
+
+### Training efficiency / operator defaults
+- Benchmark before raising `robot_walk_basic.training.num_envs` toward the local CPU-saturating value. A smoke run with `num_envs: 24` collected one 49,152-step rollout at ~3,100 FPS but produced NaN PPO action means on the first update, so higher parallelism needs optimizer/reward-scale validation before becoming the default.
+- Benchmark `num_envs` x `n_steps` x `batch_size` on this machine with `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`, then record recommended presets. Compare current `24 x 2048 x 512` against RL Zoo-style BipedalWalker PPO settings (`n_envs: 32`, `n_steps: 2048`, `batch_size: 64`, `gamma: 0.999`, `ent_coef: 0.0`, `clip_range: 0.18`) and PyBullet locomotion defaults (`n_envs: 16`, `n_steps: 512`, `batch_size: 128`, ReLU 256x256 policy, `use_sde: true`).
+- Add optional `training.torch_num_threads` / `training.worker_start_method` controls after benchmarking. The runner sets BLAS env vars for subprocesses, but PyTorch CPU update threading is still implicit.
+- Add an `EvalCallback`/best-checkpoint path with a separately normalized eval env so long walker runs keep the best policy, not only periodic and final checkpoints.
+
+### Walker environment and learning features
+- Add foot contact indicators to the observation. Gymnasium BipedalWalker exposes leg ground contact, and contact phase is useful for gait learning; this will require an observation shape/version change and compatibility notes for old checkpoints.
+- Add a configurable observation mode that can remove absolute x/y position from policy input while retaining velocity and height. Gymnasium BipedalWalker deliberately omits coordinates; keeping unbounded position in a flat-plane task may encourage time/progress overfitting and makes normalization drift with long episodes.
+- Add terrain variation presets: flat, uneven, obstacle/stump, and push-recovery perturbations. This aligns the custom PyBullet walker more closely with normal/hardcore BipedalWalker training curricula.
+- Rebalance the default reward so survival does not dominate locomotion. Current `alive_bonus: 5.0` over 800 steps can make standing still more attractive than learning gait; compare against forward-progress-plus-energy-cost reward structures and use curriculum to ramp target speed and posture penalties.
+- Add curriculum examples for walker: start with balance/short horizon/low target velocity, then increase `target_velocity`, horizon, terrain difficulty, perturbations, and domain randomization.
+- Add optional SAC/TD3 experiment configs for the continuous-control walker baseline. PPO remains the default, but off-policy algorithms are useful comparison points for sample efficiency.
