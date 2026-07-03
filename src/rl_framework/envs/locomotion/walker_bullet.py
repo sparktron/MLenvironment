@@ -467,11 +467,30 @@ class WalkerBulletEnv(gym.Env):
         lin_vel, ang_vel = p.getBaseVelocity(
             self.robot_id, physicsClientId=self._connection
         )
+        # Rare PyBullet solver divergence (stiff PD + contact impulse blowup)
+        # can return NaN/Inf here. _get_obs() sanitizes its own copy, but pos/
+        # lin_vel/quat below feed termination and reward directly — without
+        # this guard a NaN reward poisons GAE for the whole episode's rollout
+        # rows and corrupts the next PPO gradient update (NaN action means).
+        diverged = not (
+            np.all(np.isfinite(pos))
+            and np.all(np.isfinite(quat))
+            and np.all(np.isfinite(lin_vel))
+            and np.all(np.isfinite(ang_vel))
+        )
+        if diverged:
+            pos = tuple(np.nan_to_num(pos, nan=0.0, posinf=1e6, neginf=-1e6))
+            quat = (0.0, 0.0, 0.0, 1.0)  # identity; avoids Euler conversion on garbage
+            lin_vel = tuple(np.nan_to_num(lin_vel, nan=0.0, posinf=1e6, neginf=-1e6))
+            ang_vel = tuple(np.nan_to_num(ang_vel, nan=0.0, posinf=1e6, neginf=-1e6))
+
         obs = self._get_obs(pos=pos, quat=quat, lin_vel=lin_vel, ang_vel=ang_vel)
         roll, pitch, _ = p.getEulerFromQuaternion(quat)
 
         # Torso (base, linkIndexA=-1) touching the floor = the robot has fallen.
-        torso_contact = bool(
+        # Divergence counts as an immediate fall so a corrupted physics state
+        # never lingers until max_steps truncation.
+        torso_contact = diverged or bool(
             p.getContactPoints(
                 bodyA=self.robot_id,
                 bodyB=self.plane_id,
@@ -589,7 +608,9 @@ class WalkerBulletEnv(gym.Env):
                     self._action_buffer.clear()
             elif section == "sim":
                 if attr == "gravity":
-                    p.setGravity(0, 0, float(cast_val), physicsClientId=self._connection)
+                    p.setGravity(
+                        0, 0, float(cast_val), physicsClientId=self._connection
+                    )
                 elif attr == "timestep":
                     self._sim_timestep = float(cast_val)
                     p.setTimeStep(self._sim_timestep, physicsClientId=self._connection)

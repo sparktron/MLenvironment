@@ -98,6 +98,44 @@ def test_walker_terminal_fallbacks_penalize_clipped_action(termination_cfg) -> N
         env.close()
 
 
+def test_walker_diverged_physics_terminates_with_finite_reward() -> None:
+    """A NaN/Inf PyBullet velocity read must not leak into reward/termination.
+
+    Regression test for the NaN-action-mean bug: previously step() used the
+    raw (un-sanitized) lin_vel/pos/quat for reward and termination while only
+    the observation had a nan_to_num guard, so a solver-divergence frame
+    produced a NaN reward that survived (uncaught) until max_steps
+    truncation, poisoning GAE for that episode and NaN-ing the next PPO
+    gradient update.
+    """
+    cfg = {
+        "type": "walker_bullet",
+        "seed": 1,
+        "sim": {"gravity": -9.81, "mass": 3.0, "friction": 0.8, "max_force": 30.0},
+    }
+    env = make_env("walker_bullet", cfg)
+    try:
+        env.reset(seed=1)
+        real_get_base_velocity = p.getBaseVelocity
+
+        def _diverged_velocity(*args, **kwargs):
+            return ([float("nan"), 0.0, 0.0], [0.0, 0.0, 0.0])
+
+        p.getBaseVelocity = _diverged_velocity
+        try:
+            action = np.zeros(env.action_space.shape, dtype=np.float32)
+            obs, reward, terminated, truncated, info = env.step(action)
+        finally:
+            p.getBaseVelocity = real_get_base_velocity
+
+        assert np.isfinite(obs).all()
+        assert np.isfinite(reward)
+        assert terminated is True
+        assert info["torso_contact"] is True
+    finally:
+        env.close()
+
+
 def test_organism_env_api() -> None:
     cfg = {
         "type": "organism_arena_parallel",
@@ -617,7 +655,10 @@ def test_arena_rejects_fewer_than_two_agents() -> None:
     import pytest
 
     with pytest.raises(ValueError, match="num_agents must be >= 2"):
-        make_env("organism_arena_parallel", {"type": "organism_arena_parallel", "num_agents": 1})
+        make_env(
+            "organism_arena_parallel",
+            {"type": "organism_arena_parallel", "num_agents": 1},
+        )
 
 
 def test_arena_n_agents_reset_and_obs_shape() -> None:

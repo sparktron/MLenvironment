@@ -44,6 +44,18 @@ priority groups unless a fresh bug review changes the order.
   arena replay/support limitations, and the self-play parallel arena path.
 
 ### Priority 1: walker training stability and learning quality
+- ~~Fix the NaN PPO action mean at high `num_envs`.~~ **Done (2026-07-02)** —
+  root cause was `WalkerBulletEnv.step()` feeding raw, un-sanitized
+  `pos`/`quat`/`lin_vel` from PyBullet into reward and termination (only the
+  observation copy was `nan_to_num`-guarded). A rare solver-divergence frame
+  (more likely to be hit per wall-clock second at higher parallelism) could
+  emit a `NaN` reward that survived uncaught until `max_steps` truncation,
+  poisoning GAE for that episode and NaN-ing the next PPO gradient update.
+  `step()` now detects non-finite physics reads, sanitizes them, and treats
+  divergence as an immediate fall (torso-contact-equivalent) so it can never
+  linger. Verified with a smoke run reproducing the original report exactly
+  (`num_envs: 24`, one 49,152-step rollout, `training.check_nans: true`) —
+  first PPO update now completes cleanly.
 - Establish a stable high-throughput walker preset before changing defaults.
   The 24-env smoke run reached roughly 3,100 FPS but produced NaN PPO action
   means on the first update, so the next step is a controlled matrix over
