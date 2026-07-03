@@ -592,8 +592,11 @@ def _training_schema(env_type: str) -> dict[str, Any]:
         schema["num_envs"].update(
             {
                 "value": 1,
-                "desc": "Parallel environments (arena requires single-process training)",
-                "max": 1,
+                "desc": (
+                    "Parallel environments (shared-policy arena requires 1; "
+                    "self-play configs can use more)"
+                ),
+                "max": 32,
             }
         )
     return schema

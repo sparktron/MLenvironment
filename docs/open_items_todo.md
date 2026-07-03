@@ -23,6 +23,92 @@
 - Floating dependency ranges in `pyproject.toml` (not lockfile-backed yet).
 - No first-class run registry for comparing experiments by immutable metadata.
 
+## Next development roadmap (2026-06-30)
+
+This section is the current execution roadmap. The older review sections below
+remain as evidence and background, but new work should flow through these
+priority groups unless a fresh bug review changes the order.
+
+### Priority 0: unblock known correctness bugs
+- ~~Fix `validate_experiment_config()` for arena self-play parallelism.~~
+  **Done (2026-06-30)** — validation now allows `training.num_envs > 1` only
+  when `self_play.enabled: true`, while preserving the shared-policy SuperSuit
+  guard. Regression tests cover the rejected shared-policy case, the accepted
+  self-play case, and the bundled `organisms_fight_arena.yaml` config.
+- ~~Align GUI arena defaults with the same rule.~~ **Done (2026-06-30)** — the
+  wizard still defaults arena `num_envs` to 1 for shared-policy safety, but no
+  longer caps the field at 1 so loaded self-play templates can keep their
+  parallel worker count.
+- ~~Refresh stale README schema facts while touching docs.~~ **Done
+  (2026-06-30)** — README now points at the current walker dimensions, current
+  arena replay/support limitations, and the self-play parallel arena path.
+
+### Priority 1: walker training stability and learning quality
+- Establish a stable high-throughput walker preset before changing defaults.
+  The 24-env smoke run reached roughly 3,100 FPS but produced NaN PPO action
+  means on the first update, so the next step is a controlled matrix over
+  `num_envs`, `n_steps`, `batch_size`, learning rate, entropy coefficient, and
+  gradient clipping with `training.check_nans: true`.
+- Add a best-checkpoint evaluation path. Long walker runs should save the best
+  policy according to a separately normalized eval env, not only periodic and
+  final checkpoints. Include resume/eval sidecar behavior in the regression
+  tests.
+- Rebalance the default walker reward so standing still is not overpaid. Test
+  lower `alive_bonus`, stronger forward-progress incentives, energy/torque
+  costs, and curriculum schedules that ramp target velocity and perturbations
+  after balance is learned.
+- Add an observation-version plan before changing policy inputs. Candidate v2
+  signals are foot-contact indicators and a coordinate-free mode that removes
+  absolute x/y while retaining height and velocities. Treat this as checkpoint
+  incompatible and document migration expectations.
+
+### Priority 2: throughput and experiment operations
+- Produce documented local training presets for this 24-core machine: quick
+  smoke, reliable overnight walker, high-throughput walker, arena self-play, and
+  multi-seed evaluation. Record expected FPS, memory footprint, and failure
+  modes next to the config recommendations.
+- Add optional `training.torch_num_threads` and `training.worker_start_method`
+  controls if benchmarks show they improve stability or CPU utilization. The
+  runner already caps BLAS thread env vars for subprocesses; PyTorch update
+  threading is still implicit.
+- Replace file-based GUI tuning/status IPC with an atomic event stream
+  (SSE/WebSocket) or a durable queue. Preserve the current simple polling API as
+  a fallback until browser and API tests cover no-run, running, stopped, and
+  completed states.
+- Add a first-class run registry that records immutable run identity, config
+  hash, seed, algorithm, checkpoint paths, VecNormalize sidecars, metrics CSVs,
+  and parent/resume relationships. Use it to power comparisons, cleanup, and GUI
+  output discovery instead of directory-name inference.
+- Make sweeps and benchmark matrices resumable. Each variant should have a
+  machine-readable manifest, completion marker, and partial-result summary so a
+  failed late regime does not require recomputing successful regimes.
+
+### Priority 3: feature additions
+- Walker curricula: add terrain presets (`flat`, `uneven`, `obstacle/stump`,
+  `push_recovery`) and example configs that progress from balance to locomotion
+  to perturbation recovery.
+- Algorithm baselines: add optional SAC and TD3 experiment configs for the
+  continuous-control walker. Keep PPO as the default runner until the abstraction
+  cost is justified by working configs and tests.
+- Arena richness: add body collision, energy/food mechanics, and speed/size
+  tradeoffs so organism morphology has strategic pressure beyond damage and
+  health scaling.
+- Arena tooling: extend tournament/eval/replay support beyond head-to-head
+  where it makes sense for N-agent arenas, and let `morph-search` score
+  candidates by tournament Elo rather than a single opponent result.
+- GUI analysis views: add run comparison, best-checkpoint surfacing, league
+  snapshot ratings, and replay launch links once the run registry exists.
+
+### Validation expectations for roadmap work
+- Bug fixes get focused regression tests plus the narrowest relevant CLI smoke
+  check.
+- Walker environment, reward, termination, or observation changes get
+  `pytest`, a reset/step smoke test, and a short training or replay smoke.
+- Training-pipeline or benchmark changes get `pytest`, `ruff`, repo policy, and
+  one short command-line run that exercises the changed path.
+- GUI workflow changes get API tests plus browser verification for the affected
+  desktop and mobile flows.
+
 ## Bipedal walker training review plan (2026-06-29)
 
 ### Confirmed bugs / correctness gaps

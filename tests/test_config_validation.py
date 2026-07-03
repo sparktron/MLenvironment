@@ -1,6 +1,10 @@
 import pytest
 
-from rl_framework.utils.config import validate_experiment_config
+from rl_framework.utils.config import (
+    load_config,
+    to_container,
+    validate_experiment_config,
+)
 
 
 def _base_cfg() -> dict:
@@ -105,9 +109,26 @@ def test_validate_experiment_config_rejects_non_bool_check_nans() -> None:
         validate_experiment_config(cfg)
 
 
-def test_validate_experiment_config_rejects_multi_env_arena() -> None:
+def test_validate_experiment_config_rejects_multi_env_shared_policy_arena() -> None:
     cfg = _base_cfg()
     cfg["environment"] = {"type": "organism_arena_parallel"}
     cfg["training"]["num_envs"] = 8
-    with pytest.raises(ValueError, match="organism_arena_parallel.*num_envs == 1"):
+    with pytest.raises(ValueError, match="Shared-policy.*num_envs == 1"):
         validate_experiment_config(cfg)
+
+
+def test_validate_experiment_config_accepts_multi_env_self_play_arena() -> None:
+    cfg = _base_cfg()
+    cfg["environment"] = {"type": "organism_arena_parallel"}
+    cfg["training"]["num_envs"] = 8
+    cfg["self_play"] = {"enabled": True, "snapshot_freq": 128, "max_league_size": 5}
+
+    validate_experiment_config(cfg)
+
+
+def test_shipped_parallel_self_play_arena_config_validates() -> None:
+    cfg = to_container(
+        load_config("organisms_fight_arena", "src/rl_framework/configs/experiments")
+    )
+
+    validate_experiment_config(cfg)

@@ -169,11 +169,12 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
 
     if env_type == "organism_arena_parallel":
         num_envs = int(cfg.get("training", {}).get("num_envs", 1))
-        if num_envs != 1:
+        self_play_enabled = bool(cfg.get("self_play", {}).get("enabled", False))
+        if num_envs != 1 and not self_play_enabled:
             raise ValueError(
-                "organism_arena_parallel requires training.num_envs == 1 "
-                f"(got {num_envs}). The arena uses in-process SuperSuit updates "
-                "for reward annealing and curriculum."
+                "Shared-policy organism_arena_parallel training requires "
+                f"training.num_envs == 1 (got {num_envs}). Enable self_play "
+                "to use the native parallel vector-env path."
             )
         battle = env_cfg.get("battle_rules", {})
         for key in ("damage", "attack_range"):

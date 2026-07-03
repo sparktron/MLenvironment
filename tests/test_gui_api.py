@@ -127,14 +127,15 @@ def test_schema_returns_both_envs(client):
     assert data["walker_bullet"]["training"]["check_nans"]["value"] is False
 
 
-def test_schema_sets_single_process_arena_training_default(client):
+def test_schema_allows_parallel_self_play_arena_training(client):
     c, _, _ = client
     resp = c.get("/api/schema")
 
     assert resp.status_code == 200
     training = resp.get_json()["organism_arena_parallel"]["training"]
     assert training["num_envs"]["value"] == 1
-    assert training["num_envs"]["max"] == 1
+    assert training["num_envs"]["max"] > 1
+    assert "self-play" in training["num_envs"]["desc"]
 
 
 def test_schema_no_longer_exposes_ignored_walker_geometry(client):

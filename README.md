@@ -71,6 +71,7 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 - [Architecture](#architecture)
 - [Performance Tuning](#performance-tuning)
 - [Known Limitations](#known-limitations)
+- [Roadmap](#roadmap)
 - [Maintenance Notes](#maintenance-notes)
 - [Changelog](#changelog)
 - [License](#license)
@@ -519,7 +520,7 @@ self_play:
 |---|---|---|
 | **robot_walk_basic** | `walker_bullet` | Bipedal locomotion with domain randomization. Sweeps velocity & torque penalty. ✅ Good for getting started |
 | **robot_push_recovery** | `walker_bullet` | Aggressive randomization (mass 0.8-1.2×, friction 0.7-1.3×) for robustness. |
-| **organisms_fight_arena** | `organism_arena_parallel` | Two-agent zero-sum combat. Sweeps attack range & cooldown. |
+| **organisms_fight_arena** | `organism_arena_parallel` | Self-play combat arena with parallel rollout workers. Sweeps attack range & cooldown. |
 | **organisms_growth_competition** | `organism_arena_parallel` | Two-agent arena with in-episode growth. Sweeps base size & damage. |
 
 ### 🎮 Environment Types
@@ -530,17 +531,18 @@ Rigid-body bipedal walker in PyBullet. Goal: maintain upright posture while trac
 
 | Property | Value |
 |---|---|
-| **Observation** | `Box(13,)` — position (3) + quaternion (4) + linear vel (3) + angular vel (3) |
-| **Action** | `Box(3,)` — normalized force-x, force-y, torque-z ∈ [-1, 1] |
+| **Observation** | `Box(35,)` — position (3), quaternion (4), linear/angular velocity (6), 10 joint positions, 10 joint velocities, mass scale, friction scale |
+| **Action** | `Box(10,)` — normalized joint targets for hips, knees, ankles, shoulders, and elbows |
 | **Reward** | alive bonus + velocity tracking − orientation penalty − torque penalty |
 
 #### `organism_arena_parallel` — Multi-agent competitive (PettingZoo)
 
-2D two-agent arena with movement, attacks, and optional in-episode growth.
+2D N-agent arena with movement, attacks, optional in-episode growth, and an
+on-disk self-play league for frozen past-self opponents.
 
 | Property | Value |
 |---|---|
-| **Observation** | `Box(8,)` — own state (4) + opponent relative (3) + cooldown (1) |
+| **Observation** | `Box(8,)` — own velocity/health, nearest-opponent relative state, cooldown, visibility |
 | **Action** | `Box(3,)` — move-x, move-y, attack trigger (> 0.5) |
 | **Reward** | damage dealt − damage received ± win/loss bonus |
 
@@ -645,6 +647,9 @@ self_play:
 ```
 
 Snapshots saved to `checkpoints/league/`. Oldest pruned automatically.
+With `self_play.enabled: true`, `training.num_envs > 1` uses the native SB3
+vector-env path and can parallelize arena rollout collection. Shared-policy
+arena training still uses the SuperSuit path and must keep `num_envs: 1`.
 
 ---
 
@@ -850,10 +855,23 @@ Change `sb3_runner.py` (currently uses `PPO`):
 | Limitation | Workaround |
 |---|---|
 | **CPU physics** | PyBullet simulation is CPU-only; GPU speeds up the neural network only |
-| **Gymnasium replay only** | `render-replay` doesn't support PettingZoo. Multi-agent rendering coming soon. |
-| **Shared policy only** | Multi-agent uses parameter-sharing PPO. Use [RLlib](https://www.ray.io/rllib) for multi-policy setups. |
+| **Shared-policy arena parallelism** | Shared-policy SuperSuit arena training is single-process; enable `self_play` to use the native SB3 parallel path |
+| **Single active GUI run** | Use CLI runs for concurrent experiments until GUI run orchestration grows beyond the current single-run policy |
+| **File-based GUI status/tuning IPC** | Keep runs local and short-lived; roadmap tracks an SSE/WebSocket or durable queue replacement |
+| **No first-class run registry** | Use output directory structure and `run_metadata.json`; roadmap tracks immutable run indexing and comparison views |
 | **Version sensitivity** | Pin versions in `pyproject.toml` for production deployments |
 | **Sequential sweeps** | Use `xargs` / `GNU parallel` / job scheduler for parallel hyperparameter sweeps |
+
+---
+
+## Roadmap
+
+The active development plan lives in [`docs/open_items_todo.md`](docs/open_items_todo.md). The next work is grouped into:
+
+- Priority 0 correctness fixes are currently cleared for the arena self-play validation path; new confirmed bugs should be added here first.
+- Walker stability and learning-quality work: high-throughput presets, best-checkpoint eval, reward rebalance, and observation v2 planning.
+- Throughput and operations: documented local presets, optional CPU/thread controls, GUI event streaming, a run registry, and resumable sweeps.
+- Feature additions: walker terrain curricula, SAC/TD3 baselines, richer organism arena mechanics, expanded N-agent tooling, and GUI analysis views.
 
 ---
 
