@@ -56,11 +56,34 @@ priority groups unless a fresh bug review changes the order.
   linger. Verified with a smoke run reproducing the original report exactly
   (`num_envs: 24`, one 49,152-step rollout, `training.check_nans: true`) —
   first PPO update now completes cleanly.
-- Establish a stable high-throughput walker preset before changing defaults.
-  The 24-env smoke run reached roughly 3,100 FPS but produced NaN PPO action
-  means on the first update, so the next step is a controlled matrix over
-  `num_envs`, `n_steps`, `batch_size`, learning rate, entropy coefficient, and
-  gradient clipping with `training.check_nans: true`.
+- ~~Establish a stable high-throughput walker preset before changing
+  defaults.~~ **Done (2026-07-03)** — with the NaN-source fixed, benchmarked 5
+  presets at `num_envs: 24` (this machine's CPU-saturating value) for 4 PPO
+  rollouts each, `training.check_nans: true`, verifying the saved policy's
+  action-distribution mean stayed finite after every update (not just
+  `explained_variance`/loss sanity):
+
+  | preset | n_steps | batch_size | lr | ent_coef | clip_range | FPS | stable |
+  |---|---|---|---|---|---|---|---|
+  | current_default | 2048 | 512 | 3e-4 | 0.005 | 0.2 | **5605** | yes |
+  | lower_lr_tighter_clip | 2048 | 512 | 1e-4 | 0.005 | 0.2 | 4948 | yes |
+  | hybrid_1024_256 | 1024 | 256 | 3e-4 | 0.005 | 0.2 | 4592 | yes |
+  | pybullet_locomotion | 512 | 128 | 3e-4 | 0.0 | 0.2 | 3728 | yes |
+  | rlzoo_bipedal | 2048 | 64 | 3e-4 | 0.0 | 0.18 | 3159 | yes |
+
+  All five were numerically stable (the NaN fix holds across hyperparameter
+  choices, not just the one config originally reported). `batch_size` is the
+  dominant throughput lever on this CPU-only setup: SB3's reported FPS
+  includes the PPO update, and small batches (64, 128) mean far more
+  minibatch gradient steps per rollout (RL-Zoo's `batch_size: 64` runs ~7,680
+  backprop steps per rollout here vs. `current_default`'s 960), so they lose
+  on wall-clock throughput despite identical env-step cost. `current_default`
+  (already the shipped hyperparameters, just previously capped at
+  `num_envs: 8`) was both the fastest and stable, so `robot_walk_basic.yaml`
+  and `my_walker.yaml` now ship with `num_envs: 24` instead of `8` — no other
+  hyperparameters changed. RL-Zoo/PyBullet-style small-batch presets remain
+  documented above as options, not defaults, given the throughput cost on
+  this hardware.
 - Add a best-checkpoint evaluation path. Long walker runs should save the best
   policy according to a separately normalized eval env, not only periodic and
   final checkpoints. Include resume/eval sidecar behavior in the regression

@@ -53,7 +53,7 @@ training:
   n_epochs: 10
   n_steps: 2048
   normalize_observations: true
-  num_envs: 8
+  num_envs: 24
   policy: MlpPolicy
   total_timesteps: 2000000
   vf_coef: 0.5

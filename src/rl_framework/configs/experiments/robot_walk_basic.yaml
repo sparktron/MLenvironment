@@ -38,7 +38,7 @@ environment:
 training:
   policy: MlpPolicy
   total_timesteps: 2000000
-  num_envs: 8
+  num_envs: 24
   n_steps: 2048
   batch_size: 512
   n_epochs: 10
