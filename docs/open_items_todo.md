@@ -23,11 +23,216 @@
 - Floating dependency ranges in `pyproject.toml` (not lockfile-backed yet).
 - No first-class run registry for comparing experiments by immutable metadata.
 
+## Next development roadmap (2026-07-05) — full code review
+
+This section is the **current execution roadmap**, produced by a fresh full
+review of every module under `src/rl_framework/`, the scripts, bundled
+configs, tests, and the GUI frontend (2026-07-05). It supersedes the
+2026-06-30 section below for ordering; the still-open 2026-06-30 items
+(best-checkpoint eval, walker reward rebalance, observation-v2, throughput
+presets, run registry, IPC event stream) remain valid and are referenced
+rather than duplicated.
+
+Verification evidence: the P0-1 diagnosis was checked against the pinned
+`stable-baselines3==2.8.0` wheel source, not inferred. In
+`common/on_policy_algorithm.py`, `callback.on_rollout_end()` fires at the end
+of `collect_rollouts` (line 266), while `rollout/ep_rew_mean` is recorded and
+immediately dumped inside `dump_logs` (lines 291, 335), which runs *after*
+the callbacks; `Logger.name_to_value` is a `defaultdict(float)` (logger.py:486)
+cleared on every `dump()` (logger.py:542). Reads at `on_rollout_end` therefore
+return 0.0 for all `rollout/*` keys, never raise, and *insert* the key.
+
+### Priority 0: training-breaking bugs
+
+- **Fix curriculum/live-tuning metric reads from the SB3 logger.**
+  `CurriculumCallback._on_rollout_end` (`curriculum_callback.py:93`) and
+  `LiveTuningCallback._write_status` (`live_tuning_callback.py:121-134`) read
+  `logger.name_to_value[...]` at rollout end. Per the evidence above, all
+  `rollout/*` keys read as 0.0 there. Consequences:
+  * The walker curriculum (default metric `rollout/ep_rew_mean`) **never
+    levels up, silently** — or levels up instantly if a threshold ≤ 0 is set.
+  * The GUI dashboard's Mean Reward / Ep Length cards are always `0.0` and
+    the reward-history chart is a flat zero line; `train/*` values shown are
+    one iteration stale (recorded by the previous `train()`, dumped later).
+  * The defaultdict access inserts the key, so the next TensorBoard dump gets
+    spurious 0.0-valued `rollout/*` rows.
+  * The **arena** curriculum works only by callback-ordering accident:
+    `ArenaMetricsCallback` records `arena/*_win_rate` in its own
+    `_on_rollout_end`, which `sb3_runner.train()` registers *before*
+    `CurriculumCallback`, so the value is still in `name_to_value` when the
+    curriculum reads it.
+  * `tests/test_curriculum_annealing.py` masks all of this: `_StubLogger`
+    uses a plain dict pre-populated with the metric.
+  Fix plan: compute `ep_rew_mean` / `ep_len_mean` from
+  `self.model.ep_info_buffer` in both callbacks (that buffer is exactly what
+  `dump_logs` reads); for any other metric use a membership check
+  (`key in logger.name_to_value`) so absent ≠ 0.0 and nothing is inserted.
+  Validation: regression test whose stub logger reproduces the real semantics
+  (`defaultdict(float)` with `rollout/*` cleared at rollout end); a test that
+  pins ArenaMetricsCallback ordering before CurriculumCallback in
+  `sb3_runner.train`; a short walker smoke run with a low curriculum
+  threshold confirming a level-up actually fires.
+
+- **Fix self-play snapshot cadence at `num_envs > 1`.**
+  `SelfPlayCallback._on_step` (`self_play_callback.py:88`) uses
+  `num_timesteps % snapshot_freq == 0`, but `num_timesteps` advances by
+  `num_envs` per callback call, so snapshots only land when the stride
+  happens to hit an exact multiple — effectively an LCM cadence. With the
+  bundled `organisms_fight_arena.yaml` (`snapshot_freq: 5000`) at the
+  config-comment-recommended `num_envs: 24`, snapshots fire every **15,000**
+  steps (a 3× sparser league than configured); at `num_envs: 7`, every
+  35,000. The runner already fixed this exact class of bug for checkpoints
+  via `_callback_freq_from_timesteps` (`sb3_runner.py:278`) but passes
+  `snapshot_freq` raw to `SelfPlayCallback` (`sb3_runner.py:520`).
+  Fix plan: threshold trigger inside the callback
+  (`num_timesteps - last_snapshot >= snapshot_freq`), keeping config units in
+  env timesteps. Validation: regression test stepping `num_timesteps` in
+  strides of 7 and 24 and asserting snapshot count.
+
+- **Make league snapshot writes atomic and sampler loads race-safe.**
+  `SelfPlayCallback._save_snapshot` writes the `.zip` and then the
+  `_vecnorm.pkl` sidecar non-atomically while `LeagueSampler`
+  (`self_play_env_wrapper.py:142-212`) re-globs from subprocess workers on
+  directory-mtime change. Two races: (a) a worker can `PPO.load` a
+  half-written zip and crash the whole `SubprocVecEnv`; (b) `_ensure_loaded`
+  (line 190) caches a `FrozenPolicy` with `normalizer=None` if `sample()`
+  picks the newest snapshot before its sidecar lands — that opponent then
+  plays on unnormalized observations **permanently in that worker** (the
+  sidecar gate at line 186 protects only the pre-warm path, not `sample()`).
+  Fix plan: write the snapshot to a temp name and `os.rename` it into place
+  (atomic on the same filesystem), writing the sidecar *before* the final zip
+  rename so a visible zip always implies a complete sidecar; in
+  `_ensure_loaded`, when normalization is in use, re-check for a sidecar on
+  cache entries that have none. Validation: unit test staging the write
+  sequence (zip present, sidecar absent → not sampled / normalizer picked up
+  later) plus a parallel self-play smoke run at `num_envs: 8`.
+
+### Priority 1: correctness bugs
+
+- **Stop the GUI wizard from stripping non-schema config sections.**
+  `assembleConfig()` (`gui/static/app.js:363-422`) rebuilds `currentConfig`
+  from scratch with only `environment` / `training` / `evaluation` /
+  `output.base_dir`, so a loaded template loses `self_play`,
+  `reward_annealing`, `curriculum`, `sweep`, `multi_seed`, and
+  `reproducibility` on the way to launch. Concretely: the bundled
+  `organisms_fight_arena.yaml` template (self-play, `num_envs: 8`) becomes
+  un-launchable — the validator rejects `num_envs: 8` without self_play —
+  with a confusing error; worse, the checked-by-default "Save config as YAML
+  template" (`app.js:430`; `POST /api/configs` names the file from
+  `experiment_name`) **overwrites the original YAML with the stripped
+  config** whenever the stripped version still validates (e.g. any template
+  whose only extra section is `sweep`). Fix plan: merge form values over a
+  deep clone of the loaded `currentConfig` (preserving unknown sections)
+  instead of rebuilding; reset only when the environment type changes (that
+  path already clears state). Validation: GUI API test that a load→launch
+  round-trip preserves `self_play`; browser check of the fight-arena
+  template flow end-to-end.
+
+- **Generalize `ArenaMetricsCallback` beyond 2 agents.**
+  `sb3_runner.py:158` hardcodes `self._wins = {"agent_0": 0, "agent_1": 0}`;
+  for N-agent arenas (the GUI schema allows `num_agents` up to 8) wins by
+  `agent_2+` increment `_outcomes` but are recorded nowhere, so the logged
+  win rates are silently wrong. Fix plan: accumulate winner names into a
+  dict built lazily (or from the env's `possible_agents`) and log per-agent
+  rates. Validation: unit test feeding a synthetic N=4 outcome stream.
+
+- **Normalize `section: null` tolerance across the config surface.**
+  The walker constructor deliberately guards with `or {}`
+  (`walker_bullet.py:33-35`) because the GUI has historically written
+  `key: null` for nested groups, but sibling paths don't:
+  `OrganismArenaParallelEnv.__init__` uses `cfg.get("sim", {})` /
+  `get("battle_rules", {})` / `get("morphology", {})`
+  (`arena_parallel.py:45-63`) which return `None` when the key exists as
+  null → `AttributeError` at construction; `WalkerBulletEnv.
+  update_live_params` does `self.cfg.setdefault(section, {})`
+  (`walker_bullet.py:589,595`) where setdefault returns the stored `None`;
+  `LiveTuningCallback._on_rollout_end` does `param in self._env_cfg[section]`
+  (`live_tuning_callback.py:82`) — `in None` raises uncaught at rollout end
+  and **kills the training thread**; `set_nested(strict=False)`
+  (`utils/config_merge.py:24`) setdefaults into a `None` intermediate. Fix
+  plan: one shared `_section(cfg, key)` helper (get-or-{} that also replaces
+  a stored `None` with `{}`), used at all these sites. Validation: unit
+  tests feeding null sections through arena construction, walker
+  `update_live_params`, live tuning, and curriculum overrides.
+
+- **Actually persist `episode_outcome` to arena Monitor CSVs.**
+  The comment in `_build_arena_selfplay_env` (`sb3_runner.py:257-259`) claims
+  `info_keywords` persists the per-episode outcome, but the `Monitor` is
+  constructed without it. Fix plan: pass
+  `info_keywords=("episode_outcome",)` (the key is present on the live
+  agent's terminal-step info). Validation: test that the Monitor CSV gains
+  the column after a terminated episode.
+
+- **Migrate `robot_push_recovery.yaml` to the current robot.**
+  It still ships pre-overhaul values: `sim.mass: 3.2` (the torso would be
+  lighter than a single 7 kg thigh on the Atlas-class body) and
+  `max_force: 45`, which the new dynamics reinterpret as a 45/35 ≈ 1.29×
+  global scale over the per-joint Atlas torque caps. The env also has no
+  push/perturbation mechanism at all, so the preset's name promises
+  something the env cannot do. Fix plan: update mass/torque to current
+  defaults and either rename the config or hold it until the perturbation
+  curriculum feature (Priority 3 below) lands. Validation: config
+  validation test + a short training smoke run.
+
+### Priority 2: usability and performance
+
+- **Capture GUI frames from one env, on a wall-clock budget.**
+  `TrainingManager._train_worker` forces `render_mode: "rgb_array"` for
+  every GUI run, and `FrameCaptureCallback._capture_frame`
+  (`frame_capture_callback.py:82`) calls `training_env.render()`, which on a
+  VecEnv renders **all** workers (PyBullet TinyRenderer, 640×480, CPU) and
+  tiles them into a mosaic. At `num_envs: 24` with `capture_interval=50`
+  env-steps this stalls every worker every ~2-3 vector steps and the
+  dashboard shows a 24-up grid instead of one robot. Fix: render env 0 only
+  (`env_method("render", indices=[0])` / `envs[0].render()`), throttle
+  captures by wall-clock (≥1 s apart), and set `render_mode` only when frame
+  capture is enabled.
+
+- **Throttle `RewardAnnealingCallback` env updates.**
+  The scale changes every step until annealing completes
+  (`reward_annealing_callback.py:29-37`), so the `scale == last_scale`
+  dedupe only helps *after* annealing — until then it is an `env_method`
+  pipe round-trip to every subprocess worker per vector step. Fix: push the
+  update at `_on_rollout_end` (per-rollout granularity is plenty for a
+  schedule spanning hundreds of thousands of steps), or only when the scale
+  moves by ≥ epsilon.
+
+- **Close GUI schema gaps.** `get_schema` (`gui/app.py:161-465`) offers no
+  `self_play` / `reward_annealing` / `curriculum` groups, so the documented
+  preferred arena path cannot be configured in the wizard (compounding the
+  template-stripping bug above); arena `battle_rules` omits
+  `sensing_radius` and `attack_falloff`; `create_config` accepts an empty
+  `experiment_name` and writes a hidden `.yaml` file. Fix: add the missing
+  groups/fields with the bundled-YAML defaults; reject empty/whitespace
+  names.
+
+- **Warn on unknown walker `reward`/`termination` keys.**
+  `WalkerBulletEnv.__init__` filters kwargs by `__annotations__`
+  (`walker_bullet.py:54-68`) with no warning, so a typo'd YAML key (e.g.
+  `foward_velocity_weight`) silently trains with defaults. The arena already
+  warns for unknown `battle_rules` keys (`arena_parallel.py:53-59`); mirror
+  that. Unknown `sim` keys stay tolerated per the documented back-compat
+  policy.
+
+- **Guard multi-seed oversubscription.** `run_multi_seed` defaults
+  `max_workers = min(len(seeds), cpu_count)` while each seed's training may
+  itself spawn `num_envs: 24` SubprocVecEnv workers (5 × 24 processes on 24
+  cores). Fix: default to 1 worker when `training.num_envs > 1` and warn
+  otherwise; fold the guidance into the Priority 2 (2026-06-30) presets item.
+
+- **Treat arena mirror-eval scoring as broken, not just limited.** Shared-
+  policy `evaluate` of a zero-sum arena sums to ≈ 0 by construction, so
+  `run_morphology_search` (which ranks trials by `mean_return`) effectively
+  selects noise. The existing Priority 3 (2026-06-30) item "let morph-search
+  score candidates by tournament Elo" is the fix; it should be scheduled as
+  a correctness repair rather than a feature.
+
 ## Next development roadmap (2026-06-30)
 
-This section is the current execution roadmap. The older review sections below
-remain as evidence and background, but new work should flow through these
-priority groups unless a fresh bug review changes the order.
+This section was the execution roadmap until the 2026-07-05 review above,
+which now takes ordering precedence. The unfinished items below remain
+valid; the older review sections further down remain as evidence and
+background.
 
 ### Priority 0: unblock known correctness bugs
 - ~~Fix `validate_experiment_config()` for arena self-play parallelism.~~
