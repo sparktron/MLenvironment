@@ -192,12 +192,22 @@ class LeagueSampler:
 
         Each opponent is paired with its per-snapshot obs normaliser sidecar so
         it predicts on the same observation distribution it trained under.
+        Snapshots written by the current SelfPlayCallback are only visible once
+        their sidecar is complete, but a league written before snapshots became
+        atomic can expose a zip before its sidecar — so a cache entry that has
+        no normaliser re-probes the sidecar and attaches it when it appears,
+        instead of playing unnormalised for the rest of training.
         """
-        if path not in self._cache:
-            model = PPO.load(str(path))
-            normalizer = load_obs_normalizer(path.with_name(path.stem + VECNORM_SUFFIX))
-            self._cache[path] = FrozenPolicy(model, normalizer)
-        return self._cache[path]
+        sidecar = path.with_name(path.stem + VECNORM_SUFFIX)
+        cached = self._cache.get(path)
+        if cached is None:
+            cached = FrozenPolicy(PPO.load(str(path)), load_obs_normalizer(sidecar))
+            self._cache[path] = cached
+        elif cached._normalizer is None:
+            normalizer = load_obs_normalizer(sidecar)
+            if normalizer is not None:
+                cached._normalizer = normalizer
+        return cached
 
     def sample(self) -> FrozenPolicy | None:
         """Return a frozen opponent from the on-disk league, or ``None`` if empty."""

@@ -4,6 +4,7 @@ from typing import Any
 
 from stable_baselines3.common.callbacks import BaseCallback
 
+from rl_framework.training.rollout_metrics import rollout_metric
 from rl_framework.utils.config_merge import set_nested
 
 
@@ -88,9 +89,11 @@ class CurriculumCallback(BaseCallback):
         if self.num_timesteps < self._warmup_steps:
             return
 
-        # Read the configured metric from the logger (e.g. ep_rew_mean for the
-        # walker, or arena/agent_0_win_rate for the arena). Absent early on.
-        metric_value = _safe_logger_value(self.logger, self._metric)
+        # Resolve the configured metric (ep_rew_mean for the walker via the
+        # model's ep_info_buffer, arena/agent_0_win_rate via the logger — see
+        # rollout_metrics for why the logger cannot serve rollout/* keys here).
+        # None while no data exists yet.
+        metric_value = rollout_metric(self.model, self.logger, self._metric)
         if metric_value is None:
             return
 
@@ -125,16 +128,3 @@ class CurriculumCallback(BaseCallback):
     @property
     def current_level(self) -> int:
         return self._level
-
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-
-
-def _safe_logger_value(logger: Any, key: str) -> float | None:
-    """Extract a value from the SB3 logger's name-to-value map, if present."""
-    try:
-        return float(logger.name_to_value[key])
-    except (KeyError, AttributeError, TypeError):
-        return None

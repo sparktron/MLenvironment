@@ -304,6 +304,32 @@ def test_league_sampler_no_prewarm_without_sidecar(monkeypatch, tmp_path):
     assert len(sampler._cache) == 1, "lazy load still populates the cache"
 
 
+def test_league_sampler_attaches_late_sidecar_to_cached_snapshot(monkeypatch, tmp_path):
+    """A snapshot cached before its obs-normaliser sidecar existed (possible
+    in leagues written before snapshots became atomic) must pick the sidecar
+    up on a later sample instead of playing unnormalised for the rest of
+    training."""
+    import pathlib
+
+    (tmp_path / "selfplay_100.zip").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(
+        "rl_framework.training.self_play_env_wrapper.PPO.load", lambda p: object()
+    )
+    sidecars = {"selfplay_100_vecnorm.pkl": None}
+    monkeypatch.setattr(
+        "rl_framework.training.self_play_env_wrapper.load_obs_normalizer",
+        lambda p: sidecars.get(pathlib.Path(p).name),
+    )
+    sampler = LeagueSampler(tmp_path, seed=0)
+    assert sampler.sample()._normalizer is None, "no sidecar yet -> raw obs"
+
+    # The sidecar lands after the snapshot was cached.
+    sidecars["selfplay_100_vecnorm.pkl"] = "NORMALIZER"
+    assert sampler.sample()._normalizer == "NORMALIZER", (
+        "a late sidecar must be attached to the cached snapshot"
+    )
+
+
 def test_league_sampler_drops_pruned_snapshot_from_cache(monkeypatch, tmp_path):
     """R2c: a snapshot removed from disk is dropped from the model cache on the
     next directory refresh."""

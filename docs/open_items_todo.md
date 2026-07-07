@@ -44,7 +44,19 @@ return 0.0 for all `rollout/*` keys, never raise, and *insert* the key.
 
 ### Priority 0: training-breaking bugs
 
-- **Fix curriculum/live-tuning metric reads from the SB3 logger.**
+- ~~Fix curriculum/live-tuning metric reads from the SB3 logger.~~
+  **Done (2026-07-07)** — `training/rollout_metrics.py` resolves
+  `rollout/ep_rew_mean` / `ep_len_mean` from `model.ep_info_buffer` (the same
+  source SB3's `dump_logs` uses) and any other key via a membership-checked
+  logger read, so absent ≠ 0.0 and nothing is inserted. Both callbacks use
+  it, and `LiveTuningCallback` now publishes its status snapshot every
+  rollout (previously only after a tuning event was applied, so GUI metrics
+  never streamed on untouched runs). Regression tests replace the masking
+  plain-dict stub with real defaultdict semantics, cover the
+  missing-metric/no-pollution case, and pin ArenaMetricsCallback before
+  CurriculumCallback in `train()`'s callback list. Verified by a walker
+  smoke run where the default-metric curriculum leveled up twice.
+  Original diagnosis:
   `CurriculumCallback._on_rollout_end` (`curriculum_callback.py:93`) and
   `LiveTuningCallback._write_status` (`live_tuning_callback.py:121-134`) read
   `logger.name_to_value[...]` at rollout end. Per the evidence above, all
@@ -73,8 +85,14 @@ return 0.0 for all `rollout/*` keys, never raise, and *insert* the key.
   `sb3_runner.train`; a short walker smoke run with a low curriculum
   threshold confirming a level-up actually fires.
 
-- **Fix self-play snapshot cadence at `num_envs > 1`.**
-  `SelfPlayCallback._on_step` (`self_play_callback.py:88`) uses
+- ~~Fix self-play snapshot cadence at `num_envs > 1`.~~
+  **Done (2026-07-07)** — `_on_step` now fires on the first callback call
+  at/after each `snapshot_freq` boundary, with the schedule anchored to
+  multiples of the frequency so overshoot never accumulates. Regression test
+  drives strides 1/7/24 and asserts one snapshot per window; verified
+  in-vivo with a `num_envs: 8` self-play run producing snapshots at exactly
+  2000/4000/6000 for freq 2000. Original diagnosis:
+  `SelfPlayCallback._on_step` (`self_play_callback.py:88`) used
   `num_timesteps % snapshot_freq == 0`, but `num_timesteps` advances by
   `num_envs` per callback call, so snapshots only land when the stride
   happens to hit an exact multiple — effectively an LCM cadence. With the
@@ -89,8 +107,15 @@ return 0.0 for all `rollout/*` keys, never raise, and *insert* the key.
   env timesteps. Validation: regression test stepping `num_timesteps` in
   strides of 7 and 24 and asserting snapshot count.
 
-- **Make league snapshot writes atomic and sampler loads race-safe.**
-  `SelfPlayCallback._save_snapshot` writes the `.zip` and then the
+- ~~Make league snapshot writes atomic and sampler loads race-safe.~~
+  **Done (2026-07-07)** — `_save_snapshot` saves the model under a temp name
+  the sampler's `selfplay_*.zip` glob cannot match, writes the vecnorm
+  sidecar, then `os.replace`s the zip into place, so a visible snapshot
+  always has a complete archive and sidecar; `LeagueSampler._ensure_loaded`
+  additionally re-probes the sidecar on cached entries that have none
+  (pre-fix leagues). Tests cover write ordering, no leftover temp files, and
+  late-sidecar attachment. Original diagnosis:
+  `SelfPlayCallback._save_snapshot` wrote the `.zip` and then the
   `_vecnorm.pkl` sidecar non-atomically while `LeagueSampler`
   (`self_play_env_wrapper.py:142-212`) re-globs from subprocess workers on
   directory-mtime change. Two races: (a) a worker can `PPO.load` a

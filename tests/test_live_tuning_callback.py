@@ -45,3 +45,38 @@ def test_live_tuning_forwards_all_accepted_env_sections() -> None:
     assert env_cfg["battle_rules"]["damage"] == 0.2
     assert env_cfg["morphology"]["base_size"] == 1.3
     assert env_cfg["sim"]["arena_half_extent"] == 2.0
+
+
+def test_live_tuning_status_reads_ep_info_buffer_and_omits_absent_metrics() -> None:
+    """Status snapshots must take episode stats from the model's
+    ep_info_buffer (the logger never holds rollout/* at rollout end) and
+    omit absent metrics instead of reporting the defaultdict's 0.0."""
+    from collections import defaultdict
+    from types import SimpleNamespace
+
+    from rl_framework.training.live_tuning_callback import LiveTuningCallback
+
+    published: list[dict] = []
+    callback = LiveTuningCallback(
+        {}, pop_tuning_event=lambda: None, publish_status=published.append
+    )
+    logger = SimpleNamespace(name_to_value=defaultdict(float, {"train/loss": 0.5}))
+    callback.model = SimpleNamespace(
+        get_env=lambda: None,
+        logger=logger,
+        ep_info_buffer=[{"r": 12.0, "l": 30}, {"r": 18.0, "l": 50}],
+    )
+    callback.num_timesteps = 123
+
+    callback._on_rollout_end()
+
+    assert published, "a status snapshot must publish even with no tuning event"
+    status = published[-1]
+    assert status["timesteps"] == 123
+    assert status["rollout/ep_rew_mean"] == 15.0
+    assert status["rollout/ep_len_mean"] == 40.0
+    assert status["train/loss"] == 0.5
+    assert "train/value_loss" not in status, "absent metrics are omitted, not 0.0"
+    assert "train/value_loss" not in logger.name_to_value, (
+        "probing a metric must not insert it into the logger map"
+    )

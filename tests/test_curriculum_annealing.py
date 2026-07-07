@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from types import SimpleNamespace
 
 import pytest
@@ -22,16 +23,29 @@ class _FakeVecEnv:
 
 
 class _StubLogger:
+    """Mirrors real SB3 Logger state at ``on_rollout_end``.
+
+    ``name_to_value`` is a ``defaultdict(float)`` (a plain-index read of a
+    missing key fabricates and stores 0.0), and ``rollout/*`` keys are never
+    present there — SB3 records and immediately dumps them *after* the
+    callbacks run. Only pre-populate keys a callback genuinely records before
+    the next dump (e.g. ``arena/*`` from ArenaMetricsCallback).
+    """
+
     def __init__(self, values=None) -> None:
-        self.name_to_value = dict(values or {})
+        self.name_to_value = defaultdict(float, values or {})
         self.records: dict[str, float] = {}
 
     def record(self, key, value) -> None:
         self.records[key] = value
 
 
-def _attach(cb, *, num_timesteps=0, env=None, logger=None):
-    cb.model = SimpleNamespace(get_env=lambda: env, logger=logger)
+def _attach(cb, *, num_timesteps=0, env=None, logger=None, ep_info_buffer=None):
+    cb.model = SimpleNamespace(
+        get_env=lambda: env,
+        logger=logger,
+        ep_info_buffer=ep_info_buffer if ep_info_buffer is not None else [],
+    )
     cb.num_timesteps = num_timesteps
 
 
@@ -103,6 +117,127 @@ def test_curriculum_gates_on_configured_metric() -> None:
 def test_curriculum_default_metric_is_ep_rew_mean() -> None:
     cb = CurriculumCallback({"enabled": True}, env_cfg={})
     assert cb._metric == "rollout/ep_rew_mean"
+
+
+def test_curriculum_default_metric_reads_ep_info_buffer() -> None:
+    """``rollout/ep_rew_mean`` is never in the logger at ``on_rollout_end``
+    (SB3 records and clears it afterwards), so the curriculum must read
+    episode stats from the model's ``ep_info_buffer`` — the walker curriculum
+    was silently dead without this."""
+    env = _FakeVecEnv()
+    cur_cfg = {
+        "enabled": True,
+        "level_up_threshold": 150.0,
+        "max_level": 2,
+        "level_params": {1: {"reward.target_velocity": 1.5}},
+    }
+    cb = CurriculumCallback(cur_cfg, env_cfg={}, verbose=0)
+    logger = _StubLogger()  # empty defaultdict: the real state at rollout end
+
+    _attach(cb, env=env, logger=logger, ep_info_buffer=[{"r": 120.0, "l": 400}])
+    cb._on_rollout_end()
+    assert cb.current_level == 0, "below threshold: no level up"
+
+    _attach(
+        cb,
+        env=env,
+        logger=logger,
+        ep_info_buffer=[{"r": 180.0, "l": 400}, {"r": 160.0, "l": 380}],
+    )
+    cb._on_rollout_end()
+    assert cb.current_level == 1, "ep_info_buffer mean over threshold must level up"
+    assert env.calls and env.calls[-1][0] == "update_live_params"
+
+
+def test_curriculum_missing_metric_neither_levels_nor_pollutes_logger() -> None:
+    """An absent metric must read as 'no data yet'. The logger map is a
+    defaultdict, so a plain-index read would fabricate 0.0 (instantly leveling
+    a threshold-0 gate) and insert the key into the next TensorBoard dump."""
+    env = _FakeVecEnv()
+    cur_cfg = {
+        "enabled": True,
+        "metric": "arena/agent_0_win_rate",
+        "level_up_threshold": 0.0,
+        "max_level": 2,
+        "level_params": {1: {"battle_rules.damage": 0.1}},
+    }
+    cb = CurriculumCallback(cur_cfg, env_cfg={}, verbose=0)
+    logger = _StubLogger()
+    _attach(cb, env=env, logger=logger)
+
+    cb._on_rollout_end()
+
+    assert cb.current_level == 0, "missing metric must not level up"
+    assert "arena/agent_0_win_rate" not in logger.name_to_value, (
+        "probing the metric must not insert it into the logger map"
+    )
+    assert not env.calls
+
+
+def test_curriculum_empty_episode_buffer_does_not_level() -> None:
+    """No completed episodes yet -> no metric -> no level-up, even at a
+    threshold of 0.0 (regression for the defaultdict-0.0 read)."""
+    env = _FakeVecEnv()
+    cur_cfg = {
+        "enabled": True,
+        "level_up_threshold": 0.0,
+        "max_level": 2,
+        "level_params": {1: {"reward.target_velocity": 1.5}},
+    }
+    cb = CurriculumCallback(cur_cfg, env_cfg={}, verbose=0)
+    _attach(cb, env=env, logger=_StubLogger(), ep_info_buffer=[])
+    cb._on_rollout_end()
+    assert cb.current_level == 0
+
+
+def test_arena_callbacks_order_metrics_before_curriculum(tmp_path, monkeypatch):
+    """CurriculumCallback reads arena/* win rates that ArenaMetricsCallback
+    records in its own _on_rollout_end, so the metrics callback must come
+    first in the callback list train() assembles."""
+    from rl_framework.training import sb3_runner
+
+    captured = {}
+
+    def _fake_learn(self, total_timesteps, callback=None, **kwargs):
+        captured["callbacks"] = callback
+        return self
+
+    monkeypatch.setattr(sb3_runner.PPO, "learn", _fake_learn)
+
+    cfg = {
+        "experiment_name": "order_guard",
+        "seed": 0,
+        "output": {"base_dir": str(tmp_path)},
+        "environment": {
+            "type": "organism_arena_parallel",
+            "battle_rules": {"max_steps": 20},
+        },
+        "training": {
+            "total_timesteps": 64,
+            "n_steps": 32,
+            "batch_size": 32,
+            "num_envs": 1,
+            "device": "cpu",
+        },
+        "curriculum": {
+            "enabled": True,
+            "metric": "arena/agent_0_win_rate",
+            "level_up_threshold": 0.6,
+            "level_params": {1: {"battle_rules.damage": 0.1}},
+        },
+    }
+    sb3_runner.train(cfg)
+
+    callbacks = captured["callbacks"]
+    metrics_idx = next(
+        i
+        for i, cb in enumerate(callbacks)
+        if isinstance(cb, sb3_runner.ArenaMetricsCallback)
+    )
+    curriculum_idx = next(
+        i for i, cb in enumerate(callbacks) if isinstance(cb, CurriculumCallback)
+    )
+    assert metrics_idx < curriculum_idx
 
 
 def test_curriculum_warmup_suppresses_early_level_ups() -> None:

@@ -112,6 +112,23 @@ def test_self_play_recent_bias_sampling_prefers_latest_entry(
     assert latest_count > earliest_count
 
 
+class _FakeModel:
+    """SB3-faithful save stub: ``.zip`` is appended only to suffix-less paths
+    (see ``save_util.open_path_pathlib``); suffixed paths are written as-is."""
+
+    def __init__(self, vec_normalize=None) -> None:
+        self._vec_normalize = vec_normalize
+
+    def save(self, path: str) -> None:
+        p = Path(path)
+        if p.suffix == "":
+            p = Path(str(p) + ".zip")
+        p.write_text("model", encoding="utf-8")
+
+    def get_vec_normalize_env(self):
+        return self._vec_normalize
+
+
 def test_self_play_pruning_also_prunes_cache(tmp_path) -> None:
     callback = SelfPlayCallback(
         snapshot_dir=tmp_path, snapshot_freq=1, max_league_size=1
@@ -120,15 +137,67 @@ def test_self_play_pruning_also_prunes_cache(tmp_path) -> None:
     callback._league = deque([old])  # noqa: SLF001
     callback._model_cache = {old: object()}  # noqa: SLF001
 
-    class _FakeModel:
-        def save(self, path: str) -> None:
-            (tmp_path / f"{Path(path).name}.zip").write_text("x", encoding="utf-8")
-
-        def get_vec_normalize_env(self):
-            return None
-
     callback.model = _FakeModel()  # type: ignore[assignment]
     callback.num_timesteps = 2
     callback._save_snapshot()  # noqa: SLF001
 
     assert old not in callback._model_cache  # noqa: SLF001
+
+
+def test_self_play_snapshot_cadence_with_vector_env_stride(tmp_path) -> None:
+    """num_timesteps advances by num_envs per callback call, so an exact
+    modulo check snapshots on the LCM cadence (freq=5000 at num_envs=24 used
+    to fire every 15000 steps). One snapshot must land per freq window,
+    within one stride of the boundary."""
+    freq = 5000
+    for stride in (1, 7, 24):
+        league_dir = tmp_path / f"stride_{stride}"
+        callback = SelfPlayCallback(
+            snapshot_dir=league_dir, snapshot_freq=freq, max_league_size=100
+        )
+        callback.model = _FakeModel()  # type: ignore[assignment]
+        for ts in range(stride, 30000 + stride, stride):
+            callback.num_timesteps = ts
+            callback._on_step()  # noqa: SLF001
+
+        snaps = sorted(
+            int(p.stem.rsplit("_", 1)[-1]) for p in league_dir.glob("selfplay_*.zip")
+        )
+        assert len(snaps) == 6, (
+            f"stride={stride}: expected one snapshot per {freq}-step window, "
+            f"got {snaps}"
+        )
+        for i, ts in enumerate(snaps, start=1):
+            assert freq * i <= ts < freq * i + stride, (
+                f"stride={stride}: snapshot {ts} outside window {i}"
+            )
+
+
+def test_self_play_snapshot_zip_visible_only_after_sidecar(tmp_path) -> None:
+    """Parallel workers glob selfplay_*.zip as soon as the league dir changes,
+    so the zip must appear atomically and only after its obs-normaliser
+    sidecar is complete — else an opponent gets cached without normalisation
+    (or PPO.load reads a half-written archive)."""
+    zips_seen_at_sidecar_write: list[list[str]] = []
+
+    class _FakeVecNormalize:
+        def save(self, path: str) -> None:
+            zips_seen_at_sidecar_write.append(
+                sorted(p.name for p in tmp_path.glob("selfplay_*.zip"))
+            )
+            Path(path).write_text("norm", encoding="utf-8")
+
+    callback = SelfPlayCallback(
+        snapshot_dir=tmp_path, snapshot_freq=1, max_league_size=5
+    )
+    callback.model = _FakeModel(vec_normalize=_FakeVecNormalize())  # type: ignore[assignment]
+    callback.num_timesteps = 100
+    callback._save_snapshot()  # noqa: SLF001
+
+    assert zips_seen_at_sidecar_write == [[]], (
+        "the sidecar must be fully written before the snapshot zip is visible"
+    )
+    assert (tmp_path / "selfplay_100.zip").exists()
+    assert (tmp_path / "selfplay_100_vecnorm.pkl").exists()
+    leftovers = [p.name for p in tmp_path.iterdir() if ".tmp" in p.name]
+    assert leftovers == [], f"temp files left behind: {leftovers}"

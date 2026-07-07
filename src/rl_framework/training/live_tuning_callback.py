@@ -6,6 +6,8 @@ from typing import Callable
 
 from stable_baselines3.common.callbacks import BaseCallback
 
+from rl_framework.training.rollout_metrics import rollout_metric
+
 _log = logging.getLogger(__name__)
 
 
@@ -56,12 +58,16 @@ class LiveTuningCallback(BaseCallback):
         return True
 
     def _on_rollout_end(self) -> None:
-        if self._pop_tuning_event is None:
-            return
-        params = self._pop_tuning_event()
-        if not isinstance(params, dict) or not params:
-            return
+        params = (
+            self._pop_tuning_event() if self._pop_tuning_event is not None else None
+        )
+        if isinstance(params, dict) and params:
+            self._apply_params(params)
+        # Publish a status snapshot every rollout — the GUI dashboard polls
+        # these metrics, so they must stream even when no tuning is pending.
+        self._write_status()
 
+    def _apply_params(self, params: dict[str, Any]) -> None:
         applied = {}
         for key, value in params.items():
             if key == "learning_rate":
@@ -106,9 +112,6 @@ class LiveTuningCallback(BaseCallback):
                 except Exception:
                     pass  # Non-walker env or env_method unavailable; cfg update suffices
 
-        # Emit status snapshot for GUI polling.
-        self._write_status()
-
     def _write_status(self) -> None:
         if self._publish_status is None:
             return
@@ -117,21 +120,21 @@ class LiveTuningCallback(BaseCallback):
                 "timesteps": self.num_timesteps,
                 "applied_count": len(self._applied),
             }
-            # Pull metrics from SB3 logger.
-            if self.logger is not None:
-                for key in (
-                    "rollout/ep_rew_mean",
-                    "rollout/ep_len_mean",
-                    "train/loss",
-                    "train/policy_gradient_loss",
-                    "train/value_loss",
-                    "train/entropy_loss",
-                    "train/learning_rate",
-                ):
-                    try:
-                        status[key] = float(self.logger.name_to_value[key])
-                    except (KeyError, AttributeError, TypeError):
-                        pass
+            # Episode stats come from the model's ep_info_buffer, train/* from
+            # the logger; absent metrics are omitted rather than reported as
+            # 0.0 (see rollout_metrics for the SB3 logger-clearing pitfall).
+            for key in (
+                "rollout/ep_rew_mean",
+                "rollout/ep_len_mean",
+                "train/loss",
+                "train/policy_gradient_loss",
+                "train/value_loss",
+                "train/entropy_loss",
+                "train/learning_rate",
+            ):
+                value = rollout_metric(self.model, self.logger, key)
+                if value is not None:
+                    status[key] = value
             self._publish_status(status)
         except Exception:
             pass

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections import deque
 from pathlib import Path
 
@@ -82,22 +83,37 @@ class SelfPlayCallback(BaseCallback):
         self._league: deque[Path] = deque()
         self._model_cache: dict[Path, PPO] = {}
         self._rng = np.random.default_rng(seed)
+        self._next_snapshot_at = snapshot_freq
 
     # ------------------------------------------------------------------
     def _on_step(self) -> bool:
-        if self.num_timesteps % self._snapshot_freq == 0 and self.num_timesteps > 0:
+        # num_timesteps advances by num_envs per callback call, so an exact
+        # modulo test only fires when the stride happens to hit a multiple —
+        # an LCM cadence (e.g. every 15k steps for freq=5000 at num_envs=24).
+        # Fire on the first call at/after each freq boundary instead, keeping
+        # the schedule anchored to multiples of snapshot_freq so per-snapshot
+        # overshoot never accumulates.
+        if self.num_timesteps >= self._next_snapshot_at:
             self._save_snapshot()
+            while self._next_snapshot_at <= self.num_timesteps:
+                self._next_snapshot_at += self._snapshot_freq
         return True
 
     def _save_snapshot(self) -> None:
         tag = f"selfplay_{self.num_timesteps}"
         path = self._snapshot_dir / tag
-        self.model.save(str(path))
-        # Save the obs normaliser alongside the policy so a frozen opponent can
-        # normalise its observations the way this policy did during training.
+        # LeagueSampler workers glob selfplay_*.zip as soon as the directory
+        # mtime moves, so the snapshot must never be visible half-written:
+        # save under a temp name the glob cannot match (SB3 keeps the name
+        # as-is because it already has a suffix), put the obs-normaliser
+        # sidecar in place, then atomically rename the zip last. A visible
+        # snapshot therefore always has a complete archive and sidecar.
+        tmp_path = self._snapshot_dir / f".{tag}.tmp"
+        self.model.save(str(tmp_path))
         vec_normalize = self.model.get_vec_normalize_env()
         if vec_normalize is not None:
             vec_normalize.save(str(self._snapshot_dir / f"{tag}_vecnorm.pkl"))
+        os.replace(tmp_path, path.with_suffix(".zip"))
         self._league.append(path)
         if self.verbose >= 1:
             print(
