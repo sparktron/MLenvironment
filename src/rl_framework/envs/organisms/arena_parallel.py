@@ -8,6 +8,8 @@ import numpy as np
 from gymnasium import spaces
 from pettingzoo import ParallelEnv
 
+from rl_framework.utils.config_merge import get_section
+
 
 @dataclass
 class BattleRules:
@@ -42,14 +44,17 @@ class OrganismArenaParallelEnv(ParallelEnv):
         # vec-env — stays a constant size) until the episode ends for everyone.
         self._dead: set[str] = set()
         self._rng = np.random.default_rng(cfg.get("seed", 0))
-        sim_cfg = cfg.get("sim", {})
+        # get_section tolerates both a missing key and an explicit `key: null`
+        # (the GUI wizard has historically written the latter for empty
+        # nested groups) — a plain `.get(key, {})` only covers the former.
+        sim_cfg = get_section(cfg, "sim")
         self.bounds = float(sim_cfg.get("arena_half_extent", 1.0))
         # Per-step movement speed cap (arena units / step).
         self.move_speed = float(sim_cfg.get("move_speed", 0.05))
         # Spawn-position jitter half-width. Non-zero by default: without it the
         # env is fully deterministic and head-to-head eval replays one episode.
         self.spawn_jitter = float(sim_cfg.get("spawn_jitter", 0.1))
-        rules_cfg = cfg.get("battle_rules", {})
+        rules_cfg = get_section(cfg, "battle_rules")
         unknown_rules = sorted(set(rules_cfg) - set(BattleRules.__annotations__))
         if unknown_rules:
             warnings.warn(
@@ -60,7 +65,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
         self.rules = BattleRules(
             **{k: v for k, v in rules_cfg.items() if k in BattleRules.__annotations__}
         )
-        self.morphology = cfg.get("morphology", {})
+        self.morphology = get_section(cfg, "morphology")
         self.state: dict[str, dict[str, Any]] = {}
         # Previous-step positions, used to derive each agent's velocity for the
         # egocentric observation. Repopulated on reset and updated each step.
@@ -274,14 +279,17 @@ class OrganismArenaParallelEnv(ParallelEnv):
         for key, value in params.items():
             if key == "reward.damage_scale":
                 self._damage_scale = float(value)
-                self.cfg.setdefault("reward", {})["damage_scale"] = self._damage_scale
+                # setdefault leaves an explicit `reward: null` untouched (it
+                # only fills in a genuinely absent key); get_section replaces
+                # it with {} first so the write below cannot crash.
+                get_section(self.cfg, "reward")["damage_scale"] = self._damage_scale
             elif key.startswith("battle_rules."):
                 field = key.removeprefix("battle_rules.")
                 if hasattr(self.rules, field):
                     current = getattr(self.rules, field)
                     cast_val = type(current)(value)
                     setattr(self.rules, field, cast_val)
-                    self.cfg.setdefault("battle_rules", {})[field] = cast_val
+                    get_section(self.cfg, "battle_rules")[field] = cast_val
             elif key.startswith("morphology."):
                 field = key.removeprefix("morphology.")
                 current = self.morphology.get(field)
@@ -290,10 +298,10 @@ class OrganismArenaParallelEnv(ParallelEnv):
                 except (TypeError, ValueError):
                     continue
                 self.morphology[field] = cast_val
-                self.cfg.setdefault("morphology", {})[field] = cast_val
+                get_section(self.cfg, "morphology")[field] = cast_val
             elif key == "sim.arena_half_extent":
                 self.bounds = float(value)
-                self.cfg.setdefault("sim", {})["arena_half_extent"] = self.bounds
+                get_section(self.cfg, "sim")["arena_half_extent"] = self.bounds
 
     def step(self, actions: dict[str, np.ndarray]):
         if not self.agents:

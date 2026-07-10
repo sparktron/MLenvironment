@@ -148,14 +148,23 @@ class ArenaMetricsCallback(BaseCallback):
     win rates at the end of each rollout.
 
     Note: SuperSuit's vec-env conversion surfaces one ``info`` per agent slot,
-    so each finished episode contributes its outcome from both perspectives.
-    Win rates are therefore computed as a fraction of *outcome observations*,
-    which keeps the ratios correct even though the raw count is doubled.
+    so a finished episode contributes its outcome once per *active* agent
+    (2 for a duel, N for an N-agent free-for-all — spectators stay active
+    until the episode ends). Win rates are computed as a fraction of *outcome
+    observations*, which keeps the ratios correct regardless of N since both
+    the numerator and denominator scale by the same active-agent count.
+
+    Win totals are keyed by whatever agent names are actually observed as
+    winners, so this scales to N-agent free-for-alls (``environment.
+    num_agents`` up to 8 in the GUI schema) rather than only the 2-agent
+    default; ``agent_0``/``agent_1`` are seeded up front so their rate is
+    always logged (as 0.0) even in rollouts where they didn't win, matching
+    prior behavior for the common duel case.
     """
 
     def __init__(self) -> None:
         super().__init__(verbose=0)
-        self._wins = {"agent_0": 0, "agent_1": 0}
+        self._wins: dict[str, int] = {"agent_0": 0, "agent_1": 0}
         self._timeouts = 0
         self._draws = 0
         self._outcomes = 0
@@ -173,20 +182,22 @@ class ArenaMetricsCallback(BaseCallback):
                 self._draws += 1
             else:
                 winner = outcome.get("winner")
-                if winner in self._wins:
-                    self._wins[winner] += 1
+                if winner is not None:
+                    self._wins[winner] = self._wins.get(winner, 0) + 1
         return True
 
     def _on_rollout_end(self) -> None:
         if self._outcomes == 0:
             return
         total = self._outcomes
-        self.logger.record("arena/agent_0_win_rate", self._wins["agent_0"] / total)
-        self.logger.record("arena/agent_1_win_rate", self._wins["agent_1"] / total)
+        for agent, count in self._wins.items():
+            self.logger.record(f"arena/{agent}_win_rate", count / total)
         self.logger.record("arena/timeout_rate", self._timeouts / total)
         self.logger.record("arena/draw_rate", self._draws / total)
         self.logger.record("arena/episode_outcomes", total)
-        self._wins = {"agent_0": 0, "agent_1": 0}
+        # Keep any agent keys discovered this run (so their metric keeps
+        # being logged, at 0.0, in rollouts where they don't win).
+        self._wins = dict.fromkeys(self._wins, 0)
         self._timeouts = 0
         self._draws = 0
         self._outcomes = 0
@@ -256,7 +267,7 @@ def _build_arena_selfplay_env(
         )
         # info_keywords persists the per-episode arena outcome into the Monitor
         # CSV; the live agent's info carries it on terminal/timeout steps.
-        return Monitor(env, filename=filename)
+        return Monitor(env, filename=filename, info_keywords=("episode_outcome",))
 
     return _make
 

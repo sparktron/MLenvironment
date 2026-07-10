@@ -17,6 +17,7 @@ from rl_framework.envs.locomotion.dynamics import (
 )
 from rl_framework.envs.locomotion.rewards import WalkerReward
 from rl_framework.envs.locomotion.terminations import WalkerTermination
+from rl_framework.utils.config_merge import get_section
 
 
 class WalkerBulletEnv(gym.Env):
@@ -30,12 +31,14 @@ class WalkerBulletEnv(gym.Env):
         try:
             self._rng = np.random.default_rng(cfg.get("seed", 0))
 
-            # `or {}` everywhere: the GUI wizard sometimes writes `key: null`
-            # for nested groups, which would otherwise crash .get(...) chains.
-            sim_cfg = cfg.get("sim") or {}
+            # get_section everywhere: the GUI wizard sometimes writes
+            # `key: null` for nested groups, which would otherwise crash
+            # .get(...) chains (a present key with value None is returned as
+            # None, not the .get(..., {}) default).
+            sim_cfg = get_section(cfg, "sim")
             # Accept both max_torque and legacy max_force keys.
             max_torque = sim_cfg.get("max_torque", sim_cfg.get("max_force", 35.0))
-            ctrl_cfg = sim_cfg.get("control") or {}
+            ctrl_cfg = get_section(sim_cfg, "control")
             self.dynamics = WalkerDynamics(
                 max_torque=max_torque,
                 control_mode=str(ctrl_cfg.get("mode", "pd")),
@@ -50,7 +53,7 @@ class WalkerBulletEnv(gym.Env):
             # immediately after reset, so the robot is at equilibrium before
             # the first agent observation.
             self._settle_steps = int(sim_cfg.get("settle_steps", 30))
-            reward_cfg = cfg.get("reward") or {}
+            reward_cfg = get_section(cfg, "reward")
             self.reward_fn = WalkerReward(
                 **{
                     k: v
@@ -58,7 +61,7 @@ class WalkerBulletEnv(gym.Env):
                     if k in WalkerReward.__annotations__
                 }
             )
-            term_cfg = cfg.get("termination") or {}
+            term_cfg = get_section(cfg, "termination")
             self.termination = WalkerTermination(
                 **{
                     k: v
@@ -81,7 +84,7 @@ class WalkerBulletEnv(gym.Env):
             )
 
             # Domain randomisation: sensor noise
-            rand_cfg = cfg.get("domain_randomization") or {}
+            rand_cfg = get_section(cfg, "domain_randomization")
             self._sensor_noise_std = float(rand_cfg.get("sensor_noise_std", 0.0))
 
             # Domain randomisation: action latency
@@ -127,7 +130,7 @@ class WalkerBulletEnv(gym.Env):
         p.resetSimulation(physicsClientId=cid)
         p.setTimeStep(self._sim_timestep, physicsClientId=cid)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        sim_cfg = self.cfg.get("sim") or {}
+        sim_cfg = get_section(self.cfg, "sim")
         p.setGravity(0, 0, sim_cfg.get("gravity", -9.81), physicsClientId=cid)
         self.plane_id = p.loadURDF("plane.urdf", physicsClientId=cid)
 
@@ -354,8 +357,8 @@ class WalkerBulletEnv(gym.Env):
         return obs
 
     def _apply_domain_randomization(self) -> None:
-        rand_cfg = self.cfg.get("domain_randomization") or {}
-        sim_cfg = self.cfg.get("sim") or {}
+        rand_cfg = get_section(self.cfg, "domain_randomization")
+        sim_cfg = get_section(self.cfg, "sim")
         mass_rng = rand_cfg.get("mass_scale_range", [1.0, 1.0])
         fric_rng = rand_cfg.get("friction_range", [1.0, 1.0])
         # Store the *scales* (not absolute values) so they're surfaced in the
@@ -396,7 +399,7 @@ class WalkerBulletEnv(gym.Env):
         for _ in range(self._action_latency_steps):
             self._action_buffer.append(noop)
 
-        reset_cfg = self.cfg.get("reset_randomization") or {}
+        reset_cfg = get_section(self.cfg, "reset_randomization")
         pos_noise = reset_cfg.get("position_xy_noise", 0.02)
         yaw_noise = reset_cfg.get("yaw_noise", 0.1)
         # +5 mm clearance avoids the knife-edge ground contact at z=0 (foot
@@ -585,14 +588,17 @@ class WalkerBulletEnv(gym.Env):
                 try:
                     cast_val = type(getattr(live_obj, attr))(value)
                     setattr(live_obj, attr, cast_val)
-                    # Mirror into cfg so resets rebuild with the updated value.
-                    section_cfg = self.cfg.setdefault(section, {})
+                    # Mirror into cfg so resets rebuild with the updated
+                    # value. setdefault leaves an explicit `section: null`
+                    # untouched (it only fills in a genuinely absent key);
+                    # get_section replaces it with {} first.
+                    section_cfg = get_section(self.cfg, section)
                     section_cfg[attr] = cast_val
                 except (TypeError, ValueError):
                     pass
                 continue
 
-            section_cfg = self.cfg.setdefault(section, {})
+            section_cfg = get_section(self.cfg, section)
             current = section_cfg.get(attr)
             try:
                 cast_val = type(current)(value) if current is not None else value

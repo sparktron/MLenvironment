@@ -50,15 +50,20 @@ def test_validate_experiment_config_rejects_non_int_seed() -> None:
         validate_experiment_config(cfg)
 
 
-@pytest.mark.parametrize("bad_name", [
-    "../escape",
-    "foo/../bar",
-    "/absolute/path",
-    "sub/dir",
-    "back\\slash",
-    "",
-])
-def test_validate_experiment_config_rejects_unsafe_experiment_name(bad_name: str) -> None:
+@pytest.mark.parametrize(
+    "bad_name",
+    [
+        "../escape",
+        "foo/../bar",
+        "/absolute/path",
+        "sub/dir",
+        "back\\slash",
+        "",
+    ],
+)
+def test_validate_experiment_config_rejects_unsafe_experiment_name(
+    bad_name: str,
+) -> None:
     cfg = _base_cfg()
     cfg["experiment_name"] = bad_name
     with pytest.raises(ValueError, match="experiment_name"):
@@ -132,3 +137,21 @@ def test_shipped_parallel_self_play_arena_config_validates() -> None:
     )
 
     validate_experiment_config(cfg)
+
+
+def test_robot_push_recovery_config_uses_current_atlas_body() -> None:
+    """robot_push_recovery.yaml pre-dated the Atlas-class overhaul and still
+    shipped a 3.2 kg torso (lighter than a single 7 kg thigh) with a 45.0
+    max_force reinterpreted as a 1.29x global torque scale over the current
+    per-joint caps. Regression-pins the migrated values so the config cannot
+    silently drift back to the stale pre-overhaul body."""
+    cfg = to_container(
+        load_config("robot_push_recovery", "src/rl_framework/configs/experiments")
+    )
+
+    validate_experiment_config(cfg)
+    sim = cfg["environment"]["sim"]
+    assert sim["mass"] == 28.0, "torso mass must match the current Atlas-class default"
+    assert sim["max_force"] == 35.0, (
+        "max_force must match the current 1.0x per-joint torque baseline"
+    )

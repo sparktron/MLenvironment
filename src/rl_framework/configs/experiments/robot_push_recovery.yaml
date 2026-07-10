@@ -6,9 +6,9 @@ environment:
   seed: 123
   sim:
     gravity: -9.81
-    mass: 3.2
+    mass: 28.0
     friction: 0.85
-    max_force: 45.0
+    max_force: 35.0
     control:
       mode: pd
       position_gain: 0.1

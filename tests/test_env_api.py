@@ -25,6 +25,55 @@ def test_walker_env_api() -> None:
     env.close()
 
 
+def test_walker_construction_tolerates_null_sections() -> None:
+    """The GUI wizard has historically written `section: null` for empty
+    nested groups. Construction must not crash on it."""
+    cfg = {
+        "type": "walker_bullet",
+        "seed": 1,
+        "sim": None,
+        "reward": None,
+        "termination": None,
+        "domain_randomization": None,
+        "reset_randomization": None,
+    }
+    env = make_env("walker_bullet", cfg)
+    obs, _ = env.reset(seed=1)
+    assert obs.shape == env.observation_space.shape
+    env.close()
+
+
+def test_walker_update_live_params_tolerates_null_sections() -> None:
+    """update_live_params must not crash when the target section exists in
+    cfg as an explicit null (setdefault leaves an existing None untouched,
+    so a naive fix would still crash on the subsequent item assignment)."""
+    cfg = {
+        "type": "walker_bullet",
+        "seed": 1,
+        "reward": None,
+        "termination": None,
+        "domain_randomization": None,
+        "sim": None,
+    }
+    env = make_env("walker_bullet", cfg)
+    try:
+        env.reset(seed=1)
+        env.update_live_params(
+            {
+                "reward.alive_bonus": 2.0,
+                "termination.max_steps": 500,
+                "domain_randomization.sensor_noise_std": 0.05,
+                "sim.gravity": -10.0,
+            }
+        )
+        assert env.reward_fn.alive_bonus == 2.0
+        assert env.termination.max_steps == 500
+        assert env.cfg["domain_randomization"]["sensor_noise_std"] == 0.05
+        assert env.cfg["sim"]["gravity"] == -10.0
+    finally:
+        env.close()
+
+
 def test_walker_domain_randomization_preserves_link_mass_ratios() -> None:
     """Mass randomization scales each link from its own nominal mass."""
     cfg = {
@@ -402,6 +451,54 @@ def test_arena_metrics_callback_computes_win_rates() -> None:
     assert recs["arena/episode_outcomes"] == 3
 
 
+def test_arena_metrics_callback_generalizes_beyond_two_agents() -> None:
+    """N-agent free-for-alls (num_agents up to 8) must get their win rate
+    logged too, not just agent_0/agent_1 — the callback used to hardcode a
+    2-entry wins dict, so agent_2+ wins were silently dropped."""
+    from types import SimpleNamespace
+
+    from rl_framework.training.sb3_runner import ArenaMetricsCallback
+
+    class _StubLogger:
+        def __init__(self) -> None:
+            self.records: dict[str, float] = {}
+
+        def record(self, key: str, value: float) -> None:
+            self.records[key] = value
+
+    cb = ArenaMetricsCallback()
+    cb.model = SimpleNamespace(logger=_StubLogger())
+    # 4-agent free-for-all: agent_2 wins twice, agent_0 once, one draw.
+    cb.locals = {
+        "infos": [
+            {"episode_outcome": {"outcome": "ko", "winner": "agent_2"}},
+            {"episode_outcome": {"outcome": "ko", "winner": "agent_2"}},
+            {"episode_outcome": {"outcome": "ko", "winner": "agent_0"}},
+            {"episode_outcome": {"outcome": "draw", "winner": None}},
+        ]
+    }
+    cb._on_step()
+    cb._on_rollout_end()
+    recs = cb.logger.records
+    assert abs(recs["arena/agent_2_win_rate"] - 0.5) < 1e-9, (
+        "agent_2 (not hardcoded into the original 2-entry wins dict) must "
+        "have its win rate logged"
+    )
+    assert abs(recs["arena/agent_0_win_rate"] - 0.25) < 1e-9
+    assert abs(recs["arena/agent_1_win_rate"] - 0.0) < 1e-9, (
+        "agent_1 must still be logged at 0.0, not omitted"
+    )
+    assert abs(recs["arena/draw_rate"] - 0.25) < 1e-9
+    assert recs["arena/episode_outcomes"] == 4
+
+    # A later rollout with no agent_2 wins must still log its rate as 0.0,
+    # not drop the key now that it has been discovered.
+    cb.locals = {"infos": [{"episode_outcome": {"outcome": "ko", "winner": "agent_0"}}]}
+    cb._on_step()
+    cb._on_rollout_end()
+    assert cb.logger.records["arena/agent_2_win_rate"] == 0.0
+
+
 def test_update_live_params_anneals_dense_reward_but_keeps_damage() -> None:
     """Feature 5A: damage_scale=0 zeroes the dense reward but combat still resolves."""
     cfg = {
@@ -470,6 +567,50 @@ def test_unknown_battle_rules_key_warns() -> None:
         env = make_env("organism_arena_parallel", cfg)
     # Valid keys still apply despite the typo'd sibling.
     assert env.rules.max_steps == 10
+
+
+def test_arena_construction_tolerates_null_sections() -> None:
+    """The GUI wizard has historically written `section: null` for empty
+    nested groups. cfg.get(key, {}) does not help there (a present key with
+    value None is returned as None, not the default), so construction used to
+    raise AttributeError on the first `.get(...)` call against a null
+    section."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "sim": None,
+        "battle_rules": None,
+        "morphology": None,
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.reset(seed=0)
+    assert env.morphology == {}
+
+
+def test_arena_update_live_params_tolerates_null_sections() -> None:
+    """update_live_params must not crash (or silently no-op forever) when the
+    target section exists in cfg as an explicit null."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "reward": None,
+        "battle_rules": None,
+        "morphology": None,
+        "sim": None,
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    env.update_live_params(
+        {
+            "reward.damage_scale": 0.5,
+            "battle_rules.cooldown_steps": 4,
+            "morphology.base_size": 1.3,
+            "sim.arena_half_extent": 2.0,
+        }
+    )
+    assert env.cfg["reward"]["damage_scale"] == 0.5
+    assert env.cfg["battle_rules"]["cooldown_steps"] == 4
+    assert env.cfg["morphology"]["base_size"] == 1.3
+    assert env.cfg["sim"]["arena_half_extent"] == 2.0
 
 
 def test_arena_step_after_episode_end_is_inert() -> None:

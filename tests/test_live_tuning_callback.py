@@ -47,6 +47,46 @@ def test_live_tuning_forwards_all_accepted_env_sections() -> None:
     assert env_cfg["sim"]["arena_half_extent"] == 2.0
 
 
+def test_live_tuning_tolerates_null_env_section() -> None:
+    """The GUI wizard has historically written `section: null` for empty
+    nested groups. `param in self._env_cfg[section]` used to raise
+    (`in None` is a TypeError), killing the training thread at rollout end."""
+    from rl_framework.training.live_tuning_callback import LiveTuningCallback
+
+    class DummyTrainingEnv:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict]] = []
+
+        def env_method(self, method_name: str, params: dict) -> None:
+            self.calls.append((method_name, params))
+
+    class DummyModel:
+        def __init__(self, env: DummyTrainingEnv) -> None:
+            self._env = env
+
+        def get_env(self) -> DummyTrainingEnv:
+            return self._env
+
+    env_cfg = {"reward": None, "battle_rules": None}
+    training_env = DummyTrainingEnv()
+    callback = LiveTuningCallback(
+        env_cfg,
+        pop_tuning_event=lambda: {
+            "reward.alive_bonus": 3.0,
+            "battle_rules.damage": 0.2,
+        },
+    )
+    callback.model = DummyModel(training_env)
+
+    callback._on_rollout_end()  # must not raise
+
+    assert env_cfg["reward"] == {}, (
+        "an unknown param under a null section is dropped (matches the "
+        "pre-existing behavior for a missing section), but must not crash"
+    )
+    assert env_cfg["battle_rules"] == {}
+
+
 def test_live_tuning_status_reads_ep_info_buffer_and_omits_absent_metrics() -> None:
     """Status snapshots must take episode stats from the model's
     ep_info_buffer (the logger never holds rollout/* at rollout end) and

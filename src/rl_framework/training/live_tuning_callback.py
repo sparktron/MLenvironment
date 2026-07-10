@@ -7,6 +7,7 @@ from typing import Callable
 from stable_baselines3.common.callbacks import BaseCallback
 
 from rl_framework.training.rollout_metrics import rollout_metric
+from rl_framework.utils.config_merge import get_section
 
 _log = logging.getLogger(__name__)
 
@@ -85,10 +86,15 @@ class LiveTuningCallback(BaseCallback):
                 parts = key.split(".", 1)
                 if len(parts) == 2 and parts[0] in self.ENV_SECTIONS:
                     section, param = parts
-                    if section in self._env_cfg and param in self._env_cfg[section]:
+                    # get_section tolerates an explicit `section: null`, which
+                    # would otherwise raise `TypeError: argument of type
+                    # 'NoneType' is not iterable` from `param in None` and
+                    # kill the training thread at rollout end.
+                    section_cfg = get_section(self._env_cfg, section)
+                    if param in section_cfg:
                         try:
-                            cast_val = type(self._env_cfg[section][param])(value)
-                            self._env_cfg[section][param] = cast_val
+                            cast_val = type(section_cfg[param])(value)
+                            section_cfg[param] = cast_val
                             applied[key] = cast_val
                             if self.verbose >= 1:
                                 print(f"[LiveTuning] {key} -> {cast_val}")

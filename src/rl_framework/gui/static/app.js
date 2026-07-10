@@ -363,14 +363,28 @@
   function assembleConfig() {
     var _seedRaw = parseInt($("#cfg-seed").value);
     var _seed = isNaN(_seedRaw) ? 42 : _seedRaw;
-    currentConfig = {
-      experiment_name: $("#cfg-experiment-name").value || "experiment",
-      seed: _seed,
-      environment: { type: selectedEnv, seed: _seed },
-      training: {},
-      evaluation: {},
-      output: { base_dir: "outputs" },
-    };
+    // Rebuild only the sections the wizard form actually renders
+    // (experiment_name/seed/environment/training/evaluation/output), and
+    // mutate the existing currentConfig object in place rather than
+    // replacing it wholesale. A loaded template can carry sections the
+    // wizard has no fields for (self_play, reward_annealing, curriculum,
+    // sweep, multi_seed, reproducibility, ...); a full replacement here
+    // silently dropped them, so a template's launch could fail validation
+    // (e.g. a self-play arena's num_envs > 1) or — via "Save config as YAML
+    // template", checked by default — overwrite the source YAML with a
+    // stripped copy. Selecting a different environment type still clears
+    // currentConfig entirely (see the env-card click handler above), which
+    // is the right point to drop template state that may not apply to the
+    // new environment.
+    if (!currentConfig || typeof currentConfig !== "object") currentConfig = {};
+    currentConfig.experiment_name = $("#cfg-experiment-name").value || "experiment";
+    currentConfig.seed = _seed;
+    currentConfig.environment = { type: selectedEnv, seed: _seed };
+    currentConfig.training = {};
+    currentConfig.evaluation = {};
+    if (!currentConfig.output || typeof currentConfig.output !== "object") {
+      currentConfig.output = { base_dir: "outputs" };
+    }
 
     $$(".cfg-input").forEach(function (input) {
       var path = input.dataset.path;

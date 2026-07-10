@@ -134,8 +134,23 @@ return 0.0 for all `rollout/*` keys, never raise, and *insert* the key.
 
 ### Priority 1: correctness bugs
 
-- **Stop the GUI wizard from stripping non-schema config sections.**
-  `assembleConfig()` (`gui/static/app.js:363-422`) rebuilds `currentConfig`
+- ~~Stop the GUI wizard from stripping non-schema config sections.~~
+  **Done (2026-07-08)** — `assembleConfig()` now mutates the existing
+  `currentConfig` object (setting only `experiment_name`/`seed`/
+  `environment`/`training`/`evaluation`/`output`, the sections it actually
+  renders) instead of replacing it with a fresh 5-key object literal, so a
+  loaded template's `self_play`/`reward_annealing`/`curriculum`/`sweep`/
+  `multi_seed`/`reproducibility` sections survive to launch. The env-card
+  click handler's existing `currentConfig = {}` reset on an actual
+  environment-type change is unchanged. No JS test harness exists in this
+  repo, so verification was a Playwright browser run: loading
+  `organisms_fight_arena`, advancing to Review & Launch, confirming
+  `self_play`/`reward_annealing`/`curriculum` and `training.num_envs: 8` in
+  the assembled preview, then actually clicking Launch and confirming
+  `POST /api/train/start` returns `{run_id, status: "started"}` with no
+  validation error (previously rejected `num_envs: 8` without self_play as a
+  false positive, since self_play was silently dropped). Original diagnosis:
+  `assembleConfig()` (`gui/static/app.js:363-422`) rebuilt `currentConfig`
   from scratch with only `environment` / `training` / `evaluation` /
   `output.base_dir`, so a loaded template loses `self_play`,
   `reward_annealing`, `curriculum`, `sweep`, `multi_seed`, and
@@ -153,16 +168,34 @@ return 0.0 for all `rollout/*` keys, never raise, and *insert* the key.
   round-trip preserves `self_play`; browser check of the fight-arena
   template flow end-to-end.
 
-- **Generalize `ArenaMetricsCallback` beyond 2 agents.**
-  `sb3_runner.py:158` hardcodes `self._wins = {"agent_0": 0, "agent_1": 0}`;
+- ~~Generalize `ArenaMetricsCallback` beyond 2 agents.~~ **Done (2026-07-08)**
+  — win counts are now keyed lazily by whatever winner name is observed
+  (`self._wins.get(winner, 0) + 1`), with `agent_0`/`agent_1` seeded up
+  front so their rate keeps logging as 0.0 in rollouts they don't win
+  (matching prior 2-agent behavior exactly). Regression test drives a
+  synthetic 4-agent outcome stream and asserts `arena/agent_2_win_rate` is
+  logged and that it persists at 0.0 in a later rollout with no agent_2
+  wins. Original diagnosis: `sb3_runner.py:158` hardcoded
+  `self._wins = {"agent_0": 0, "agent_1": 0}`;
   for N-agent arenas (the GUI schema allows `num_agents` up to 8) wins by
   `agent_2+` increment `_outcomes` but are recorded nowhere, so the logged
   win rates are silently wrong. Fix plan: accumulate winner names into a
   dict built lazily (or from the env's `possible_agents`) and log per-agent
   rates. Validation: unit test feeding a synthetic N=4 outcome stream.
 
-- **Normalize `section: null` tolerance across the config surface.**
-  The walker constructor deliberately guards with `or {}`
+- ~~Normalize `section: null` tolerance across the config surface.~~
+  **Done (2026-07-08)** — `utils/config_merge.get_section(cfg, key)` treats
+  a missing key and an explicit `key: null` identically, normalizing to
+  `{}` and writing the result back into `cfg` so later direct reads are
+  also safe; `set_nested(strict=False)` now descends through it too. Used
+  at every site the review flagged: `OrganismArenaParallelEnv.__init__` and
+  `update_live_params`, `WalkerBulletEnv.__init__`/`_build_world`/
+  `_apply_domain_randomization`/`reset`/`update_live_params`, and
+  `LiveTuningCallback._on_rollout_end`. Regression tests construct each env
+  with every relevant section explicitly `null`, exercise
+  `update_live_params`/live tuning against a null section, and confirm no
+  crash plus correct value propagation. Original diagnosis: the walker
+  constructor deliberately guarded with `or {}`
   (`walker_bullet.py:33-35`) because the GUI has historically written
   `key: null` for nested groups, but sibling paths don't:
   `OrganismArenaParallelEnv.__init__` uses `cfg.get("sim", {})` /
@@ -180,24 +213,36 @@ return 0.0 for all `rollout/*` keys, never raise, and *insert* the key.
   tests feeding null sections through arena construction, walker
   `update_live_params`, live tuning, and curriculum overrides.
 
-- **Actually persist `episode_outcome` to arena Monitor CSVs.**
-  The comment in `_build_arena_selfplay_env` (`sb3_runner.py:257-259`) claims
+- ~~Actually persist `episode_outcome` to arena Monitor CSVs.~~ **Done
+  (2026-07-08)** — `Monitor(env, filename=filename, info_keywords=
+  ("episode_outcome",))`; the key is guaranteed present on the live agent's
+  terminal-step info in every reachable terminal state (elimination win,
+  elimination draw, and timeout all set it before the wrapper surfaces a
+  terminated/truncated step). Regression test trains a short self-play run
+  and asserts the Monitor CSV header includes `episode_outcome` with a
+  non-empty value on at least one row. Original diagnosis: the comment in
+  `_build_arena_selfplay_env` (`sb3_runner.py:257-259`) claimed
   `info_keywords` persists the per-episode outcome, but the `Monitor` is
   constructed without it. Fix plan: pass
   `info_keywords=("episode_outcome",)` (the key is present on the live
   agent's terminal-step info). Validation: test that the Monitor CSV gains
   the column after a terminated episode.
 
-- **Migrate `robot_push_recovery.yaml` to the current robot.**
-  It still ships pre-overhaul values: `sim.mass: 3.2` (the torso would be
-  lighter than a single 7 kg thigh on the Atlas-class body) and
-  `max_force: 45`, which the new dynamics reinterpret as a 45/35 ≈ 1.29×
-  global scale over the per-joint Atlas torque caps. The env also has no
-  push/perturbation mechanism at all, so the preset's name promises
-  something the env cannot do. Fix plan: update mass/torque to current
-  defaults and either rename the config or hold it until the perturbation
-  curriculum feature (Priority 3 below) lands. Validation: config
-  validation test + a short training smoke run.
+- ~~Migrate `robot_push_recovery.yaml` to the current robot.~~ **Done
+  (2026-07-08)** — `sim.mass: 3.2 -> 28.0` and `max_force: 45.0 -> 35.0`
+  (the current Atlas-class defaults / 1.0× torque baseline used elsewhere).
+  Left the filename and the config's balance-focused reward/termination/
+  domain-randomization tuning as-is: README already describes the preset
+  accurately as "aggressive randomization ... for robustness" rather than
+  claiming a push mechanic, so renaming wasn't required to fix the
+  correctness bug and would have added README/doc churn for a cosmetic
+  concern. The perturbation mechanism itself remains an open Priority 3
+  feature. Regression test loads the config and pins the migrated values so
+  they cannot silently drift back to the pre-overhaul body. Original
+  diagnosis: it still shipped pre-overhaul values — `sim.mass: 3.2` (the
+  torso would be lighter than a single 7 kg thigh on the Atlas-class body)
+  and `max_force: 45`, which the new dynamics reinterpret as a 45/35 ≈
+  1.29× global scale over the per-joint Atlas torque caps.
 
 ### Priority 2: usability and performance
 

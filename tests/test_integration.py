@@ -167,6 +167,39 @@ def test_arena_selfplay_train_writes_league(tmp_path: Path) -> None:
     assert league, "self-play training wrote no league snapshots"
 
 
+def test_arena_selfplay_monitor_csv_records_episode_outcome(tmp_path: Path) -> None:
+    """The self-play Monitor CSV must gain an episode_outcome column — the
+    comment above the Monitor() construction claimed info_keywords already
+    did this, but the call was missing the argument, so the column never
+    appeared."""
+    import csv
+
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _arena_cfg(tmp_path, timesteps=256)
+    cfg["environment"]["battle_rules"]["max_steps"] = 15  # force multiple episodes
+    cfg["self_play"] = {"enabled": True, "snapshot_freq": 128, "max_league_size": 5}
+    train(cfg)
+
+    logs_dir = Path(tmp_path) / cfg["experiment_name"] / f"seed_{cfg['seed']}" / "logs"
+    # SB3's Monitor appends its own ".monitor.csv" suffix to any filename that
+    # doesn't already end in "monitor.csv", so the file on disk is
+    # "monitor_env0.csv.monitor.csv", not the literal "monitor_env0.csv".
+    candidates = list(logs_dir.glob("monitor_env0.csv*"))
+    assert candidates, f"no monitor csv found in {logs_dir}"
+    monitor_csv = candidates[0]
+    with monitor_csv.open(encoding="utf-8") as fh:
+        next(fh)  # skip the '#{"t_start": ...}' header comment line
+        rows = list(csv.DictReader(fh))
+    assert rows, "no episodes recorded in the monitor csv"
+    assert "episode_outcome" in rows[0], (
+        "episode_outcome column missing from the Monitor CSV header"
+    )
+    assert any(row["episode_outcome"] for row in rows), (
+        "episode_outcome column is present but empty on every row"
+    )
+
+
 def test_arena_selfplay_parallel_envs_train_and_propagate(tmp_path: Path) -> None:
     """Self-play arena training runs with num_envs > 1 (R2): it bypasses
     SuperSuit, uses SB3's native SubprocVecEnv, writes one Monitor CSV per
