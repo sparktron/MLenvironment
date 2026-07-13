@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 import supersuit as ss
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, SAC, TD3
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from rl_framework.envs.registry import make_env
@@ -60,7 +60,9 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
     num_agents = vec_env.num_envs if is_multiagent else 1
 
     try:
-        model = PPO.load(model_path)
+        algorithm = str(cfg.get("training", {}).get("algorithm", "PPO")).upper()
+        model_cls = {"PPO": PPO, "SAC": SAC, "TD3": TD3}[algorithm]
+        model = model_cls.load(model_path)
         episodes = cfg["evaluation"].get("episodes", 5)
         returns = []
         per_agent_returns: dict[int, list[float]] = {i: [] for i in range(num_agents)}

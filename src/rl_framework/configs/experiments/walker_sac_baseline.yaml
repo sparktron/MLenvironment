@@ -1,0 +1,22 @@
+experiment_name: walker_sac_baseline
+seed: 0
+environment:
+  type: walker_bullet
+  seed: 0
+  observation: {version: v2, coordinate_free: true}
+  terrain: {preset: flat}
+training:
+  algorithm: SAC
+  policy: MlpPolicy
+  total_timesteps: 500000
+  num_envs: 1
+  learning_rate: 0.0003
+  batch_size: 256
+  buffer_size: 500000
+  learning_starts: 5000
+  train_freq: 1
+  gradient_steps: 1
+  checkpoint_every: 50000
+  normalize_observations: true
+  device: cpu
+output: {base_dir: outputs}

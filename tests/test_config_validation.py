@@ -150,6 +150,20 @@ def test_validate_experiment_config_rejects_invalid_worker_start_method() -> Non
         validate_experiment_config(cfg)
 
 
+@pytest.mark.parametrize("name", ["walker_sac_baseline", "walker_td3_baseline"])
+def test_off_policy_walker_baselines_validate(name: str) -> None:
+    cfg = to_container(load_config(name, "src/rl_framework/configs/experiments"))
+    validate_experiment_config(cfg)
+
+
+def test_off_policy_algorithms_reject_arena() -> None:
+    cfg = _base_cfg()
+    cfg["environment"] = {"type": "organism_arena_parallel"}
+    cfg["training"]["algorithm"] = "SAC"
+    with pytest.raises(ValueError, match="walker_bullet"):
+        validate_experiment_config(cfg)
+
+
 def test_validate_experiment_config_rejects_multi_env_shared_policy_arena() -> None:
     cfg = _base_cfg()
     cfg["environment"] = {"type": "organism_arena_parallel"}

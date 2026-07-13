@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 import supersuit as ss
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, SAC, TD3
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import (
@@ -60,6 +60,14 @@ def _make_subproc_vec_env(env_fns: list, training_cfg: dict[str, Any]):
     if start_method is None:
         return SubprocVecEnv(env_fns)
     return SubprocVecEnv(env_fns, start_method=start_method)
+
+
+def _algorithm_class(name: str):
+    algorithms = {"PPO": PPO, "SAC": SAC, "TD3": TD3}
+    try:
+        return algorithms[name.upper()]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported training.algorithm: {name!r}") from exc
 
 
 class VecNormalizeBestModelCallback(BaseCallback):
@@ -354,7 +362,7 @@ def train(
     stop_event: threading.Event | None = None,
     resume_from: str | Path | None = None,
 ) -> Path:
-    """Train a PPO agent from *cfg* and return the path to the saved model.
+    """Train an SB3 agent from *cfg* and return the path to the saved model.
 
     Parameters
     ----------
@@ -405,6 +413,8 @@ def train(
     run_identity = str(cfg["output"].get("run_id") or new_run_id())
     registry.register_run(run_identity, cfg, paths.run_dir, resume_from=resume_from)
     env_cfg = cfg["environment"]
+    algorithm_name = str(train_cfg.get("algorithm", "PPO")).upper()
+    algorithm_cls = _algorithm_class(algorithm_name)
 
     num_envs = int(cfg["training"].get("num_envs", 1))
 
@@ -502,7 +512,7 @@ def train(
             vec_env = VecCheckNan(vec_env, raise_exception=True)
 
         if resume_from is not None:
-            model = PPO.load(
+            model = algorithm_cls.load(
                 str(resume_from),
                 env=vec_env,
                 tensorboard_log=str(paths.logs_dir),
@@ -513,24 +523,49 @@ def train(
                 train_cfg.get("learning_rate", 3e-4),
                 train_cfg.get("learning_rate_end"),  # None → constant LR
             )
-            model = PPO(
-                policy=train_cfg.get("policy", "MlpPolicy"),
-                env=vec_env,
-                learning_rate=lr,
-                n_steps=train_cfg.get("n_steps", 1024),
-                batch_size=train_cfg.get("batch_size", 256),
-                n_epochs=train_cfg.get("n_epochs", 10),
-                gamma=train_cfg.get("gamma", 0.99),
-                gae_lambda=train_cfg.get("gae_lambda", 0.95),
-                clip_range=train_cfg.get("clip_range", 0.2),
-                ent_coef=train_cfg.get("ent_coef", 0.005),
-                vf_coef=train_cfg.get("vf_coef", 0.5),
-                max_grad_norm=train_cfg.get("max_grad_norm", 0.5),
-                tensorboard_log=str(paths.logs_dir),
-                seed=cfg["seed"],
-                device=train_cfg.get("device", "auto"),
-                verbose=1,
-            )
+            common_kwargs = {
+                "policy": train_cfg.get("policy", "MlpPolicy"),
+                "env": vec_env,
+                "learning_rate": lr,
+                "batch_size": train_cfg.get("batch_size", 256),
+                "gamma": train_cfg.get("gamma", 0.99),
+                "tensorboard_log": str(paths.logs_dir),
+                "seed": cfg["seed"],
+                "device": train_cfg.get("device", "auto"),
+                "verbose": 1,
+            }
+            if algorithm_name == "PPO":
+                model = PPO(
+                    **common_kwargs,
+                    n_steps=train_cfg.get("n_steps", 1024),
+                    n_epochs=train_cfg.get("n_epochs", 10),
+                    gae_lambda=train_cfg.get("gae_lambda", 0.95),
+                    clip_range=train_cfg.get("clip_range", 0.2),
+                    ent_coef=train_cfg.get("ent_coef", 0.005),
+                    vf_coef=train_cfg.get("vf_coef", 0.5),
+                    max_grad_norm=train_cfg.get("max_grad_norm", 0.5),
+                )
+            else:
+                off_policy_kwargs = {
+                    **common_kwargs,
+                    "buffer_size": train_cfg.get("buffer_size", 1_000_000),
+                    "learning_starts": train_cfg.get("learning_starts", 1_000),
+                    "train_freq": train_cfg.get("train_freq", 1),
+                    "gradient_steps": train_cfg.get("gradient_steps", 1),
+                    "tau": train_cfg.get("tau", 0.005),
+                }
+                if algorithm_name == "SAC":
+                    model = SAC(
+                        **off_policy_kwargs,
+                        ent_coef=train_cfg.get("ent_coef", "auto"),
+                    )
+                else:
+                    model = TD3(
+                        **off_policy_kwargs,
+                        policy_delay=train_cfg.get("policy_delay", 2),
+                        target_policy_noise=train_cfg.get("target_policy_noise", 0.2),
+                        target_noise_clip=train_cfg.get("target_noise_clip", 0.5),
+                    )
 
         checkpoint_cb = VecNormalizeCheckpointCallback(
             save_freq=_callback_freq_from_timesteps(
@@ -538,7 +573,7 @@ def train(
                 num_envs,
             ),
             save_path=str(paths.checkpoints_dir),
-            name_prefix="ppo_model",
+            name_prefix=f"{algorithm_name.lower()}_model",
         )
         callbacks: list[BaseCallback] = [checkpoint_cb]
 

@@ -35,6 +35,11 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
 
     device = cfg["training"].get("device", "auto")
     _validate_device(device)
+    algorithm = str(cfg["training"].get("algorithm", "PPO")).upper()
+    if algorithm not in {"PPO", "SAC", "TD3"}:
+        raise ValueError("training.algorithm must be one of ['PPO', 'SAC', 'TD3']")
+    if algorithm in {"SAC", "TD3"} and cfg["environment"].get("type") != "walker_bullet":
+        raise ValueError("training.algorithm SAC/TD3 currently support walker_bullet only")
 
     if "learning_rate" in cfg["training"]:
         _ensure_positive_number(cfg["training"]["learning_rate"], "training.learning_rate")
