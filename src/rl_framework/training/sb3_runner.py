@@ -125,7 +125,13 @@ class _ArenaVecEnvAdapter(VecEnvWrapper):
        only needs to seed the action/observation spaces for reproducible
        sampling.
 
-    2. **``uint8`` dones.** SuperSuit returns the ``dones`` array as ``uint8``.
+    2. **Missing ``render_mode`` forwarding.** SuperSuit's SB3 wrapper tries
+       to ask its Gymnasium ``ConcatVecEnv`` for ``render_mode`` via a missing
+       ``get_attr`` method. SB3 emits a warning and defaults to ``None``. We
+       provide that metadata directly while preserving normal delegation for
+       every other attribute.
+
+    3. **``uint8`` dones.** SuperSuit returns the ``dones`` array as ``uint8``.
        ``VecNormalize.step_wait`` does ``self.returns[dones] = 0``, which numpy
        interprets as *integer fancy-indexing* rather than a boolean mask — at
        ``num_envs == 1`` (single-agent self-play) ``returns[[1]]`` is out of
@@ -135,6 +141,12 @@ class _ArenaVecEnvAdapter(VecEnvWrapper):
 
     def reset(self):  # type: ignore[override]
         return self.venv.reset()
+
+    def get_attr(self, attr_name, indices=None):
+        """Supply render metadata without crossing SuperSuit's broken boundary."""
+        if attr_name == "render_mode":
+            return [getattr(self.venv, "render_mode", None)] * self.num_envs
+        return self.venv.get_attr(attr_name, indices)
 
     def step_wait(self):
         obs, rewards, dones, infos = self.venv.step_wait()

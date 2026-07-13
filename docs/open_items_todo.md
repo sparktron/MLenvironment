@@ -336,6 +336,10 @@ background.
   wizard still defaults arena `num_envs` to 1 for shared-policy safety, but no
   longer caps the field at 1 so loaded self-play templates can keep their
   parallel worker count.
+- ~~Remove SuperSuit's shared-policy render-mode metadata warning.~~ **Done
+  (2026-07-12)** — `_ArenaVecEnvAdapter.get_attr()` provides the stable
+  `render_mode` value during SB3 wrapper construction and delegates all other
+  attributes unchanged; a regression test confirms warning-free construction.
 - ~~Refresh stale README schema facts while touching docs.~~ **Done
   (2026-06-30)** — README now points at the current walker dimensions, current
   arena replay/support limitations, and the self-play parallel arena path.

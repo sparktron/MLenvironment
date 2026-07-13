@@ -698,6 +698,8 @@ Snapshots saved to `checkpoints/league/`. Oldest pruned automatically.
 With `self_play.enabled: true`, `training.num_envs > 1` uses the native SB3
 vector-env path and can parallelize arena rollout collection. Shared-policy
 arena training still uses the SuperSuit path and must keep `num_envs: 1`.
+The shared-policy adapter supplies `render_mode` metadata locally, so this
+otherwise-compatible boundary no longer emits SB3's missing-render-mode warning.
 For N-agent matches, the live policy's training episode ends immediately on its
 own knockout instead of collecting inert spectator transitions.
 
