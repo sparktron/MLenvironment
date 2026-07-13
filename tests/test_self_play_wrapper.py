@@ -175,7 +175,7 @@ def _single_agent_env(**rules):
 def test_single_agent_env_gym_contract() -> None:
     """Adapter presents the live agent as a flat single-agent Gymnasium env."""
     env = _single_agent_env(max_steps=20)
-    assert env.observation_space.shape == (8,)
+    assert env.observation_space.shape == (13,)
     assert env.action_space.shape == (3,)
     obs, info = env.reset(seed=0)
     assert obs.shape == env.observation_space.shape

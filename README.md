@@ -458,6 +458,9 @@ environment:
   # --- Multi-agent-specific (type: organism_arena_parallel) ---
   sim:
     arena_half_extent: 1.2           # Arena boundary in each direction
+    move_speed: 0.05                 # Base movement speed before size scaling
+    collision_radius: 0.08           # Base organism collision radius
+    speed_size_exponent: 1.0         # Larger bodies move more slowly
 
   morphology:
     base_size: 1.0                   # Agent body scale at episode start
@@ -470,6 +473,16 @@ environment:
     cooldown_steps: 3                # Steps between consecutive attacks
     max_steps: 400                   # Episode truncation limit
     win_health_threshold: 0.0        # Health at or below triggers termination
+
+  resources:
+    initial_energy: 1.0              # Spawn energy (must be <= max_energy)
+    max_energy: 1.0
+    movement_cost: 0.01              # Cost per movement command magnitude
+    attack_cost: 0.04                # Attack requires and consumes energy
+    food_count: 2
+    food_energy: 0.35
+    food_radius: 0.10
+    food_respawn_steps: 40
 
 # ─── Training ───────────────────────────────────────────────────
 training:
@@ -562,7 +575,7 @@ on-disk self-play league for frozen past-self opponents.
 
 | Property | Value |
 |---|---|
-| **Observation** | `Box(8,)` — own velocity/health, nearest-opponent relative state, cooldown, visibility |
+| **Observation** | `Box(13,)` — velocity, health, energy, size, nearest-opponent state, cooldown, and nearest-food state |
 | **Action** | `Box(3,)` — move-x, move-y, attack trigger (> 0.5) |
 | **Reward** | damage dealt − damage received ± win/loss bonus |
 
@@ -925,6 +938,12 @@ The active development plan lives in [`docs/open_items_todo.md`](docs/open_items
 - Walker stability and learning-quality work: empirical reward tuning.
 - Throughput and operations: GUI analysis views and multi-run orchestration beyond the current single-run policy.
 - Feature additions: richer organism arena mechanics and GUI analysis views.
+
+Arena mechanics now include size-scaled collision radii, deterministic food
+spawns, energy costs for movement and attacks, and inverse size/speed scaling.
+Food restores energy and respawns after its configured delay. This expands the
+arena observation from 8 to 13 values, so existing arena checkpoints are not
+compatible with the richer mechanics.
 
 Walker observation v2 is checkpoint-incompatible with v1: v2 adds right/left
 foot-contact signals, and coordinate-free v2 removes global x/y while retaining

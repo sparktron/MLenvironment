@@ -260,6 +260,56 @@ def test_organism_env_obs_shape() -> None:
         )
 
 
+def test_arena_collision_separates_overlapping_organisms() -> None:
+    env = make_env(
+        "organism_arena_parallel",
+        {"type": "organism_arena_parallel", "seed": 0, "sim": {"collision_radius": 0.1}},
+    )
+    try:
+        env.reset(seed=0)
+        for agent in env.agents:
+            env.state[agent]["pos"] = np.zeros(2, dtype=np.float32)
+        noop = np.zeros(3, dtype=np.float32)
+        env.step({agent: noop for agent in env.agents})
+        distance = np.linalg.norm(env.state["agent_0"]["pos"] - env.state["agent_1"]["pos"])
+        assert distance >= 0.2 - 1e-6
+    finally:
+        env.close()
+
+
+def test_arena_food_restores_energy_and_respawns() -> None:
+    env = make_env(
+        "organism_arena_parallel",
+        {"type": "organism_arena_parallel", "seed": 0, "resources": {"food_count": 1, "food_energy": 0.4, "food_respawn_steps": 1}},
+    )
+    try:
+        env.reset(seed=0)
+        env.state["agent_0"]["energy"] = 0.2
+        env._food[0]["pos"] = env.state["agent_0"]["pos"].copy()
+        noop = np.zeros(3, dtype=np.float32)
+        env.step({agent: noop for agent in env.agents})
+        assert env.state["agent_0"]["energy"] == pytest.approx(0.6)
+        assert env._food[0]["respawn_at"] == 1 + env.resources.food_respawn_steps
+        env.step({agent: noop for agent in env.agents})
+        assert env._food[0]["respawn_at"] is None
+    finally:
+        env.close()
+
+
+def test_arena_larger_size_moves_more_slowly() -> None:
+    env = make_env(
+        "organism_arena_parallel",
+        {"type": "organism_arena_parallel", "seed": 0, "morphology": {"base_size": 2.0}},
+    )
+    try:
+        env.reset(seed=0)
+        start = env.state["agent_0"]["pos"].copy()
+        env.step({"agent_0": np.array([1.0, 0.0, 0.0], dtype=np.float32), "agent_1": np.zeros(3, dtype=np.float32)})
+        assert np.linalg.norm(env.state["agent_0"]["pos"] - start) == pytest.approx(env.move_speed / 2.0)
+    finally:
+        env.close()
+
+
 def test_organism_env_terminates_when_health_depleted() -> None:
     """An agent whose health reaches 0 should be marked terminated."""
     cfg = {
@@ -351,9 +401,9 @@ def test_organism_env_obs_hides_opponent_beyond_sensing_radius() -> None:
     env.state["agent_0"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
     env.state["agent_1"]["pos"] = np.array([5.0, 0.0], dtype=np.float32)
     obs = env._obs("agent_0")
-    # rel_opp_x, rel_opp_y, opp_health are obs[3:6]; obs[7] is the visibility flag.
-    assert obs[3] == 0.0 and obs[4] == 0.0 and obs[5] == 0.0
-    assert obs[7] == 0.0, "visibility flag should be 0 when out of sensing range"
+    # Opponent block starts after energy and size at indices 5:8; index 9 is visibility.
+    assert obs[5] == 0.0 and obs[6] == 0.0 and obs[7] == 0.0
+    assert obs[9] == 0.0, "visibility flag should be 0 when out of sensing range"
 
 
 def test_organism_env_attack_damage_scales_with_distance() -> None:
@@ -746,14 +796,14 @@ def test_arena_obs_normalized_and_visibility_disambiguates() -> None:
 
     obs = env.observe("agent_0")
     assert obs[2] == 1.0, "own health is a fraction of max, not raw health"
-    assert obs[5] > 0.0 and obs[5] < 0.01 and obs[7] == 1.0, (
+    assert obs[7] > 0.0 and obs[7] < 0.01 and obs[9] == 1.0, (
         "visible near-dead opponent: tiny health fraction but visibility flag 1"
     )
-    assert abs(obs[6] - 0.5) < 1e-6, "cooldown is a fraction of cooldown_steps"
+    assert abs(obs[8] - 0.5) < 1e-6, "cooldown is a fraction of cooldown_steps"
 
     env.state["agent_1"]["pos"] = np.array([5.0, 0.0], dtype=np.float32)
     obs = env.observe("agent_0")
-    assert obs[5] == 0.0 and obs[7] == 0.0, (
+    assert obs[7] == 0.0 and obs[9] == 0.0, (
         "out-of-range opponent: zero block plus visibility flag 0"
     )
 
@@ -848,8 +898,8 @@ def test_arena_n_agents_reset_and_obs_shape() -> None:
     obs, infos = env.reset(seed=0)
     assert set(obs) == {"agent_0", "agent_1", "agent_2", "agent_3"}
     for a in obs:
-        # Obs stays a fixed 8-D (nearest-opponent block) regardless of N.
-        assert obs[a].shape == env.observation_space(a).shape == (8,)
+        # Obs stays a fixed 13-D (nearest opponent + nearest food) regardless of N.
+        assert obs[a].shape == env.observation_space(a).shape == (13,)
     # Spawns are distinct (circle layout + jitter).
     positions = [tuple(env.state[a]["pos"]) for a in env.possible_agents]
     assert len(set(positions)) == 4

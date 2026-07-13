@@ -422,9 +422,12 @@ background.
 - ~~Add SAC and TD3 walker baselines.~~ **Done (2026-07-12)** —
   `training.algorithm` selects PPO/SAC/TD3 through the shared runner; SAC/TD3
   are validated as walker-only and ship with CPU v2 baseline configs.
-- Arena richness: add body collision, energy/food mechanics, and speed/size
-  tradeoffs so organism morphology has strategic pressure beyond damage and
-  health scaling.
+- ~~Add arena collision, energy/food mechanics, and speed/size tradeoffs.~~
+  **Done (2026-07-12)** — organisms now have size-scaled collision separation,
+  movement/attack energy costs, food pickup and deterministic respawn, and
+  inverse size/speed scaling. The policy receives energy, size, and nearest-food
+  features in the expanded 13D arena observation; prior 8D checkpoints are
+  incompatible.
 - ~~Extend arena tooling beyond head-to-head and score morphology by Elo.~~
   **Done (2026-07-12)** — slot-ordered N-agent eval, rotating N-agent
   tournaments, multi-opponent replay, and `morphology_search.scoring:

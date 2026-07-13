@@ -268,6 +268,25 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
                 f"Unknown environment.morphology keys: {sorted(unknown)}. "
                 f"Valid keys: {sorted(valid_morph_keys)}"
             )
+        resources = env_cfg.get("resources", {})
+        valid_resource_keys = {
+            "initial_energy", "max_energy", "movement_cost", "attack_cost",
+            "food_count", "food_energy", "food_radius", "food_respawn_steps",
+        }
+        unknown_resources = set(resources) - valid_resource_keys
+        if unknown_resources:
+            raise ValueError(
+                f"Unknown environment.resources keys: {sorted(unknown_resources)}. "
+                f"Valid keys: {sorted(valid_resource_keys)}"
+            )
+        for key in ("initial_energy", "max_energy", "movement_cost", "attack_cost", "food_energy", "food_radius"):
+            if key in resources:
+                _ensure_positive_number(resources[key], f"environment.resources.{key}")
+        for key in ("food_count", "food_respawn_steps"):
+            if key in resources:
+                _ensure_int(resources[key], f"environment.resources.{key}", min_value=0)
+        if resources.get("initial_energy", 1.0) > resources.get("max_energy", 1.0):
+            raise ValueError("environment.resources.initial_energy must be <= max_energy")
 
 
 def _validate_curriculum(cfg: dict[str, Any]) -> None:

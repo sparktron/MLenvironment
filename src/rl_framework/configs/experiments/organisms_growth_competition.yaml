@@ -7,6 +7,8 @@ environment:
   sim:
     arena_half_extent: 1.0
     move_speed: 0.05
+    collision_radius: 0.08
+    speed_size_exponent: 1.0
     spawn_jitter: 0.1
   morphology:
     base_size: 1.0
@@ -18,6 +20,15 @@ environment:
     cooldown_steps: 2
     max_steps: 300
     win_health_threshold: 0.0
+  resources:
+    initial_energy: 1.0
+    max_energy: 1.0
+    movement_cost: 0.01
+    attack_cost: 0.04
+    food_count: 3
+    food_energy: 0.35
+    food_radius: 0.10
+    food_respawn_steps: 35
 
 training:
   policy: MlpPolicy

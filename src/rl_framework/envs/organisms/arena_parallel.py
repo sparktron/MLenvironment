@@ -24,6 +24,18 @@ class BattleRules:
     )
 
 
+@dataclass
+class ResourceRules:
+    initial_energy: float = 1.0
+    max_energy: float = 1.0
+    movement_cost: float = 0.01
+    attack_cost: float = 0.04
+    food_count: int = 2
+    food_energy: float = 0.35
+    food_radius: float = 0.10
+    food_respawn_steps: int = 40
+
+
 class OrganismArenaParallelEnv(ParallelEnv):
     metadata = {
         "name": "organism_arena_v0",
@@ -51,6 +63,8 @@ class OrganismArenaParallelEnv(ParallelEnv):
         self.bounds = float(sim_cfg.get("arena_half_extent", 1.0))
         # Per-step movement speed cap (arena units / step).
         self.move_speed = float(sim_cfg.get("move_speed", 0.05))
+        self.collision_radius = float(sim_cfg.get("collision_radius", 0.08))
+        self.speed_size_exponent = float(sim_cfg.get("speed_size_exponent", 1.0))
         # Spawn-position jitter half-width. Non-zero by default: without it the
         # env is fully deterministic and head-to-head eval replays one episode.
         self.spawn_jitter = float(sim_cfg.get("spawn_jitter", 0.1))
@@ -65,11 +79,23 @@ class OrganismArenaParallelEnv(ParallelEnv):
         self.rules = BattleRules(
             **{k: v for k, v in rules_cfg.items() if k in BattleRules.__annotations__}
         )
+        resource_cfg = get_section(cfg, "resources")
+        unknown_resources = sorted(set(resource_cfg) - set(ResourceRules.__annotations__))
+        if unknown_resources:
+            warnings.warn(
+                f"Ignoring unknown resources keys {unknown_resources}; "
+                f"valid keys are {sorted(ResourceRules.__annotations__)}",
+                stacklevel=2,
+            )
+        self.resources = ResourceRules(
+            **{k: v for k, v in resource_cfg.items() if k in ResourceRules.__annotations__}
+        )
         self.morphology = get_section(cfg, "morphology")
         self.state: dict[str, dict[str, Any]] = {}
         # Previous-step positions, used to derive each agent's velocity for the
         # egocentric observation. Repopulated on reset and updated each step.
         self._prev_positions: dict[str, np.ndarray] = {}
+        self._food: list[dict[str, Any]] = []
         # Scales only the dense per-hit reward (not the health damage itself).
         # Annealed toward 0 by RewardAnnealingCallback so the terminal win/loss
         # signal eventually dominates. See update_live_params().
@@ -79,10 +105,11 @@ class OrganismArenaParallelEnv(ParallelEnv):
         self._ax = None
 
     def observation_space(self, agent: str):
-        # Egocentric, slot-symmetric obs (8D), every component pre-scaled to
+        # Egocentric, slot-symmetric obs (13D), every component pre-scaled to
         # roughly [-1, 1]:
         #   [self_vel_x, self_vel_y, health_frac,
-        #    rel_opp_x, rel_opp_y, opp_health_frac, cooldown_frac, opp_visible]
+        #    energy_frac, size_frac, rel_opp_x, rel_opp_y, opp_health_frac,
+        #    cooldown_frac, opp_visible, rel_food_x, rel_food_y, food_visible]
         # Self position is expressed as velocity (displacement since last step,
         # in units of move_speed) rather than absolute coords so the shared
         # policy sees the same input distribution regardless of spawn slot.
@@ -90,7 +117,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
         # the arena diameter and gated (with opp_health) by sensing_radius.
         # opp_visible disambiguates "out of sensing range" (all-zero opponent
         # block) from "adjacent opponent with near-zero health".
-        return spaces.Box(low=-np.inf, high=np.inf, shape=(8,), dtype=np.float32)
+        return spaces.Box(low=-np.inf, high=np.inf, shape=(13,), dtype=np.float32)
 
     def action_space(self, agent: str):
         # move_x, move_y, attack_trigger
@@ -131,6 +158,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
             "max_health": health,
             "cooldown": 0,
             "size": size,
+            "energy": self.resources.initial_energy,
         }
 
     def _current_size(self, agent: str) -> float:
@@ -140,6 +168,20 @@ class OrganismArenaParallelEnv(ParallelEnv):
             float(self.morphology.get("episode_growth_scale", 0.0)) * self.step_count
         )
         return float(np.clip(base_size + growth, 0.5, 2.0))
+
+    def _spawn_food_position(self) -> np.ndarray:
+        margin = max(self.resources.food_radius, 0.05)
+        return self._rng.uniform(-self.bounds + margin, self.bounds - margin, size=2).astype(np.float32)
+
+    def _reset_food(self) -> None:
+        self._food = [
+            {"pos": self._spawn_food_position(), "respawn_at": None}
+            for _ in range(self.resources.food_count)
+        ]
+
+    def _effective_move_speed(self, agent: str) -> float:
+        size = max(float(self.state[agent]["size"]), 1e-8)
+        return self.move_speed / size**self.speed_size_exponent
 
     def reset(self, seed: int | None = None, options: dict[str, Any] | None = None):
         if seed is not None:
@@ -151,6 +193,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
             name: self._spawn_agent(name, i)
             for i, name in enumerate(self.possible_agents)
         }
+        self._reset_food()
         # Seed previous positions so velocity reads zero on the first observation.
         self._prev_positions = {
             agent: self.state[agent]["pos"].copy() for agent in self.agents
@@ -225,16 +268,28 @@ class OrganismArenaParallelEnv(ParallelEnv):
             rel_x, rel_y, opp_health = 0.0, 0.0, 0.0
         health_frac = me["health"] / max(me["max_health"], 1e-8)
         cooldown_frac = float(me["cooldown"]) / max(self.rules.cooldown_steps, 1)
+        available_food = [food for food in self._food if food["respawn_at"] is None]
+        if available_food:
+            food = min(available_food, key=lambda item: float(np.linalg.norm(item["pos"] - me["pos"])))
+            food_rel = (food["pos"] - me["pos"]) / diameter
+            food_x, food_y, food_visible = float(food_rel[0]), float(food_rel[1]), 1.0
+        else:
+            food_x = food_y = food_visible = 0.0
         return np.array(
             [
                 vel[0],
                 vel[1],
                 health_frac,
+                me["energy"] / max(self.resources.max_energy, 1e-8),
+                me["size"] / 2.0,
                 rel_x,
                 rel_y,
                 opp_health,
                 cooldown_frac,
                 float(visible),
+                food_x,
+                food_y,
+                food_visible,
             ],
             dtype=np.float32,
         )
@@ -303,6 +358,13 @@ class OrganismArenaParallelEnv(ParallelEnv):
                     continue
                 self.morphology[field] = cast_val
                 get_section(self.cfg, "morphology")[field] = cast_val
+            elif key.startswith("resources."):
+                field = key.removeprefix("resources.")
+                if hasattr(self.resources, field):
+                    current = getattr(self.resources, field)
+                    cast_val = type(current)(value)
+                    setattr(self.resources, field, cast_val)
+                    get_section(self.cfg, "resources")[field] = cast_val
             elif key == "sim.arena_half_extent":
                 self.bounds = float(value)
                 get_section(self.cfg, "sim")["arena_half_extent"] = self.bounds
@@ -333,7 +395,16 @@ class OrganismArenaParallelEnv(ParallelEnv):
             norm = float(np.linalg.norm(move))
             if norm > 1.0:
                 move = move / norm
-            move = move * self.move_speed
+            move_distance = float(np.linalg.norm(move))
+            energy = self.state[agent]["energy"]
+            if energy <= 0.0:
+                move = np.zeros(2, dtype=np.float32)
+                move_distance = 0.0
+            else:
+                move = move * self._effective_move_speed(agent)
+                self.state[agent]["energy"] = max(
+                    0.0, energy - move_distance * self.resources.movement_cost
+                )
             self.state[agent]["pos"] = np.clip(
                 self.state[agent]["pos"] + move, -self.bounds, self.bounds
             )
@@ -354,6 +425,9 @@ class OrganismArenaParallelEnv(ParallelEnv):
             self.state[agent]["max_health"] = new_max
             self.state[agent]["size"] = new_size
 
+        self._resolve_collisions(active_agents)
+        self._update_food(active_agents, rewards)
+
         # Attacks — each living attacker strikes its nearest living opponent
         # within attack_range (single target, mirroring the nearest-opponent
         # observation). For N=2 this is exactly the other agent. Targeting and
@@ -366,13 +440,18 @@ class OrganismArenaParallelEnv(ParallelEnv):
             if attacker not in combatants or attacker not in actions:
                 continue
             trigger = float(actions[attacker][2]) > 0.5
-            if not trigger or self.state[attacker]["cooldown"] > 0:
+            if (
+                not trigger
+                or self.state[attacker]["cooldown"] > 0
+                or self.state[attacker]["energy"] < self.resources.attack_cost
+            ):
                 continue
             target, dist = self._nearest_opponent(attacker, candidates=combatants)
             if target is None or dist > self.rules.attack_range:
                 continue
             falloff = self._attack_falloff(dist)
             if falloff > 0.0:
+                self.state[attacker]["energy"] -= self.resources.attack_cost
                 damage = self.rules.damage * falloff * self.state[attacker]["size"]
                 self.state[target]["health"] = max(
                     0.0, self.state[target]["health"] - damage
@@ -438,6 +517,40 @@ class OrganismArenaParallelEnv(ParallelEnv):
         for agent in active_agents:
             self._prev_positions[agent] = self.state[agent]["pos"].copy()
         return observations, rewards, terminations, truncations, infos
+
+    def _resolve_collisions(self, active_agents: list[str]) -> None:
+        """Separate overlapping living organisms after movement."""
+        for index, left in enumerate(active_agents):
+            if not self._is_alive(left):
+                continue
+            for right in active_agents[index + 1 :]:
+                if not self._is_alive(right):
+                    continue
+                delta = self.state[right]["pos"] - self.state[left]["pos"]
+                distance = float(np.linalg.norm(delta))
+                minimum = self.collision_radius * (self.state[left]["size"] + self.state[right]["size"])
+                if distance >= minimum:
+                    continue
+                direction = delta / distance if distance > 1e-8 else np.array([1.0, 0.0], dtype=np.float32)
+                correction = (minimum - distance) / 2.0
+                self.state[left]["pos"] = np.clip(self.state[left]["pos"] - direction * correction, -self.bounds, self.bounds)
+                self.state[right]["pos"] = np.clip(self.state[right]["pos"] + direction * correction, -self.bounds, self.bounds)
+
+    def _update_food(self, active_agents: list[str], rewards: dict[str, float]) -> None:
+        """Respawn consumed food and award its energy to the first nearby agent."""
+        for food in self._food:
+            if food["respawn_at"] is not None:
+                if self.step_count >= food["respawn_at"]:
+                    food["pos"] = self._spawn_food_position()
+                    food["respawn_at"] = None
+                continue
+            nearby = [agent for agent in active_agents if self._is_alive(agent) and float(np.linalg.norm(self.state[agent]["pos"] - food["pos"])) <= self.resources.food_radius]
+            if nearby:
+                eater = min(nearby)
+                before = self.state[eater]["energy"]
+                self.state[eater]["energy"] = min(self.resources.max_energy, before + self.resources.food_energy)
+                rewards[eater] += self.state[eater]["energy"] - before
+                food["respawn_at"] = self.step_count + self.resources.food_respawn_steps
 
     def render(self):
         import matplotlib
