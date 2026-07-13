@@ -628,6 +628,10 @@ def train(
             if artifact.is_file():
                 registry.record_artifact(run_identity, "checkpoint", artifact)
         return final_path
+    except Exception as exc:
+        registry.update_run(run_identity, status="failed", error=str(exc))
+        registry.record_event(run_identity, "run_failed", {"error": str(exc)})
+        raise
     finally:
         if "best_eval_env" in locals() and best_eval_env is not None:
             best_eval_env.close()
