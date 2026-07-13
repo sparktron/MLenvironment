@@ -289,7 +289,7 @@ python -m rl_framework.benchmark_device_matrix \
 
 By default, the benchmark overrides each run to `--total-timesteps 20000` so the matrix completes quickly.
 
-The script runs regimes from smaller to larger worker counts (`CPU-4workers` → `CPU-8workers` → `GPU-1worker` → `GPU-2workers`). It prints the matrix version, resolved script path, and execution order before launching any workers. It streams each regime's terminal output live, prints periodic heartbeats while waiting, appends progress events to `outputs/benchmark_device_matrix_progress.jsonl`, measures wall-clock runtime, and prints a JSON summary plus a winner. If a later regime crashes, the progress log and `[partial-results]` output show which earlier regimes completed.
+The script runs regimes from smaller to larger worker counts (`CPU-4workers` → `CPU-8workers` → `GPU-1worker` → `GPU-2workers`). It prints the matrix version, resolved script path, and execution order before launching any workers. It streams each regime's terminal output live, prints periodic heartbeats while waiting, appends progress events to `outputs/benchmark_device_matrix_progress.jsonl`, persists completed regimes in `outputs/benchmark_device_matrix_state.json`, measures wall-clock runtime, and prints a JSON summary plus a winner. Resume a matching interrupted matrix with `--resume`; changed inputs require a new state file.
 
 If the first run line still shows `CPU-10workers` or lacks `[matrix] version:` / `[matrix] script:` lines, you are running an older checkout or a different copy of `scripts/benchmark_device_matrix.py`; update that checkout before rerunning.
 
@@ -644,6 +644,9 @@ update process; `worker_start_method` is passed to `SubprocVecEnv` and only
 matters when `num_envs > 1`. Use `spawn` when process isolation is more
 important than startup time, and benchmark before making either setting a
 long-run default.
+
+See [local training presets](docs/training_presets.md) for ready-to-run smoke,
+overnight, high-throughput, arena self-play, and multi-seed commands.
 
 ### 📈 Multi-Seed Aggregation
 

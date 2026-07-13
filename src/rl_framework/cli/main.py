@@ -93,6 +93,11 @@ def _parse_args() -> argparse.Namespace:
         help="Plan runs without executing training (sweep only)",
     )
     parser.add_argument(
+        "--resume-incomplete",
+        action="store_true",
+        help="Resume completed sweep variants from sweep_summary/state.json",
+    )
+    parser.add_argument(
         "--resume",
         default="",
         help="Path to a saved PPO model (.zip) to resume training from",
@@ -351,8 +356,14 @@ def main() -> None:
     elif args.command == "sweep":
         from rl_framework.training.sweep import run_sweep
 
-        planned = run_sweep(cfg_dict, dry_run=args.dry_run)
-        result = {"planned_runs": len(planned), "dry_run": args.dry_run}
+        planned = run_sweep(
+            cfg_dict, dry_run=args.dry_run, resume=args.resume_incomplete
+        )
+        result = {
+            "planned_runs": len(planned),
+            "dry_run": args.dry_run,
+            "resume_incomplete": args.resume_incomplete,
+        }
         if not args.json:
             print(f"planned_runs={len(planned)} dry_run={args.dry_run}")
 

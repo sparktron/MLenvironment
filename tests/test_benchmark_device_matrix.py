@@ -93,6 +93,7 @@ def test_main_runs_each_regime_once_with_progress_args(
     monkeypatch, tmp_path, capsys
 ) -> None:
     progress_log = tmp_path / "progress.jsonl"
+    state_path = tmp_path / "state.json"
     calls: list[tuple[str, int, int]] = []
 
     class FakeProcess:
@@ -127,6 +128,8 @@ def test_main_runs_each_regime_once_with_progress_args(
             "5",
             "--progress-log",
             str(progress_log),
+            "--state-path",
+            str(state_path),
             "--no-debug",
         ],
     )
@@ -159,3 +162,27 @@ def test_main_runs_each_regime_once_with_progress_args(
     ]
     output = capsys.readouterr().out
     assert '"winner"' in output
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["completed"] is True
+    assert set(state["completed_regimes"]) == {"CPU-4workers"}
+
+
+def test_benchmark_resume_state_rejects_changed_invocation(tmp_path) -> None:
+    args = type(
+        "Args",
+        (),
+        {
+            "config_name": "robot_walk_basic",
+            "config_dir": "configs",
+            "seeds": "0",
+            "total_timesteps": 10,
+        },
+    )()
+    identity = bdm._state_identity(args, bdm._matrix_metadata())
+    state_path = tmp_path / "state.json"
+    bdm._write_benchmark_state(state_path, identity, {}, completed=False)
+
+    args.seeds = "1"
+    changed_identity = bdm._state_identity(args, bdm._matrix_metadata())
+    with pytest.raises(ValueError, match="does not match"):
+        bdm._load_benchmark_state(state_path, changed_identity, resume=True)

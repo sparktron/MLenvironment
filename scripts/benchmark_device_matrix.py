@@ -67,6 +67,56 @@ def _append_progress_log(progress_log: Path | None, event: dict) -> None:
     _write_progress_event(progress_log, event)
 
 
+def _atomic_json_write(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(temp, path)
+
+
+def _state_identity(args: argparse.Namespace, metadata: dict) -> dict:
+    return {
+        "matrix_version": metadata["matrix_version"],
+        "config_name": args.config_name,
+        "config_dir": args.config_dir,
+        "seeds": args.seeds,
+        "total_timesteps": args.total_timesteps,
+        "order": metadata["order"],
+    }
+
+
+def _load_benchmark_state(
+    state_path: Path, identity: dict, resume: bool
+) -> dict[str, dict]:
+    if not resume:
+        return {}
+    if not state_path.exists():
+        raise FileNotFoundError(
+            f"No benchmark state found at {state_path}. Run without --resume first."
+        )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if state.get("identity") != identity:
+        raise ValueError(
+            "Benchmark resume state does not match this matrix invocation. "
+            "Use a new state path or run without --resume."
+        )
+    return dict(state.get("completed_regimes", {}))
+
+
+def _write_benchmark_state(
+    state_path: Path, identity: dict, completed_regimes: dict[str, dict], completed: bool
+) -> None:
+    _atomic_json_write(
+        state_path,
+        {
+            "schema_version": 1,
+            "identity": identity,
+            "completed_regimes": completed_regimes,
+            "completed": completed,
+        },
+    )
+
+
 def _kill_process_tree(proc: subprocess.Popen) -> None:
     """Kill the benchmarked process group, falling back to the parent process."""
     try:
@@ -302,6 +352,16 @@ def main() -> None:
             "(default: outputs/benchmark_device_matrix_progress.jsonl; pass an empty string to disable)."
         ),
     )
+    parser.add_argument(
+        "--state-path",
+        default="outputs/benchmark_device_matrix_state.json",
+        help="JSON state file for completed regimes (default: outputs/benchmark_device_matrix_state.json).",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Skip regimes already completed in a matching --state-path file.",
+    )
     args = parser.parse_args()
 
     if not (0.0 <= args.reward_tolerance_ratio < 1.0):
@@ -315,8 +375,11 @@ def main() -> None:
 
     rows: list[dict] = []
     progress_log = Path(args.progress_log) if args.progress_log else None
+    state_path = Path(args.state_path)
     metadata = _matrix_metadata()
     order = metadata["order"]
+    identity = _state_identity(args, metadata)
+    completed_regimes = _load_benchmark_state(state_path, identity, args.resume)
     _dbg(
         args.debug,
         f"benchmark start config={args.config_name} seeds={args.seeds} total_timesteps={args.total_timesteps} "
@@ -327,6 +390,7 @@ def main() -> None:
     print(f"[matrix] order: {' -> '.join(order)}", flush=True)
     if progress_log is not None:
         print(f"[progress-log] {progress_log}", flush=True)
+    print(f"[state] {state_path}", flush=True)
     _write_progress_event(
         progress_log,
         {
@@ -340,15 +404,21 @@ def main() -> None:
             "order": order,
         },
     )
+    if not args.resume:
+        _write_benchmark_state(state_path, identity, completed_regimes, completed=False)
     for ordinal, regime in enumerate(REGIMES, start=1):
+        if regime.name in completed_regimes:
+            row = completed_regimes[regime.name]
+            rows.append(row)
+            print(f"[resume] skipping completed regime {regime.name}", flush=True)
+            continue
         print(
             f"[run {ordinal}/{len(REGIMES)}] {regime.name}  "
             f"device={regime.device}  max_workers={regime.max_workers}",
             flush=True,
         )
         try:
-            rows.append(
-                _run_regime(
+            row = _run_regime(
                     args.config_name,
                     args.seeds,
                     args.config_dir,
@@ -361,6 +431,10 @@ def main() -> None:
                     ordinal=ordinal,
                     total_regimes=len(REGIMES),
                 )
+            rows.append(row)
+            completed_regimes[regime.name] = row
+            _write_benchmark_state(
+                state_path, identity, completed_regimes, completed=False
             )
         except Exception as exc:
             _write_progress_event(
@@ -383,6 +457,7 @@ def main() -> None:
     )
     _dbg(args.debug, f"winner={winner['name']} rule={rule}")
     payload = {"results": rows, "winner": winner, "decision_rule": rule}
+    _write_benchmark_state(state_path, identity, completed_regimes, completed=True)
     _write_progress_event(progress_log, {"event": "matrix_completed", **payload})
     print(json.dumps(payload, indent=2))
 

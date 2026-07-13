@@ -392,10 +392,10 @@ background.
   incompatible and document migration expectations.
 
 ### Priority 2: throughput and experiment operations
-- Produce documented local training presets for this 24-core machine: quick
-  smoke, reliable overnight walker, high-throughput walker, arena self-play, and
-  multi-seed evaluation. Record expected FPS, memory footprint, and failure
-  modes next to the config recommendations.
+- ~~Produce documented local training presets for this 24-core machine.~~
+  **Done (2026-07-12)** — `docs/training_presets.md` covers quick smoke,
+  reliable overnight walker, high-throughput walker, arena self-play, and
+  multi-seed evaluation, including measured FPS and worker guidance.
 - ~~Add optional `training.torch_num_threads` and `training.worker_start_method`
   controls.~~ **Done (2026-07-12)** — the controls are validated and the
   `walker_smoke_cpu` CLI run completed with `torch_num_threads: 1` and
@@ -408,9 +408,11 @@ background.
   hash, seed, algorithm, checkpoint paths, VecNormalize sidecars, metrics CSVs,
   and parent/resume relationships. Use it to power comparisons, cleanup, and GUI
   output discovery instead of directory-name inference.
-- Make sweeps and benchmark matrices resumable. Each variant should have a
-  machine-readable manifest, completion marker, and partial-result summary so a
-  failed late regime does not require recomputing successful regimes.
+- ~~Make sweeps and benchmark matrices resumable.~~ **Done (2026-07-12)** —
+  sweeps persist fingerprinted `sweep_summary/state.json` plus per-run
+  `completion.json` markers and resume with `--resume-incomplete`; the benchmark
+  persists each completed regime in a matching JSON state file and resumes with
+  `--resume`.
 
 ### Priority 3: feature additions
 - Walker curricula: add terrain presets (`flat`, `uneven`, `obstacle/stump`,
