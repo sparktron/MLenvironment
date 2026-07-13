@@ -469,7 +469,10 @@ training:
   normalize_observations: true       # Wrap env in VecNormalize
   check_nans: false                  # Set true to fail fast on NaN/Inf values
   num_envs: 8                        # >1 uses SubprocVecEnv for parallelism
-  device: auto                       # "auto" (default) | "cuda" | "cuda:0" | "cpu"
+  device: cpu                        # Default for bundled MLP experiments
+  # device: auto                     # Opt into CUDA discovery when appropriate
+  torch_num_threads: 1               # Optional PyTorch update-thread cap
+  worker_start_method: spawn         # Optional: fork | forkserver | spawn
 
 # ─── Evaluation ─────────────────────────────────────────────────
 evaluation:
@@ -603,13 +606,16 @@ curriculum:
 
 Level parameters use dotted-key notation to override any value in the environment config at runtime. Per-level thresholds let you set different advancement bars at each difficulty stage.
 
-### 🖥️ GPU Acceleration
+### 🖥️ Training Device
 
-The framework defaults to `"auto"`, which **uses an NVIDIA GPU when one is available and falls back to CPU otherwise** — no configuration needed for most setups. Override via the YAML key:
+The bundled MLP experiments default to `"cpu"`. PyBullet rollouts are CPU-only,
+and these small policies are typically slower on GPU because transfer overhead
+outweighs the update cost. Override via the YAML key when using a larger policy:
 
 ```yaml
 training:
-  device: auto      # default — GPU if available, CPU otherwise
+  device: cpu       # default for bundled MLP experiments
+  # device: auto    # GPU if available, otherwise CPU
   # device: cuda    # require GPU (fails if CUDA is unavailable)
   # device: cuda:1  # pin to a specific GPU on multi-GPU machines
   # device: cpu     # force CPU
@@ -617,7 +623,7 @@ training:
 
 Accepted values: `auto`, `cpu`, `cuda`, `cuda:<N>` (e.g. `cuda:0`). Any other string is rejected at config-validation time with a clear error message.
 
-> **Note:** PyBullet physics simulation is CPU-only. GPU acceleration applies to the PPO neural network (forward passes during rollout and the gradient update steps). For MLP policies the gain is modest; it becomes significant with larger networks or image-based (`CnnPolicy`) policies.
+> **Note:** PyBullet physics simulation is CPU-only. GPU acceleration applies to the PPO neural network only and remains useful for larger networks or image-based (`CnnPolicy`) policies.
 
 ### ⚡ Parallel CPU Rollouts
 
@@ -629,7 +635,15 @@ larger rollout batches can change PPO update stability.
 training:
   num_envs: 8                       # SubprocVecEnv (1 = DummyVecEnv, no overhead)
   check_nans: false                 # Set true while diagnosing unstable runs
+  torch_num_threads: 1              # Optional cap for PyTorch update threads
+  worker_start_method: spawn        # Optional: fork | forkserver | spawn
 ```
+
+The two runtime controls are opt-in. `torch_num_threads` constrains the PPO
+update process; `worker_start_method` is passed to `SubprocVecEnv` and only
+matters when `num_envs > 1`. Use `spawn` when process isolation is more
+important than startup time, and benchmark before making either setting a
+long-run default.
 
 ### 📈 Multi-Seed Aggregation
 
@@ -844,7 +858,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 | Technique | Action | Expected Gain |
 |---|---|---|
 | **Parallel rollouts** | Set `training.num_envs: 4+` | ~3-4× on 4 cores |
-| **GPU training** | `device: auto` (default) — GPU if available | Automatic; bigger gain with larger nets / CnnPolicy |
+| **GPU training** | `device: cpu` for bundled MLP configs | Set `auto`/`cuda` explicitly for larger nets or CnnPolicy |
 | **Longer rollouts** | Increase `training.n_steps` | Better sample efficiency |
 | **Reduce logging** | Set `verbose: 0` | Minor |
 

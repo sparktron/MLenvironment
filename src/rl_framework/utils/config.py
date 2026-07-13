@@ -58,6 +58,20 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
             "Config key 'training.check_nans' must be bool, "
             f"got {type(cfg['training']['check_nans']).__name__}"
         )
+    if "torch_num_threads" in cfg["training"]:
+        _ensure_int(
+            cfg["training"]["torch_num_threads"],
+            "training.torch_num_threads",
+            min_value=1,
+        )
+    if "worker_start_method" in cfg["training"]:
+        method = cfg["training"]["worker_start_method"]
+        valid_methods = {"fork", "forkserver", "spawn"}
+        if method not in valid_methods:
+            raise ValueError(
+                "training.worker_start_method must be one of "
+                f"{sorted(valid_methods)}, got {method!r}"
+            )
 
     if "batch_size" in cfg["training"]:
         n_steps = int(cfg["training"].get("n_steps", 1024))

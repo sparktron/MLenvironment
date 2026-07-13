@@ -114,6 +114,21 @@ def test_validate_experiment_config_rejects_non_bool_check_nans() -> None:
         validate_experiment_config(cfg)
 
 
+@pytest.mark.parametrize("value", [0, -1, True, "2"])
+def test_validate_experiment_config_rejects_invalid_torch_thread_count(value) -> None:
+    cfg = _base_cfg()
+    cfg["training"]["torch_num_threads"] = value
+    with pytest.raises((TypeError, ValueError), match="torch_num_threads"):
+        validate_experiment_config(cfg)
+
+
+def test_validate_experiment_config_rejects_invalid_worker_start_method() -> None:
+    cfg = _base_cfg()
+    cfg["training"]["worker_start_method"] = "invalid"
+    with pytest.raises(ValueError, match="worker_start_method"):
+        validate_experiment_config(cfg)
+
+
 def test_validate_experiment_config_rejects_multi_env_shared_policy_arena() -> None:
     cfg = _base_cfg()
     cfg["environment"] = {"type": "organism_arena_parallel"}

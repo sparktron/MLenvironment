@@ -27,7 +27,7 @@ training:
   batch_size: 256
   checkpoint_every: 5000
   normalize_observations: true
-  device: auto
+  device: cpu
   # Self-play arena now runs on SB3's native vec-env path, so num_envs > 1
   # parallelizes rollout across cores (env_method-driven annealing/curriculum
   # still propagate). Bump toward the core count (24 here) for faster training.

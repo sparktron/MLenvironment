@@ -123,7 +123,7 @@ def test_schema_returns_both_envs(client):
     data = resp.get_json()
     assert "walker_bullet" in data and "organism_arena_parallel" in data
     assert "training" in data["walker_bullet"]
-    assert data["walker_bullet"]["training"]["device"]["value"] == "auto"
+    assert data["walker_bullet"]["training"]["device"]["value"] == "cpu"
     assert data["walker_bullet"]["training"]["check_nans"]["value"] is False
 
 

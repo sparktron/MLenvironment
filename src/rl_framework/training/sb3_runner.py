@@ -40,6 +40,26 @@ from rl_framework.utils.reproducibility import (
 )
 
 
+def _configure_torch_num_threads(training_cfg: dict[str, Any]) -> None:
+    """Apply an explicit PyTorch CPU thread limit when configured."""
+    value = training_cfg.get("torch_num_threads")
+    if value is None:
+        return
+    import torch
+
+    torch.set_num_threads(int(value))
+
+
+def _make_subproc_vec_env(env_fns: list, training_cfg: dict[str, Any]):
+    """Build a subprocess vec env with the configured process start method."""
+    for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "BLAS_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+        os.environ.setdefault(name, "1")
+    start_method = training_cfg.get("worker_start_method")
+    if start_method is None:
+        return SubprocVecEnv(env_fns)
+    return SubprocVecEnv(env_fns, start_method=start_method)
+
+
 class StopOnEvent(BaseCallback):
     """SB3 callback that halts training when a :class:`threading.Event` is set.
 
@@ -327,6 +347,8 @@ def train(
         training continues from the saved timestep counter.  If a sibling
         ``vecnormalize.pkl`` exists, its running statistics are also restored.
     """
+    train_cfg = cfg["training"]
+    _configure_torch_num_threads(train_cfg)
     repro_cfg = cfg.get("reproducibility", {})
     if resume_from is not None:
         _validate_resume_path(
@@ -401,11 +423,7 @@ def train(
             for i in range(max(num_envs, 1))
         ]
         if num_envs > 1:
-            os.environ.setdefault("OMP_NUM_THREADS", "1")
-            os.environ.setdefault("MKL_NUM_THREADS", "1")
-            os.environ.setdefault("BLAS_NUM_THREADS", "1")
-            os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-            vec_env = SubprocVecEnv(env_fns)
+            vec_env = _make_subproc_vec_env(env_fns, train_cfg)
         else:
             vec_env = DummyVecEnv(env_fns)
     elif env_cfg["type"] == "organism_arena_parallel":
@@ -426,11 +444,7 @@ def train(
             for i in range(max(num_envs, 1))
         ]
         if num_envs > 1:
-            os.environ.setdefault("OMP_NUM_THREADS", "1")
-            os.environ.setdefault("MKL_NUM_THREADS", "1")
-            os.environ.setdefault("BLAS_NUM_THREADS", "1")
-            os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-            vec_env = SubprocVecEnv(env_fns)
+            vec_env = _make_subproc_vec_env(env_fns, train_cfg)
         else:
             vec_env = DummyVecEnv(env_fns)
 
@@ -461,7 +475,6 @@ def train(
                 device=cfg["training"].get("device", "auto"),
             )
         else:
-            train_cfg = cfg["training"]
             lr = _make_lr_schedule(
                 train_cfg.get("learning_rate", 3e-4),
                 train_cfg.get("learning_rate_end"),  # None → constant LR

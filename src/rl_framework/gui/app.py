@@ -582,10 +582,10 @@ def _training_schema(env_type: str) -> dict[str, Any]:
             "desc": "Fail fast on NaN/Inf observations, rewards, or actions",
         },
         "device": {
-            "value": "auto",
+            "value": "cpu",
             "type": "choice",
             "choices": ["auto", "cpu", "cuda", "cuda:0"],
-            "desc": "Training device",
+            "desc": "Training device (CPU is best for the bundled MLP policies)",
         },
     }
     if env_type == "organism_arena_parallel":

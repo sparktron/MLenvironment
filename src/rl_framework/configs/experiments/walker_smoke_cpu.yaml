@@ -1,0 +1,55 @@
+experiment_name: walker_smoke_cpu
+seed: 0
+
+environment:
+  type: walker_bullet
+  seed: 0
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166666666666667
+    frame_skip: 4
+    settle_steps: 10
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  reward:
+    alive_bonus: 1.0
+    forward_velocity_weight: 1.0
+    target_velocity: 0.5
+    orientation_penalty_weight: 0.1
+    torque_penalty_weight: 0.01
+    fall_penalty: 1.0
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 64
+  domain_randomization:
+    mass_scale_range: [1.0, 1.0]
+    friction_range: [1.0, 1.0]
+    sensor_noise_std: 0.0
+    action_latency_steps: 0
+
+training:
+  policy: MlpPolicy
+  total_timesteps: 256
+  learning_rate: 0.0003
+  n_steps: 64
+  batch_size: 64
+  n_epochs: 2
+  checkpoint_every: 128
+  normalize_observations: true
+  check_nans: true
+  num_envs: 2
+  device: cpu
+  torch_num_threads: 1
+  worker_start_method: spawn
+
+evaluation:
+  episodes: 1
+
+output:
+  base_dir: outputs

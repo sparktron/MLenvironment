@@ -310,6 +310,16 @@ background.
   population, but the single-agent self-play wrapper now ends the learner's SB3
   episode immediately. A three-agent regression test confirms the underlying
   free-for-all may continue while the learner receives a terminal transition.
+
+### Completed Runtime Controls (2026-07-12)
+- ~~Set bundled MLP experiment configs to CPU.~~ **Done** — all shipped MLP
+  configs and GUI defaults use `device: cpu`; `auto` and CUDA remain available
+  for larger policies.
+- ~~Pin floating direct runtime/dev dependency ranges.~~ **Done** —
+  `pyproject.toml` now uses the exact versions in `requirements-lock.txt`.
+- ~~Add optional PyTorch-thread and worker-start controls.~~ **Done** —
+  `training.torch_num_threads` and `training.worker_start_method` are validated
+  and applied to PPO/SubprocVecEnv only when present in a config.
 - ~~Fix `validate_experiment_config()` for arena self-play parallelism.~~
   **Done (2026-06-30)** — validation now allows `training.num_envs > 1` only
   when `self_play.enabled: true`, while preserving the shared-policy SuperSuit

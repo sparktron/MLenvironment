@@ -39,6 +39,33 @@ def test_callback_frequency_scales_with_vector_env_count() -> None:
     assert _callback_freq_from_timesteps(4, 24) == 1
 
 
+def test_runtime_controls_apply_torch_threads_and_worker_start_method(monkeypatch) -> None:
+    from rl_framework.training import sb3_runner
+
+    configured_threads: list[int] = []
+    monkeypatch.setattr("torch.set_num_threads", configured_threads.append)
+    sb3_runner._configure_torch_num_threads({"torch_num_threads": 3})
+    assert configured_threads == [3]
+
+    captured = {}
+
+    class _FakeVecEnv:
+        pass
+
+    def _fake_subproc(env_fns, start_method=None):
+        captured["env_fns"] = env_fns
+        captured["start_method"] = start_method
+        return _FakeVecEnv()
+
+    monkeypatch.setattr(sb3_runner, "SubprocVecEnv", _fake_subproc)
+    env_fns = [object(), object()]
+    result = sb3_runner._make_subproc_vec_env(
+        env_fns, {"worker_start_method": "spawn"}
+    )
+    assert isinstance(result, _FakeVecEnv)
+    assert captured == {"env_fns": env_fns, "start_method": "spawn"}
+
+
 def test_set_nested_requires_existing_leaf_key() -> None:
     cfg = {"training": {"learning_rate": 3e-4}}
     with pytest.raises(KeyError, match="leaf key 'missing_key' not found"):
