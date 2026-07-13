@@ -51,5 +51,9 @@ training:
 evaluation:
   episodes: 1
 
+reproducibility:
+  deterministic: true
+  strict: false
+
 output:
   base_dir: outputs

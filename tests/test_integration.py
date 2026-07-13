@@ -80,6 +80,30 @@ def test_walker_train_produces_model_and_vecnorm(tmp_path: Path) -> None:
     assert vecnorm_path.exists(), f"vecnormalize.pkl not found alongside {zip_path}"
 
 
+def test_walker_best_model_writes_matching_vecnorm_sidecar(tmp_path: Path) -> None:
+    """Best-model eval must save a model-specific normalizer at the same point
+    as the selected checkpoint, so replay and resume never pair it with later
+    running statistics."""
+    from rl_framework.training.sb3_runner import train
+
+    cfg = _walker_cfg(tmp_path, timesteps=256, checkpoint_every=128)
+    cfg["evaluation"]["best_model"] = {
+        "enabled": True,
+        "eval_every": 64,
+        "episodes": 1,
+    }
+    train(cfg)
+
+    checkpoints = (
+        Path(tmp_path)
+        / cfg["experiment_name"]
+        / f"seed_{cfg['seed']}"
+        / "checkpoints"
+    )
+    assert (checkpoints / "best_model.zip").exists()
+    assert (checkpoints / "best_model_vecnormalize.pkl").exists()
+
+
 def _arena_cfg(tmp_path: Path, timesteps: int = 256) -> dict:
     return {
         "experiment_name": "integ_arena",

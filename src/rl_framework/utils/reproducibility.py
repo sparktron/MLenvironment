@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import platform
+import random
 import socket
 import subprocess
 import sys
@@ -12,9 +13,34 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from rl_framework.utils.checkpoint import model_zip_path as _as_zip_path
 
 _log = logging.getLogger(__name__)
+
+
+def configure_deterministic_mode(seed: int) -> None:
+    """Configure Python, NumPy, and PyTorch for reproducible training.
+
+    PyBullet itself remains subject to platform and driver variation, but this
+    removes the framework's random-number and PyTorch algorithm variability.
+    ``train()`` also resolves deterministic subprocesses to ``spawn`` and a
+    single PyTorch update thread before this function is called.
+    """
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    random.seed(seed)
+    np.random.seed(seed)
+
+    import torch
+
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+    torch.use_deterministic_algorithms(True)
 
 
 def write_run_metadata(

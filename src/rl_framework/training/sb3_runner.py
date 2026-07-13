@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import supersuit as ss
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import (
     DummyVecEnv,
@@ -36,6 +36,7 @@ from rl_framework.utils.checkpoint import (
 from rl_framework.utils.logging_utils import create_experiment_paths
 from rl_framework.utils.reproducibility import (
     check_resume_provenance,
+    configure_deterministic_mode,
     write_run_metadata,
 )
 
@@ -58,6 +59,30 @@ def _make_subproc_vec_env(env_fns: list, training_cfg: dict[str, Any]):
     if start_method is None:
         return SubprocVecEnv(env_fns)
     return SubprocVecEnv(env_fns, start_method=start_method)
+
+
+class VecNormalizeBestModelCallback(BaseCallback):
+    """Save the training normalizer beside an EvalCallback best model."""
+
+    def __init__(self, model_path: Path) -> None:
+        super().__init__(verbose=0)
+        self._model_path = model_path
+
+    def _on_step(self) -> bool:
+        vecnorm = self.model.get_vec_normalize_env()
+        if vecnorm is not None:
+            vecnorm.save(str(_vecnormalize_path_for_model(self._model_path)))
+        return True
+
+
+def _build_best_model_eval_env(
+    env_cfg: dict[str, Any], normalize_observations: bool
+):
+    """Build a fresh walker eval env whose running stats are synced by SB3."""
+    eval_env = DummyVecEnv([_build_single_env(env_cfg)])
+    if normalize_observations:
+        eval_env = VecNormalize(eval_env, training=False, norm_reward=False)
+    return eval_env
 
 
 class StopOnEvent(BaseCallback):
@@ -348,8 +373,12 @@ def train(
         ``vecnormalize.pkl`` exists, its running statistics are also restored.
     """
     train_cfg = cfg["training"]
-    _configure_torch_num_threads(train_cfg)
     repro_cfg = cfg.get("reproducibility", {})
+    if repro_cfg.get("deterministic", False):
+        train_cfg.setdefault("torch_num_threads", 1)
+        train_cfg.setdefault("worker_start_method", "spawn")
+        configure_deterministic_mode(int(cfg["seed"]))
+    _configure_torch_num_threads(train_cfg)
     if resume_from is not None:
         _validate_resume_path(
             Path(resume_from),
@@ -451,6 +480,7 @@ def train(
     try:
         normalize = cfg["training"].get("normalize_observations", True)
         vecnormalize_env = None
+        best_eval_env = None
         if normalize:
             vecnorm_path = None
             if resume_from is not None:
@@ -507,6 +537,25 @@ def train(
             name_prefix="ppo_model",
         )
         callbacks: list[BaseCallback] = [checkpoint_cb]
+
+        best_model_cfg = cfg.get("evaluation", {}).get("best_model", {})
+        if best_model_cfg.get("enabled", False):
+            best_model_path = paths.checkpoints_dir / "best_model"
+            best_eval_env = _build_best_model_eval_env(env_cfg, normalize)
+            callbacks.append(
+                EvalCallback(
+                    best_eval_env,
+                    callback_on_new_best=VecNormalizeBestModelCallback(best_model_path),
+                    n_eval_episodes=int(best_model_cfg.get("episodes", 5)),
+                    eval_freq=_callback_freq_from_timesteps(
+                        int(best_model_cfg.get("eval_every", 50_000)), num_envs
+                    ),
+                    best_model_save_path=str(paths.checkpoints_dir),
+                    log_path=str(paths.logs_dir),
+                    deterministic=True,
+                    warn=False,
+                )
+            )
 
         # Optional stop-on-request (e.g. from the GUI stop button).
         if stop_event is not None:
@@ -569,5 +618,7 @@ def train(
             vecnormalize_env.save(str(paths.checkpoints_dir / "vecnormalize.pkl"))
         return final_path
     finally:
+        if "best_eval_env" in locals() and best_eval_env is not None:
+            best_eval_env.close()
         if "vec_env" in locals():
             vec_env.close()

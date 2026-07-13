@@ -749,16 +749,39 @@ ruff check src/ tests/                    # Lint & format check
 python scripts/check_repo_policy.py       # Lockfile + tracked artifact policy checks
 ```
 
-### Reproducibility metadata (strict mode)
+### Reproducibility And Best Models
 
-Add this block to an experiment config to require provenance capture at run start:
+Use strict provenance to require a complete run manifest, and deterministic mode
+to enforce framework-level random seeds, deterministic PyTorch algorithms, one
+PyTorch update thread, and spawned rollout workers:
 
 ```yaml
 reproducibility:
   strict: true
+  deterministic: true
 ```
 
-Each training run writes `run_metadata.json` under the run directory with config hash, git commit, lockfile hash, and runtime details.
+Each training run writes `run_metadata.json` with the resolved config, hash,
+git commit, lockfile hash, and runtime details. Deterministic mode improves
+repeatability but cannot promise bit-identical PyBullet results across platforms
+or drivers.
+
+Walker experiments can also retain the best observed policy, with a separate
+VecNormalize evaluation environment and a matching sidecar:
+
+```yaml
+evaluation:
+  episodes: 5
+  best_model:
+    enabled: true
+    eval_every: 50000
+    episodes: 5
+```
+
+This writes `checkpoints/best_model.zip` and
+`checkpoints/best_model_vecnormalize.pkl`. Best-model selection is currently
+supported for `walker_bullet`; use `arena-eval`/`arena-tournament` for arena
+checkpoint comparison.
 
 | Test | Verifies |
 |---|---|

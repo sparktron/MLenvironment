@@ -94,9 +94,41 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
         _ensure_int(self_play_cfg.get("max_league_size", 10), "self_play.max_league_size", min_value=1)
 
     repro_cfg = cfg.get("reproducibility", {})
-    if "strict" in repro_cfg and not isinstance(repro_cfg["strict"], bool):
-        raise TypeError(
-            f"Config key 'reproducibility.strict' must be bool, got {type(repro_cfg['strict']).__name__}"
+    for key in ("strict", "deterministic"):
+        if key in repro_cfg and not isinstance(repro_cfg[key], bool):
+            raise TypeError(
+                f"Config key 'reproducibility.{key}' must be bool, "
+                f"got {type(repro_cfg[key]).__name__}"
+            )
+    if repro_cfg.get("deterministic", False):
+        threads = cfg["training"].get("torch_num_threads")
+        if threads is not None and threads != 1:
+            raise ValueError(
+                "reproducibility.deterministic requires "
+                "training.torch_num_threads == 1 when configured"
+            )
+        start_method = cfg["training"].get("worker_start_method")
+        if start_method is not None and start_method != "spawn":
+            raise ValueError(
+                "reproducibility.deterministic requires "
+                "training.worker_start_method == 'spawn' when configured"
+            )
+
+    best_model_cfg = eval_cfg.get("best_model", {})
+    if best_model_cfg.get("enabled", False):
+        if cfg["environment"].get("type") != "walker_bullet":
+            raise ValueError(
+                "evaluation.best_model is currently supported only for walker_bullet"
+            )
+        _ensure_int(
+            best_model_cfg.get("eval_every", 50_000),
+            "evaluation.best_model.eval_every",
+            min_value=1,
+        )
+        _ensure_int(
+            best_model_cfg.get("episodes", 5),
+            "evaluation.best_model.episodes",
+            min_value=1,
         )
 
     _validate_env_specific(cfg)

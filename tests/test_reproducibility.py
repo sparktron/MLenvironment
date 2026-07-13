@@ -1,6 +1,7 @@
 import numpy as np
 
 from rl_framework.envs.registry import make_env
+from rl_framework.utils.reproducibility import configure_deterministic_mode
 
 
 def test_walker_seed_reproducibility() -> None:
@@ -17,3 +18,11 @@ def test_walker_seed_reproducibility() -> None:
     np.testing.assert_allclose(obs_a, obs_b, atol=1e-6)
     env_a.close()
     env_b.close()
+
+
+def test_configure_deterministic_mode_reseeds_numpy() -> None:
+    configure_deterministic_mode(7)
+    first = np.random.random(4)
+    configure_deterministic_mode(7)
+    second = np.random.random(4)
+    np.testing.assert_array_equal(first, second)

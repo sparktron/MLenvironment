@@ -14,7 +14,11 @@
 - ~~Rework experiment storage layout to avoid name mutation in multi-seed and sweep orchestration.~~ **Done** — variants now route through `output.run_id` (`<experiment>/runs/<run_id>/seed_<seed>/`); multi-seed no longer mutates the name. See `create_experiment_paths`.
 - Replace file-based GUI tuning/status IPC with atomic event stream (SSE/WebSocket or durable queue).
 - ~~Work through the GUI correctness and layout plan in `docs/ui_roadmap.md`.~~ **Done** — fixed stale walker metadata, template-to-environment state reset, dashboard disabled/empty states, variant run labels, compact mobile wizard progress, and denser desktop dashboard layout. The roadmap file now records implementation status and the browser checklist.
-- Introduce end-to-end reproducibility mode (deterministic settings + enforcement + metadata).
+- ~~Introduce end-to-end reproducibility mode (deterministic settings + enforcement + metadata).~~
+  **Done (2026-07-12)** — `reproducibility.deterministic: true` seeds Python,
+  NumPy, and PyTorch; enables deterministic PyTorch algorithms; resolves to one
+  PyTorch thread and spawned workers; and persists the resolved configuration
+  in `run_metadata.json`.
 - ~~Add CI pipeline for lint/test/type checks and lockfile validation.~~ **Done** — `.github/workflows/ci.yml` runs pytest+coverage, ruff, advisory mypy, security audit, and `check_repo_policy.py` (lockfile completeness). Checkout/setup-python use Node 24-compatible action majors.
 - ~~Remove tracked generated artifacts (`__pycache__`, `.egg-info`) and enforce clean repository hygiene.~~ **Done** — `.egg-info` untracked; `check_repo_policy.py` now fails on any tracked `__pycache__`/`.pyc`/`.egg-info`/`.venv` unconditionally (was gated behind `STRICT_REPO_CLEAN`).
 
@@ -374,10 +378,10 @@ background.
   hyperparameters changed. RL-Zoo/PyBullet-style small-batch presets remain
   documented above as options, not defaults, given the throughput cost on
   this hardware.
-- Add a best-checkpoint evaluation path. Long walker runs should save the best
-  policy according to a separately normalized eval env, not only periodic and
-  final checkpoints. Include resume/eval sidecar behavior in the regression
-  tests.
+- ~~Add a best-checkpoint evaluation path.~~ **Done (2026-07-12)** — walker
+  configs can enable `evaluation.best_model`; a separate normalized eval env
+  selects `best_model.zip` and writes `best_model_vecnormalize.pkl` alongside
+  it. Integration coverage verifies both artifacts.
 - Rebalance the default walker reward so standing still is not overpaid. Test
   lower `alive_bonus`, stronger forward-progress incentives, energy/torque
   costs, and curriculum schedules that ramp target velocity and perturbations
@@ -392,10 +396,10 @@ background.
   smoke, reliable overnight walker, high-throughput walker, arena self-play, and
   multi-seed evaluation. Record expected FPS, memory footprint, and failure
   modes next to the config recommendations.
-- Add optional `training.torch_num_threads` and `training.worker_start_method`
-  controls if benchmarks show they improve stability or CPU utilization. The
-  runner already caps BLAS thread env vars for subprocesses; PyTorch update
-  threading is still implicit.
+- ~~Add optional `training.torch_num_threads` and `training.worker_start_method`
+  controls.~~ **Done (2026-07-12)** — the controls are validated and the
+  `walker_smoke_cpu` CLI run completed with `torch_num_threads: 1` and
+  `worker_start_method: spawn` at roughly 1,300 FPS.
 - Replace file-based GUI tuning/status IPC with an atomic event stream
   (SSE/WebSocket) or a durable queue. Preserve the current simple polling API as
   a fallback until browser and API tests cover no-run, running, stopped, and

@@ -107,6 +107,27 @@ def test_validate_experiment_config_rejects_non_bool_repro_strict() -> None:
         validate_experiment_config(cfg)
 
 
+def test_validate_experiment_config_rejects_invalid_deterministic_settings() -> None:
+    cfg = _base_cfg()
+    cfg["reproducibility"] = {"deterministic": True}
+    cfg["training"]["torch_num_threads"] = 2
+    with pytest.raises(ValueError, match="deterministic.*torch_num_threads"):
+        validate_experiment_config(cfg)
+
+    cfg["training"]["torch_num_threads"] = 1
+    cfg["training"]["worker_start_method"] = "fork"
+    with pytest.raises(ValueError, match="deterministic.*worker_start_method"):
+        validate_experiment_config(cfg)
+
+
+def test_validate_experiment_config_rejects_best_model_for_arena() -> None:
+    cfg = _base_cfg()
+    cfg["environment"] = {"type": "organism_arena_parallel"}
+    cfg["evaluation"]["best_model"] = {"enabled": True}
+    with pytest.raises(ValueError, match="best_model.*walker_bullet"):
+        validate_experiment_config(cfg)
+
+
 def test_validate_experiment_config_rejects_non_bool_check_nans() -> None:
     cfg = _base_cfg()
     cfg["training"]["check_nans"] = "true"
