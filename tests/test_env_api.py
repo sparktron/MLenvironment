@@ -433,22 +433,25 @@ def test_arena_metrics_callback_computes_win_rates() -> None:
 
     cb = ArenaMetricsCallback()
     cb.model = SimpleNamespace(logger=_StubLogger())
-    # Three episodes: agent_0 KO win, agent_1 KO win, a timeout.
+    # Four episodes: agent_0 KO win, agent_1 KO win, a timeout, and a
+    # learner elimination in an N-agent self-play free-for-all.
     cb.locals = {
         "infos": [
             {"episode_outcome": {"outcome": "ko", "winner": "agent_0"}},
             {"episode_outcome": {"outcome": "ko", "winner": "agent_1"}},
             {"episode_outcome": {"outcome": "timeout", "winner": None}},
+            {"episode_outcome": {"outcome": "eliminated", "winner": None}},
             {"step": 5},  # non-terminal info — ignored
         ]
     }
     cb._on_step()
     cb._on_rollout_end()
     recs = cb.logger.records
-    assert abs(recs["arena/agent_0_win_rate"] - 1 / 3) < 1e-9
-    assert abs(recs["arena/agent_1_win_rate"] - 1 / 3) < 1e-9
-    assert abs(recs["arena/timeout_rate"] - 1 / 3) < 1e-9
-    assert recs["arena/episode_outcomes"] == 3
+    assert abs(recs["arena/agent_0_win_rate"] - 1 / 4) < 1e-9
+    assert abs(recs["arena/agent_1_win_rate"] - 1 / 4) < 1e-9
+    assert abs(recs["arena/timeout_rate"] - 1 / 4) < 1e-9
+    assert abs(recs["arena/elimination_rate"] - 1 / 4) < 1e-9
+    assert recs["arena/episode_outcomes"] == 4
 
 
 def test_arena_metrics_callback_generalizes_beyond_two_agents() -> None:

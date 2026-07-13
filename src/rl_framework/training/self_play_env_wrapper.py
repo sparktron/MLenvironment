@@ -280,13 +280,30 @@ class SelfPlayEnvWrapper(BaseParallelWrapper):
 
         live_term = bool(terminations.get(live, False))
         live_trunc = bool(truncations.get(live, False))
-        # The arena marks only the *loser* terminated, but empties its agent
-        # list once the episode is over. If the opponent was knocked out, the
-        # live agent is the winner — surface a terminal so SB3 sees the boundary.
+        # The arena retains knocked-out agents as inert spectators until the
+        # whole free-for-all is over. That keeps its PettingZoo population
+        # constant, but SB3 must end the learner's transition immediately when
+        # the live slot is eliminated rather than collect spectator steps.
+        eliminated = not self.env.unwrapped.is_alive(live)
+        if eliminated:
+            live_term = True
+            if self.env.agents:
+                # The underlying free-for-all continues for the frozen
+                # opponents, but from the learner's perspective this is a
+                # completed loss. Preserve that boundary for metrics and the
+                # curriculum win-rate gate.
+                infos[live] = dict(infos[live])
+                infos[live]["episode_outcome"] = {
+                    "winner": None,
+                    "outcome": "eliminated",
+                    "step": self.env.unwrapped.step_count,
+                }
+        # If an opponent was knocked out and the arena ended, the live agent is
+        # the winner — surface a terminal so SB3 sees the boundary.
         if not self.env.agents and not live_term and not live_trunc:
             live_term = True
 
-        self.agents = [live] if self.env.agents else []
+        self.agents = [live] if self.env.agents and not live_term else []
         return (
             {live: obs[live]},
             {live: rewards[live]},

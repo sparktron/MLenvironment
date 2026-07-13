@@ -162,6 +162,10 @@ class OrganismArenaParallelEnv(ParallelEnv):
     def _is_alive(self, agent: str) -> bool:
         return self.state[agent]["health"] > self.rules.win_health_threshold
 
+    def is_alive(self, agent: str) -> bool:
+        """Return whether *agent* can still act in the current episode."""
+        return self._is_alive(agent)
+
     def _nearest_opponent(
         self, agent: str, candidates: set[str] | None = None
     ) -> tuple[str | None, float]:

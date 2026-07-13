@@ -28,7 +28,9 @@ population. The episode ends (last-organism-standing) when ≤ 1 agent remains
 **Tooling note.** `arena-eval` and `arena-tournament` are head-to-head (pairwise)
 and require `num_agents: 2`. Self-play (`SelfPlayEnvWrapper`) drives every
 non-live slot from one sampled frozen past-self, so N-agent self-play works; the
-shared-policy SuperSuit path also supports N > 2.
+shared-policy SuperSuit path also supports N > 2. In N-agent self-play, the live
+policy's SB3 episode ends as soon as it is knocked out, even while the remaining
+arena agents continue their underlying match.
 
 ## Observation (8-D, `float32`, pre-scaled to ~[-1, 1])
 

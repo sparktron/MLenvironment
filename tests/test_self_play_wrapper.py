@@ -131,6 +131,39 @@ def test_wrapper_surfaces_terminal_when_opponent_knocked_out() -> None:
     assert rewards["agent_0"] > 0, "live agent should be rewarded for the KO"
 
 
+def test_wrapper_terminates_when_live_agent_is_eliminated_in_free_for_all() -> None:
+    """The learner must not collect inert-spectator steps after a KO."""
+    cfg = {
+        "type": "organism_arena_parallel",
+        "seed": 0,
+        "num_agents": 3,
+        "battle_rules": {
+            "damage": 10.0,
+            "attack_range": 0.2,
+            "cooldown_steps": 0,
+            "attack_falloff": "binary",
+        },
+    }
+    env = make_env("organism_arena_parallel", cfg)
+    wrapped = SelfPlayEnvWrapper(env, _StubSampler())
+    wrapped.reset()
+    wrapped._frozen_policy = _SpyPolicy([0.0, 0.0, 1.0])
+    env.state["agent_0"]["health"] = 0.001
+    env.state["agent_0"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
+    env.state["agent_1"]["pos"] = np.array([0.0, 0.0], dtype=np.float32)
+    env.state["agent_2"]["pos"] = np.array([0.8, 0.0], dtype=np.float32)
+
+    _, _, terms, truncs, infos = wrapped.step(
+        {"agent_0": np.zeros(3, dtype=np.float32)}
+    )
+
+    assert terms["agent_0"] is True
+    assert truncs["agent_0"] is False
+    assert wrapped.agents == []
+    assert env.agents, "the underlying free-for-all should still be running"
+    assert infos["agent_0"]["episode_outcome"]["outcome"] == "eliminated"
+
+
 # -- SingleAgentArenaEnv -----------------------------------------------------
 
 

@@ -143,9 +143,9 @@ class ArenaMetricsCallback(BaseCallback):
 
     The arena env is wrapped through SuperSuit rather than SB3's ``Monitor``,
     so ``rollout/ep_rew_mean`` is unavailable. This callback instead reads the
-    ``episode_outcome`` annotation that ``OrganismArenaParallelEnv.step()``
-    attaches to ``infos`` on terminal/truncated steps and records aggregate
-    win rates at the end of each rollout.
+    ``episode_outcome`` annotation that the arena attaches to terminal/truncated
+    steps (or that ``SelfPlayEnvWrapper`` attaches when a live N-agent learner is
+    eliminated) and records aggregate win rates at the end of each rollout.
 
     Note: SuperSuit's vec-env conversion surfaces one ``info`` per agent slot,
     so a finished episode contributes its outcome once per *active* agent
@@ -167,6 +167,7 @@ class ArenaMetricsCallback(BaseCallback):
         self._wins: dict[str, int] = {"agent_0": 0, "agent_1": 0}
         self._timeouts = 0
         self._draws = 0
+        self._eliminations = 0
         self._outcomes = 0
 
     def _on_step(self) -> bool:
@@ -180,6 +181,8 @@ class ArenaMetricsCallback(BaseCallback):
                 self._timeouts += 1
             elif kind == "draw":
                 self._draws += 1
+            elif kind == "eliminated":
+                self._eliminations += 1
             else:
                 winner = outcome.get("winner")
                 if winner is not None:
@@ -194,12 +197,14 @@ class ArenaMetricsCallback(BaseCallback):
             self.logger.record(f"arena/{agent}_win_rate", count / total)
         self.logger.record("arena/timeout_rate", self._timeouts / total)
         self.logger.record("arena/draw_rate", self._draws / total)
+        self.logger.record("arena/elimination_rate", self._eliminations / total)
         self.logger.record("arena/episode_outcomes", total)
         # Keep any agent keys discovered this run (so their metric keeps
         # being logged, at 0.0, in rollouts where they don't win).
         self._wins = dict.fromkeys(self._wins, 0)
         self._timeouts = 0
         self._draws = 0
+        self._eliminations = 0
         self._outcomes = 0
 
 

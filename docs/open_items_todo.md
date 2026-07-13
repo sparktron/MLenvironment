@@ -305,6 +305,11 @@ valid; the older review sections further down remain as evidence and
 background.
 
 ### Priority 0: unblock known correctness bugs
+- ~~End N-agent self-play episodes when the live policy is eliminated.~~ **Done
+  (2026-07-12)** — the arena retains eliminated agents for PettingZoo's fixed
+  population, but the single-agent self-play wrapper now ends the learner's SB3
+  episode immediately. A three-agent regression test confirms the underlying
+  free-for-all may continue while the learner receives a terminal transition.
 - ~~Fix `validate_experiment_config()` for arena self-play parallelism.~~
   **Done (2026-06-30)** — validation now allows `training.num_envs > 1` only
   when `self_play.enabled: true`, while preserving the shared-policy SuperSuit
