@@ -21,6 +21,77 @@ from rl_framework.training.self_play_env_wrapper import load_frozen_policy
 _AGENTS = ("agent_0", "agent_1")
 
 
+def run_n_agent_eval(
+    policy_paths: list[str],
+    cfg: dict,
+    n_episodes: int = 100,
+    output_path: str | None = None,
+) -> dict:
+    """Evaluate one policy per arena slot and report N-agent outcomes.
+
+    ``policy_paths`` is ordered by ``env.possible_agents``. Each episode is
+    seeded identically for all slot assignments; callers that need role
+    balancing should rotate the paths before invoking this primitive.
+    """
+    env_cfg = cfg["environment"]
+    env = make_env(env_cfg["type"], env_cfg)
+    agents = list(env.possible_agents)
+    if len(policy_paths) != len(agents):
+        env.close()
+        raise ValueError(f"Expected {len(agents)} policy paths, got {len(policy_paths)}")
+    policies = [load_frozen_policy(path, env.action_space(agents[0])) for path in policy_paths]
+    wins = dict.fromkeys(agents, 0)
+    returns = {agent: [] for agent in agents}
+    placements = {agent: [] for agent in agents}
+    draws = timeouts = 0
+    try:
+        for episode in range(n_episodes):
+            observations, _ = env.reset(seed=int(cfg.get("seed", 0)) + episode)
+            totals = dict.fromkeys(agents, 0.0)
+            outcome: dict[str, Any] | None = None
+            while env.agents:
+                actions = {}
+                for agent, obs in observations.items():
+                    action, _ = policies[agents.index(agent)].predict(obs, deterministic=True)
+                    actions[agent] = np.asarray(action, dtype=np.float32)
+                observations, rewards, _, _, infos = env.step(actions)
+                for agent, reward in rewards.items():
+                    totals[agent] += float(reward)
+                outcome = next((info["episode_outcome"] for info in infos.values() if "episode_outcome" in info), outcome)
+            for agent in agents:
+                returns[agent].append(totals[agent])
+            if not outcome or outcome.get("outcome") == "timeout":
+                timeouts += 1
+                for agent in agents:
+                    placements[agent].append(1.0)
+            elif outcome.get("outcome") == "draw":
+                draws += 1
+                for agent in agents:
+                    placements[agent].append(1.0)
+            else:
+                winner = outcome.get("winner")
+                for agent in agents:
+                    won = agent == winner
+                    wins[agent] += int(won)
+                    placements[agent].append(1.0 if won else 0.0)
+    finally:
+        env.close()
+    result = {
+        "agents": agents,
+        "n_episodes": n_episodes,
+        "draw_rate": draws / max(n_episodes, 1),
+        "timeout_rate": timeouts / max(n_episodes, 1),
+        "agent_win_rates": {agent: wins[agent] / max(n_episodes, 1) for agent in agents},
+        "agent_mean_returns": {agent: float(np.mean(values)) for agent, values in returns.items()},
+        "agent_mean_scores": {agent: float(np.mean(values)) for agent, values in placements.items()},
+    }
+    if output_path:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
+
+
 def _play_episode(env: Any, policy: Any, opponent: Any, policy_slot: str, seed: int):
     """Run one episode; return (outcome_for_policy, policy_return, opponent_return).
 

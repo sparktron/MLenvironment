@@ -18,7 +18,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from rl_framework.training.arena_eval import run_arena_eval
+from rl_framework.training.arena_eval import run_arena_eval, run_n_agent_eval
 
 # Elo scale constants: a 400-point gap ⇒ ~10:1 expected odds.
 _ELO_BASE = 1500.0
@@ -146,6 +146,11 @@ def run_tournament(
     (ranked), ``win_rate_matrix``, ``matches`` (per-pairing detail), and the run
     parameters.
     """
+    if int(cfg.get("environment", {}).get("num_agents", 2)) > 2:
+        return run_n_agent_tournament(
+            checkpoints, cfg, n_episodes=n_episodes, include_random=include_random,
+            output_path=output_path, markdown_path=markdown_path,
+        )
     competitors = resolve_competitors(checkpoints, include_random)
     if len(competitors) < 2:
         raise ValueError(
@@ -232,6 +237,60 @@ def run_tournament(
     return result
 
 
+def run_n_agent_tournament(
+    checkpoints: list[str], cfg: dict, n_episodes: int = 50,
+    include_random: bool = False, output_path: str | None = None,
+    markdown_path: str | None = None,
+) -> dict:
+    """Rate an N-agent field by rotating competitors through all arena slots."""
+    competitors = resolve_competitors(checkpoints, include_random)
+    slots = int(cfg["environment"].get("num_agents", 2))
+    if len(competitors) < slots:
+        raise ValueError(f"An N-agent tournament needs at least {slots} competitors")
+    names = [label for label, _ in competitors]
+    paths = dict(competitors)
+    wins = {a: {b: 0.0 for b in names} for a in names}
+    games = {a: {b: 0 for b in names} for a in names}
+    records = {name: {"wins": 0, "losses": 0, "draws": 0, "games": 0} for name in names}
+    matches = []
+    # Sliding groups keep cost bounded while ensuring every competitor appears.
+    for start in range(len(names)):
+        group = [names[(start + offset) % len(names)] for offset in range(slots)]
+        result = run_n_agent_eval([paths[name] for name in group], cfg, n_episodes=n_episodes)
+        scores = result["agent_mean_scores"]
+        for slot, name in enumerate(group):
+            agent = f"agent_{slot}"
+            records[name]["games"] += n_episodes
+            records[name]["wins"] += round(result["agent_win_rates"][agent] * n_episodes)
+            records[name]["draws"] += round((result["draw_rate"] + result["timeout_rate"]) * n_episodes)
+        for i, a in enumerate(group):
+            for j, b in enumerate(group):
+                if i >= j:
+                    continue
+                a_score, b_score = scores[f"agent_{i}"], scores[f"agent_{j}"]
+                wins[a][b] += a_score * n_episodes
+                wins[b][a] += b_score * n_episodes
+                games[a][b] += n_episodes
+                games[b][a] += n_episodes
+        matches.append({"competitors": group, **result})
+    ratings = _bradley_terry_elo(names, wins, games)
+    standings = []
+    for name in names:
+        record = records[name]
+        record["losses"] = max(record["games"] - record["wins"] - record["draws"], 0)
+        standings.append({"competitor": name, "elo": round(ratings[name], 1), **record,
+                          "win_rate": record["wins"] / max(record["games"], 1)})
+    standings.sort(key=lambda item: item["elo"], reverse=True)
+    for rank, item in enumerate(standings, 1):
+        item["rank"] = rank
+    output = {"competitors": [{"label": n, "path": paths[n]} for n in names], "ratings": {n: round(ratings[n], 1) for n in names}, "standings": standings, "matches": matches, "n_episodes": n_episodes, "n_agents": slots, "swap_roles": "slot_rotation"}
+    if output_path:
+        Path(output_path).write_text(json.dumps(output, indent=2), encoding="utf-8")
+    if markdown_path:
+        Path(markdown_path).write_text(format_markdown(output), encoding="utf-8")
+    return output
+
+
 def _aggregate_record(matches: list[dict[str, Any]], name: str) -> dict[str, int]:
     """Aggregate integer W/L/D counts for *name* across all its matches.
 
@@ -272,6 +331,8 @@ def format_markdown(result: dict) -> str:
             f"{s['win_rate'] * 100:.1f}% |"
         )
     lines.append("")
+    if "win_rate_matrix" not in result:
+        return "\n".join(lines)
     lines.append("## Win-rate matrix (row vs column)")
     lines.append("")
     names = [c["label"] for c in result["competitors"]]

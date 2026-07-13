@@ -80,3 +80,20 @@ def test_morphology_search_requires_positive_trials():
 
     with pytest.raises(ValueError, match="trials"):
         ms.run_morphology_search(_base_cfg(), trials=0)
+
+
+def test_morphology_search_can_score_by_tournament_elo(monkeypatch):
+    from rl_framework.training import morphology_search as ms
+    from rl_framework.training import sb3_runner
+    from rl_framework.training import arena_tournament
+
+    monkeypatch.setattr(sb3_runner, "train", lambda cfg: f"/tmp/{cfg['output']['run_id']}.zip")
+    monkeypatch.setattr(
+        arena_tournament,
+        "run_tournament",
+        lambda paths, *_args, **_kwargs: {"competitors": [{"label": "candidate", "path": paths[0]}], "ratings": {"candidate": 1600.0}},
+    )
+    cfg = _base_cfg()
+    cfg["morphology_search"] = {"scoring": "tournament_elo", "tournament_episodes": 1}
+    result = ms.run_morphology_search(cfg, trials=1)
+    assert result["best_score"] == 1600.0

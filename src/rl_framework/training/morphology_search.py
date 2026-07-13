@@ -39,8 +39,14 @@ def run_morphology_search(
         raise ValueError("trials must be >= 1")
 
     # Lazy imports keep this module cheap to import (e.g. for tests).
-    from rl_framework.training.eval_runner import evaluate
     from rl_framework.training.sb3_runner import train
+    scoring = str(cfg.get("morphology_search", {}).get("scoring", "mean_return"))
+    if scoring not in {"mean_return", "tournament_elo"}:
+        raise ValueError("morphology_search.scoring must be 'mean_return' or 'tournament_elo'")
+    if scoring == "mean_return":
+        from rl_framework.training.eval_runner import evaluate
+    else:
+        from rl_framework.training.arena_tournament import run_tournament
 
     if cfg.get("environment", {}).get("type") != "organism_arena_parallel":
         raise ValueError(
@@ -66,9 +72,16 @@ def run_morphology_search(
         trial_cfg.setdefault("output", {})["run_id"] = run_id
 
         model_path = train(trial_cfg)
-        metrics = evaluate(trial_cfg, _as_model_zip_path(str(model_path)))
-
-        score = float(metrics.get("mean_return", float("-inf")))
+        model_zip = _as_model_zip_path(str(model_path))
+        if scoring == "mean_return":
+            metrics = evaluate(trial_cfg, model_zip)
+            score = float(metrics.get("mean_return", float("-inf")))
+        else:
+            field = [model_zip, *[_as_model_zip_path(entry["model_path"]) for entry in results]]
+            tournament = run_tournament(field, trial_cfg, n_episodes=int(cfg.get("morphology_search", {}).get("tournament_episodes", 10)), include_random=True)
+            label = next(item["label"] for item in tournament["competitors"] if item["path"] == model_zip)
+            score = float(tournament["ratings"][label])
+            metrics = {"elo": score, "tournament": tournament}
         entry = {
             "trial": i,
             "experiment_name": base_name,

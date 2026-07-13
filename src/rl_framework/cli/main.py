@@ -34,6 +34,11 @@ def _parse_args() -> argparse.Namespace:
         help="Path to the policy checkpoint under test (arena-eval).",
     )
     parser.add_argument(
+        "--policies",
+        default="",
+        help="Comma-separated checkpoint paths in arena slot order for N-agent arena-eval.",
+    )
+    parser.add_argument(
         "--opponent",
         default="random",
         help="Opponent checkpoint path, or 'random' for a random baseline (arena-eval).",
@@ -163,11 +168,9 @@ def _render_replay(
 ) -> dict:
     """Render a replay and return a result dict with saved path and frame count.
 
-    For the 2-agent arena, *model_path* drives ``agent_0``. By default the same
-    policy mirrors into ``agent_1`` (a shared-policy replay); pass
-    *opponent_path* (a checkpoint or ``"random"``) to watch a real matchup. Both
-    slots are loaded via :func:`load_frozen_policy`, so a saved obs-normaliser
-    sidecar is applied and each policy sees the distribution it trained under.
+    For arena environments, *model_path* drives ``agent_0``. By default it is
+    mirrored into every other slot. Pass a comma-separated *opponent_path* list
+    with one checkpoint per remaining slot for an N-agent replay.
     """
     import gymnasium as gym
     import numpy as np
@@ -199,17 +202,24 @@ def _render_replay(
         policy_slot = agents[0]
         action_space = env.action_space(policy_slot)
         policy = load_frozen_policy(model_path, action_space)
-        # No explicit opponent -> mirror the main policy (shared-policy replay).
-        opponent = (
-            load_frozen_policy(opponent_path, action_space) if opponent_path else policy
-        )
+        opponent_paths = [path for path in (opponent_path or "").split(",") if path]
+        if opponent_paths and len(opponent_paths) != len(agents) - 1:
+            raise ValueError(
+                f"N-agent replay needs {len(agents) - 1} comma-separated opponents, "
+                f"got {len(opponent_paths)}"
+            )
+        actors = {policy_slot: policy}
+        for agent, path in zip(agents[1:], opponent_paths):
+            actors[agent] = load_frozen_policy(path, action_space)
+        for agent in agents[1:]:
+            actors.setdefault(agent, policy)
         try:
             frames = []
             observations, _ = env.reset(seed=cfg["seed"])
             while env.agents:
                 actions = {}
                 for agent, obs in observations.items():
-                    actor = policy if agent == policy_slot else opponent
+                    actor = actors[agent]
                     action, _ = actor.predict(obs, deterministic=True)
                     actions[agent] = np.asarray(action, dtype=np.float32)
                 observations, _, _, _, _ = env.step(actions)
@@ -223,7 +233,8 @@ def _render_replay(
             return {
                 "saved_replay": str(gif_path),
                 "frames": len(frames),
-                "opponent": opponent_path or "self",
+                "opponent": opponent_paths[0] if opponent_paths else "self",
+                "opponents": opponent_paths or ["self"] * (len(agents) - 1),
             }
         finally:
             env.close()
@@ -308,26 +319,33 @@ def main() -> None:
             print(yaml.dump(metrics, default_flow_style=False))
 
     elif args.command == "arena-eval":
-        from rl_framework.training.arena_eval import run_arena_eval
+        from rl_framework.training.arena_eval import run_arena_eval, run_n_agent_eval
 
-        if not args.policy:
-            raise ValueError("--policy is required for arena-eval")
-        result = run_arena_eval(
-            args.policy,
-            args.opponent,
-            cfg_dict,
-            n_episodes=args.n_episodes,
-            swap_roles=not args.no_swap_roles,
-            output_path=args.output or None,
-        )
-        if not args.json:
-            print(
-                f"policy_win_rate={result['policy_win_rate']:.3f}  "
-                f"opponent_win_rate={result['opponent_win_rate']:.3f}  "
-                f"draw_rate={result['draw_rate']:.3f}  "
-                f"timeout_rate={result['timeout_rate']:.3f}  "
-                f"n_episodes={result['n_episodes']}"
+        if args.policies:
+            result = run_n_agent_eval(
+                [path for path in args.policies.split(",") if path],
+                cfg_dict,
+                n_episodes=args.n_episodes,
+                output_path=args.output or None,
             )
+        elif not args.policy:
+            raise ValueError("--policy is required for arena-eval")
+        else:
+            result = run_arena_eval(
+                args.policy, args.opponent, cfg_dict, n_episodes=args.n_episodes,
+                swap_roles=not args.no_swap_roles, output_path=args.output or None,
+            )
+        if not args.json:
+            if args.policies:
+                print(f"agent_win_rates={result['agent_win_rates']} n_episodes={result['n_episodes']}")
+            else:
+                print(
+                    f"policy_win_rate={result['policy_win_rate']:.3f}  "
+                    f"opponent_win_rate={result['opponent_win_rate']:.3f}  "
+                    f"draw_rate={result['draw_rate']:.3f}  "
+                    f"timeout_rate={result['timeout_rate']:.3f}  "
+                    f"n_episodes={result['n_episodes']}"
+                )
 
     elif args.command == "arena-tournament":
         from rl_framework.training.arena_tournament import run_tournament

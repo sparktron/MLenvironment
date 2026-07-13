@@ -142,3 +142,16 @@ def test_run_tournament_counts_draws_as_half(monkeypatch) -> None:
     for s in result["standings"]:
         assert s["wins"] == 0 and s["losses"] == 0
         assert s["draws"] == s["games"]
+
+
+def test_run_tournament_uses_n_agent_semantics(monkeypatch) -> None:
+    def fake_n_agent(paths, cfg, n_episodes):
+        return {
+            "agent_mean_scores": {"agent_0": 1.0, "agent_1": 0.0, "agent_2": 0.0},
+            "agent_win_rates": {"agent_0": 1.0, "agent_1": 0.0, "agent_2": 0.0},
+            "draw_rate": 0.0, "timeout_rate": 0.0, "n_episodes": n_episodes,
+        }
+    monkeypatch.setattr(arena_tournament, "run_n_agent_eval", fake_n_agent)
+    result = run_tournament(["p0", "p1", "p2"], {"environment": {"num_agents": 3}}, n_episodes=2)
+    assert result["n_agents"] == 3
+    assert len(result["matches"]) == 3
