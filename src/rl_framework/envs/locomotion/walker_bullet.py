@@ -70,14 +70,23 @@ class WalkerBulletEnv(gym.Env):
                 }
             )
 
-            # obs: pos(3)+quat(4)+lin_vel(3)+ang_vel(3)+joint_pos(10)+joint_vel(10)
-            #      +mass_scale(1)+friction_scale(1) = 35
+            obs_cfg = get_section(cfg, "observation")
+            self._observation_version = str(obs_cfg.get("version", "v1"))
+            self._coordinate_free = bool(obs_cfg.get("coordinate_free", False))
+            if self._observation_version == "v1" and self._coordinate_free:
+                raise ValueError("observation.coordinate_free requires observation.version: v2")
+            # v1: pos(3)+quat(4)+lin_vel(3)+ang_vel(3)+joints(20)+DR(2) = 35
+            # v2 adds binary right/left foot contacts. Coordinate-free v2
+            # drops global x/y position, keeping height as the useful local cue.
+            self._obs_size = 35 + (2 if self._observation_version == "v2" else 0)
+            if self._coordinate_free:
+                self._obs_size -= 2
             # joints: rHip rKnee rAnkle lHip lKnee lAnkle rShoulder rElbow lShoulder lElbow
             # The DR scales make randomization observable to the policy; without
             # them, random mass/friction look like pure noise from the agent's
             # perspective and actively hurt training.
             self.observation_space = spaces.Box(
-                low=-np.inf, high=np.inf, shape=(35,), dtype=np.float32
+                low=-np.inf, high=np.inf, shape=(self._obs_size,), dtype=np.float32
             )
             self.action_space = spaces.Box(
                 low=-1.0, high=1.0, shape=(10,), dtype=np.float32
@@ -110,7 +119,7 @@ class WalkerBulletEnv(gym.Env):
             self._nominal_masses: dict[int, float] = {}
             # Pre-allocated obs buffer; _get_obs() writes in-place and returns
             # a copy so VecEnv cannot mutate the buffer through the returned array.
-            self._obs_buf = np.zeros(35, dtype=np.float32)
+            self._obs_buf = np.zeros(self._obs_size, dtype=np.float32)
         except Exception:
             p.disconnect(self._connection)
             raise
@@ -378,19 +387,23 @@ class WalkerBulletEnv(gym.Env):
         joint_states = p.getJointStates(
             self.robot_id, JOINT_INDICES, physicsClientId=self._connection
         )
-        # obs layout: pos(3)+quat(4)+lin_vel(3)+ang_vel(3)+joint_pos(10)+joint_vel(10)
-        #             +mass_scale(1)+friction_scale(1) = 35
-        self._obs_buf[0:3] = pos
-        self._obs_buf[3:7] = quat
-        self._obs_buf[7:10] = lin_vel
-        self._obs_buf[10:13] = ang_vel
-        self._obs_buf[13:23] = [s[0] for s in joint_states]
-        self._obs_buf[23:33] = [s[1] for s in joint_states]
-        self._obs_buf[33] = self._mass_scale
-        self._obs_buf[34] = self._friction_scale
+        values: list[float] = []
+        values.extend((pos[2],) if self._coordinate_free else pos)
+        values.extend(quat)
+        values.extend(lin_vel)
+        values.extend(ang_vel)
+        values.extend(s[0] for s in joint_states)
+        values.extend(s[1] for s in joint_states)
+        values.extend((self._mass_scale, self._friction_scale))
+        if self._observation_version == "v2":
+            values.extend(
+                float(bool(p.getContactPoints(bodyA=self.robot_id, linkIndexA=link, physicsClientId=self._connection)))
+                for link in (2, 5)
+            )
+        self._obs_buf[:] = values
         if self._sensor_noise_std > 0.0:
             obs = self._obs_buf + self._rng.normal(
-                0.0, self._sensor_noise_std, size=35
+                0.0, self._sensor_noise_std, size=self._obs_size
             ).astype(np.float32)
         else:
             obs = self._obs_buf.copy()

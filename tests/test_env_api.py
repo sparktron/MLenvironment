@@ -25,6 +25,20 @@ def test_walker_env_api() -> None:
     env.close()
 
 
+@pytest.mark.parametrize(
+    ("observation", "shape"),
+    [({"version": "v2"}, (37,)), ({"version": "v2", "coordinate_free": True}, (35,))],
+)
+def test_walker_observation_v2_adds_foot_contacts(observation, shape) -> None:
+    env = make_env("walker_bullet", {"type": "walker_bullet", "seed": 1, "observation": observation})
+    try:
+        obs, _ = env.reset(seed=1)
+        assert obs.shape == env.observation_space.shape == shape
+        assert set(obs[-2:]) <= {0.0, 1.0}
+    finally:
+        env.close()
+
+
 @pytest.mark.parametrize("preset,expected_bodies", [("flat", 0), ("uneven", 5), ("obstacles", 3)])
 def test_walker_terrain_presets_build_static_geometry(preset: str, expected_bodies: int) -> None:
     env = make_env("walker_bullet", {"type": "walker_bullet", "seed": 1, "terrain": {"preset": preset}})

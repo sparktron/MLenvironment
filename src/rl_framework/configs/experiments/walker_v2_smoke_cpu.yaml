@@ -1,0 +1,27 @@
+experiment_name: walker_v2_smoke_cpu
+seed: 0
+environment:
+  type: walker_bullet
+  seed: 0
+  observation:
+    version: v2
+    coordinate_free: true
+  terrain:
+    preset: flat
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 64
+training:
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 256
+  n_steps: 64
+  batch_size: 64
+  n_epochs: 2
+  checkpoint_every: 128
+  normalize_observations: true
+  num_envs: 1
+  device: cpu
+output:
+  base_dir: outputs

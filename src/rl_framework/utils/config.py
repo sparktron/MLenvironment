@@ -204,6 +204,15 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
     env_type = env_cfg.get("type", "")
 
     if env_type == "walker_bullet":
+        observation = env_cfg.get("observation", {})
+        version = observation.get("version", "v1")
+        if version not in {"v1", "v2"}:
+            raise ValueError("environment.observation.version must be 'v1' or 'v2'")
+        coordinate_free = observation.get("coordinate_free", False)
+        if not isinstance(coordinate_free, bool):
+            raise TypeError("environment.observation.coordinate_free must be bool")
+        if coordinate_free and version != "v2":
+            raise ValueError("environment.observation.coordinate_free requires version 'v2'")
         reward = env_cfg.get("reward", {})
         for key in ("alive_bonus", "forward_velocity_weight", "orientation_penalty_weight", "torque_penalty_weight"):
             if key in reward:
