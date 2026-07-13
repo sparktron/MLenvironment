@@ -163,6 +163,7 @@ python -m rl_framework.cli.main gui --port 8080   # custom port
 | **Reward Chart** | Interactive canvas chart tracking episode reward over training time |
 | **Live Parameter Tuning** | Modify learning rate, reward weights, and termination thresholds **during training** — changes apply at the next rollout |
 | **Outputs Browser** | Browse and inspect completed experiments and their saved checkpoints |
+| **Run Analysis** | Compare registry-backed metrics and artifacts, surface best checkpoints, launch replays, and rate self-play leagues |
 
 **Example flow:**
 1. Click "Walker (Locomotion)" environment card
@@ -973,6 +974,16 @@ resolved config, records status/metrics events and tuning commands, indexes
 artifacts, and links resumed runs to their parent. GUI tuning uses this durable
 queue, so commands survive a GUI process restart until the training callback
 claims them.
+
+### GUI Analysis
+
+The **Analysis** tab reads the run registry to compare the latest episode reward
+and length across runs, show recorded artifacts, and distinguish `best_model`
+from final/periodic checkpoints. Replay launches prefer `best_model.zip` and
+fall back to `final_model.zip`. Arena runs can launch a background round-robin
+rating job for league snapshots; at least two snapshots and `run_metadata.json`
+are required. Analysis jobs remain visible in the tab until completion and do
+not interrupt training.
 - Agent workflow notes: `AGENTS.md`
 
 ---

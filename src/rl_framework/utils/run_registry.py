@@ -168,6 +168,29 @@ class RunRegistry:
         data["config"] = json.loads(data.pop("config_json"))
         return data
 
+    def list_runs(self) -> list[dict[str, Any]]:
+        """Return completed and active runs newest first, with their artifacts."""
+        with self._connect() as db:
+            rows = db.execute("SELECT * FROM runs ORDER BY started_at DESC").fetchall()
+            artifacts = db.execute(
+                "SELECT run_id, kind, path FROM run_artifacts ORDER BY created_at"
+            ).fetchall()
+        by_run: dict[str, list[dict[str, str]]] = {}
+        for artifact in artifacts:
+            by_run.setdefault(str(artifact["run_id"]), []).append(
+                {"kind": str(artifact["kind"]), "path": str(artifact["path"])}
+            )
+        result = []
+        for row in rows:
+            data = dict(row)
+            data["metrics"] = json.loads(data.pop("latest_metrics_json"))
+            config = json.loads(data.pop("config_json"))
+            data["algorithm"] = config.get("training", {}).get("algorithm", "PPO")
+            data["environment_type"] = config.get("environment", {}).get("type")
+            data["artifacts"] = by_run.get(data["run_id"], [])
+            result.append(data)
+        return result
+
     def record_event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
         with self._connect() as db:
             db.execute("INSERT INTO run_events (run_id, created_at, event_type, payload_json) VALUES (?, ?, ?, ?)",

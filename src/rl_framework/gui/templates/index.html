@@ -14,6 +14,7 @@
         <button class="nav-btn active" data-tab="wizard">New Experiment</button>
         <button class="nav-btn" data-tab="dashboard">Dashboard</button>
         <button class="nav-btn" data-tab="outputs">Outputs</button>
+        <button class="nav-btn" data-tab="analysis">Analysis</button>
       </nav>
     </div>
   </header>
@@ -239,6 +240,15 @@
         <h2>Experiment Outputs</h2>
         <p class="hint">Browse completed experiments and their checkpoints.</p>
         <div id="outputs-list"></div>
+      </div>
+    </section>
+
+    <section id="tab-analysis" class="tab-content">
+      <div class="outputs-panel">
+        <h2>Run Analysis</h2>
+        <p class="hint">Compare registry-backed runs, inspect selected checkpoints, and launch analysis jobs.</p>
+        <div id="analysis-comparison"></div>
+        <div id="analysis-list"></div>
       </div>
     </section>
   </main>

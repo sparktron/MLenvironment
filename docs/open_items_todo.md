@@ -432,8 +432,10 @@ background.
   **Done (2026-07-12)** — slot-ordered N-agent eval, rotating N-agent
   tournaments, multi-opponent replay, and `morphology_search.scoring:
   tournament_elo` are implemented.
-- GUI analysis views: add run comparison, best-checkpoint surfacing, league
-  snapshot ratings, and replay launch links once the run registry exists.
+- ~~Add GUI analysis views backed by the run registry.~~ **Done (2026-07-12)**
+  — the Analysis tab compares persisted run metrics/statuses, lists recorded
+  artifacts with best-checkpoint emphasis, launches replay jobs, and starts
+  asynchronous league-snapshot Elo ratings without blocking training.
 
 ### Validation expectations for roadmap work
 - Bug fixes get focused regression tests plus the narrowest relevant CLI smoke

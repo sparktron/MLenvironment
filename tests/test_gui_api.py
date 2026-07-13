@@ -355,6 +355,52 @@ def test_list_outputs_includes_sweep_morph_run_variants(client, tmp_path):
     assert nested[0]["has_final_model"] is True
 
 
+# ----- registry-backed analysis -----
+
+
+def test_analysis_runs_reads_registry(client):
+    c, _, base = client
+    from rl_framework.utils.run_registry import RunRegistry
+
+    run_dir = base / "outputs" / "walker" / "seed_0"
+    registry = RunRegistry(base / "outputs")
+    cfg = {
+        "experiment_name": "walker", "seed": 0,
+        "output": {"base_dir": str(base / "outputs")},
+        "environment": {"type": "walker_bullet"},
+        "training": {"algorithm": "PPO"},
+    }
+    registry.register_run("run_analysis", cfg, run_dir)
+    registry.update_run("run_analysis", status="completed", metrics={"score": 4.0})
+    artifact = run_dir / "checkpoints" / "best_model.zip"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"")
+    registry.record_artifact("run_analysis", "checkpoint", artifact)
+
+    response = c.get("/api/analysis/runs")
+    assert response.status_code == 200
+    run = response.get_json()[0]
+    assert run["run_id"] == "run_analysis"
+    assert run["metrics"] == {"score": 4.0}
+    assert run["artifacts"][0]["path"].endswith("best_model.zip")
+
+
+def test_analysis_replay_rejects_invalid_or_unmanifested_path(client):
+    c, _, base = client
+    assert c.post("/api/analysis/replay", json={"path": "../../etc"}).status_code == 400
+    (base / "outputs" / "exp" / "seed_0").mkdir(parents=True)
+    response = c.post("/api/analysis/replay", json={"path": "exp/seed_0"})
+    assert response.status_code == 400
+
+
+def test_league_ratings_requires_two_snapshots_and_metadata(client):
+    c, _, base = client
+    seed_dir = base / "outputs" / "arena" / "seed_0"
+    _make_league(seed_dir, [100])
+    response = c.post("/api/analysis/league-ratings", json={"path": "arena/seed_0"})
+    assert response.status_code == 400
+
+
 # ----- self-play league dashboard -----
 
 

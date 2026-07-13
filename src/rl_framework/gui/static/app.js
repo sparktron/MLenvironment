@@ -72,6 +72,7 @@
       $("#tab-" + btn.dataset.tab).classList.add("active");
       if (btn.dataset.tab === "dashboard") refreshRuns();
       if (btn.dataset.tab === "outputs") refreshOutputs();
+      if (btn.dataset.tab === "analysis") refreshAnalysis();
     });
   });
 
@@ -879,6 +880,99 @@
       item.appendChild(cpListDiv);
       appendLeaguePanel(item, o);
       container.appendChild(item);
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Analysis tab
+  // ------------------------------------------------------------------
+  async function pollAnalysisJob(jobId, resultEl) {
+    var job = await api("GET", "/api/analysis/jobs/" + jobId);
+    if (job.status === "running") {
+      resultEl.textContent = "Analysis job running...";
+      setTimeout(function () { pollAnalysisJob(jobId, resultEl); }, 1000);
+      return;
+    }
+    if (job.error) {
+      resultEl.textContent = "Analysis failed: " + job.error;
+      return;
+    }
+    if (job.kind === "replay") {
+      resultEl.textContent = "Replay: " + job.result.saved_replay;
+    } else {
+      var standings = (job.result.standings || []).map(function (s) {
+        return s.rank + ". " + s.competitor + " (" + s.elo + ")";
+      });
+      resultEl.textContent = standings.join("  ·  ");
+    }
+  }
+
+  async function refreshAnalysis() {
+    var runs = await api("GET", "/api/analysis/runs");
+    var container = $("#analysis-list");
+    if (!Array.isArray(runs) || runs.length === 0) {
+      $("#analysis-comparison").innerHTML = "";
+      container.innerHTML = '<p class="hint">No registry runs yet. New training runs appear here automatically.</p>';
+      return;
+    }
+    var comparison = $("#analysis-comparison");
+    var table = document.createElement("table");
+    table.className = "comparison-table";
+    table.innerHTML = "<thead><tr><th>Experiment</th><th>Run</th><th>Status</th><th>Algorithm</th><th>Latest reward</th><th>Latest length</th></tr></thead>";
+    var body = document.createElement("tbody");
+    runs.forEach(function (run) {
+      var row = document.createElement("tr");
+      var metrics = run.metrics || {};
+      [run.experiment_name, run.run_id, run.status, run.algorithm,
+        fmt(metrics["rollout/ep_rew_mean"]), fmt(metrics["rollout/ep_len_mean"])
+      ].forEach(function (value) { var cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); });
+      body.appendChild(row);
+    });
+    table.appendChild(body); comparison.innerHTML = ""; comparison.appendChild(table);
+    container.innerHTML = "";
+    runs.forEach(function (run) {
+      var item = document.createElement("div");
+      item.className = "output-item";
+      var title = document.createElement("h3");
+      title.textContent = run.experiment_name + " / " + run.run_id;
+      var meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = run.status + " · " + run.algorithm + " · seed " + run.seed;
+      var artifact = document.createElement("div");
+      artifact.className = "checkpoint-list";
+      (run.artifacts || []).forEach(function (a) {
+        var tag = document.createElement("span");
+        tag.className = "checkpoint-tag" + (a.path.indexOf("best_model") >= 0 ? " final" : "");
+        tag.textContent = a.kind + ": " + a.path.split("/").pop();
+        artifact.appendChild(tag);
+      });
+      var controls = document.createElement("div");
+      controls.className = "analysis-controls";
+      var result = document.createElement("div");
+      result.className = "meta";
+      var relPath = run.run_dir.replace(/\\/g, "/").split("outputs/").pop();
+      var replay = document.createElement("button");
+      replay.className = "btn secondary";
+      replay.textContent = "Replay best";
+      replay.addEventListener("click", async function () {
+        var response = await api("POST", "/api/analysis/replay", { path: relPath });
+        if (response.error) { result.textContent = response.error; return; }
+        pollAnalysisJob(response.job_id, result);
+      });
+      controls.appendChild(replay);
+      if (run.environment_type === "organism_arena_parallel") {
+        var league = document.createElement("button");
+        league.className = "btn secondary";
+        league.textContent = "Rate league";
+        league.addEventListener("click", async function () {
+          var response = await api("POST", "/api/analysis/league-ratings", { path: relPath, episodes: 10 });
+          if (response.error) { result.textContent = response.error; return; }
+          pollAnalysisJob(response.job_id, result);
+        });
+        controls.appendChild(league);
+      }
+      item.appendChild(title); item.appendChild(meta); item.appendChild(artifact);
+      item.appendChild(controls); item.appendChild(result); container.appendChild(item);
     });
   }
 

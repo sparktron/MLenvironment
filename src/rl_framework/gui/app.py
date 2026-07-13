@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import uuid
+import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,7 @@ from flask import Flask, abort, jsonify, render_template, request
 
 from rl_framework.gui.training_manager import TrainingManager
 from rl_framework.utils.config import validate_experiment_config
+from rl_framework.utils.run_registry import RunRegistry
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs" / "experiments"
 CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -30,6 +33,8 @@ app.config["MAX_CONTENT_LENGTH"] = (
     5 * 1024 * 1024
 )  # 5 MB — guard against oversized JSON payloads
 manager = TrainingManager()
+_analysis_jobs: dict[str, dict[str, Any]] = {}
+_analysis_lock = threading.Lock()
 
 
 # ------------------------------------------------------------------
@@ -825,6 +830,99 @@ def get_league():
             "snapshots": snapshots,
         }
     )
+
+
+# ------------------------------------------------------------------
+# Analysis API
+# ------------------------------------------------------------------
+
+
+@app.route("/api/analysis/runs", methods=["GET"])
+def analysis_runs():
+    """Return registry-backed run summaries for comparison views."""
+    registry = RunRegistry(_DEFAULT_OUTPUTS_DIR)
+    return jsonify(registry.list_runs())
+
+
+def _read_run_config(seed_dir: Path) -> dict[str, Any] | None:
+    manifest = seed_dir / "run_metadata.json"
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    config = payload.get("config")
+    return config if isinstance(config, dict) else None
+
+
+def _start_analysis_job(kind: str, worker) -> str:
+    job_id = f"analysis_{uuid.uuid4().hex[:10]}"
+    with _analysis_lock:
+        _analysis_jobs[job_id] = {"job_id": job_id, "kind": kind, "status": "running"}
+
+    def run() -> None:
+        try:
+            result = worker()
+            with _analysis_lock:
+                _analysis_jobs[job_id].update(status="completed", result=result)
+        except Exception as exc:
+            with _analysis_lock:
+                _analysis_jobs[job_id].update(status="failed", error=str(exc))
+
+    threading.Thread(target=run, daemon=True).start()
+    return job_id
+
+
+@app.route("/api/analysis/replay", methods=["POST"])
+def launch_replay():
+    """Launch a replay for a selected run, preferring its best checkpoint."""
+    data = request.get_json(force=True) or {}
+    target = _safe_output_subpath(str(data.get("path", "")))
+    if target is None:
+        return jsonify({"error": "Invalid output path"}), 400
+    config = _read_run_config(target)
+    if config is None:
+        return jsonify({"error": "run_metadata.json is required for replay"}), 400
+    checkpoints = target / "checkpoints"
+    model = checkpoints / "best_model.zip"
+    if not model.exists():
+        model = checkpoints / "final_model.zip"
+    if not model.exists():
+        return jsonify({"error": "No best_model.zip or final_model.zip found"}), 404
+
+    def worker():
+        from rl_framework.cli.main import _render_replay
+
+        return _render_replay(config, str(model), opponent_path=data.get("opponent") or None)
+
+    return jsonify({"job_id": _start_analysis_job("replay", worker), "status": "running"})
+
+
+@app.route("/api/analysis/league-ratings", methods=["POST"])
+def launch_league_ratings():
+    """Rate a run's self-play snapshots using the arena tournament harness."""
+    data = request.get_json(force=True) or {}
+    target = _safe_output_subpath(str(data.get("path", "")))
+    if target is None:
+        return jsonify({"error": "Invalid output path"}), 400
+    config = _read_run_config(target)
+    snapshots = _league_snapshots(target / "checkpoints" / "league")
+    if config is None or len(snapshots) < 2:
+        return jsonify({"error": "At least two snapshots and run metadata are required"}), 400
+
+    def worker():
+        from rl_framework.training.arena_tournament import run_tournament
+
+        paths = [str(target / "checkpoints" / "league" / snap["name"]) for snap in snapshots]
+        return run_tournament(paths, config, n_episodes=int(data.get("episodes", 10)))
+
+    return jsonify({"job_id": _start_analysis_job("league_ratings", worker), "status": "running"})
+
+
+@app.route("/api/analysis/jobs/<job_id>", methods=["GET"])
+def analysis_job(job_id: str):
+    with _analysis_lock:
+        job = _analysis_jobs.get(job_id)
+        return jsonify(job or {"error": "Unknown analysis job"}), 200 if job else 404
 
 
 # ------------------------------------------------------------------
