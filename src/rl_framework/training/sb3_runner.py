@@ -34,6 +34,7 @@ from rl_framework.utils.checkpoint import (
     vecnormalize_path_for_model as _vecnormalize_path_for_model,
 )
 from rl_framework.utils.logging_utils import create_experiment_paths
+from rl_framework.utils.run_registry import registry_for_config
 from rl_framework.utils.reproducibility import (
     check_resume_provenance,
     configure_deterministic_mode,
@@ -400,6 +401,9 @@ def train(
         strict=bool(repro_cfg.get("strict", False)),
         resume_from=resume_from,
     )
+    registry = registry_for_config(cfg)
+    run_identity = str(cfg["output"].get("run_id") or paths.run_dir.name)
+    registry.register_run(run_identity, cfg, paths.run_dir, resume_from=resume_from)
     env_cfg = cfg["environment"]
 
     num_envs = int(cfg["training"].get("num_envs", 1))
@@ -616,6 +620,10 @@ def train(
         if vecnormalize_env is not None:
             vecnormalize_env.save(str(_vecnormalize_path_for_model(final_path)))
             vecnormalize_env.save(str(paths.checkpoints_dir / "vecnormalize.pkl"))
+        registry.update_run(run_identity, status="completed", model_path=final_path)
+        registry.record_artifact(run_identity, "final_model", final_path.with_suffix(".zip"))
+        registry.record_artifact(run_identity, "run_metadata", paths.run_dir / "run_metadata.json")
+        registry.record_artifact(run_identity, "vecnormalize", paths.checkpoints_dir / "vecnormalize.pkl")
         return final_path
     finally:
         if "best_eval_env" in locals() and best_eval_env is not None:

@@ -9,9 +9,11 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from rl_framework.utils.config import validate_experiment_config
+from rl_framework.utils.run_registry import registry_for_config
 
 if TYPE_CHECKING:
     from rl_framework.training.frame_capture_callback import FrameCaptureCallback
@@ -77,7 +79,16 @@ class TrainingManager:
 
             state = _RunState(run_id=run_id, cfg=cfg)
             state.status = "running"
+            state.started_at = time.time()
             self._runs[run_id] = state
+        cfg.setdefault("output", {})["run_id"] = run_id
+        registry_for_config(cfg).register_run(
+            run_id,
+            cfg,
+            # Match create_experiment_paths without importing training code.
+            Path(cfg["output"]["base_dir"])
+            / cfg["experiment_name"] / "runs" / run_id / f"seed_{cfg['seed']}",
+        )
 
         thread = threading.Thread(
             target=self._train_worker, args=(state,), daemon=False
@@ -100,6 +111,8 @@ class TrainingManager:
                 return {"error": f"Run is not active (status={state.status})"}
             state.status = "stopping"
             state.stop_event.set()
+            registry_for_config(state.cfg).update_run(run_id, status="stopping")
+            registry_for_config(state.cfg).record_event(run_id, "stop_requested", {})
         return {"run_id": run_id, "status": "stopping"}
 
     def get_status(self, run_id: str) -> dict[str, Any]:
@@ -108,7 +121,7 @@ class TrainingManager:
             state = self._runs.get(run_id)
             if state is None:
                 return {"error": f"Unknown run_id: {run_id}"}
-            return {
+            status = {
                 "run_id": state.run_id,
                 "status": state.status,
                 "error": state.error,
@@ -117,6 +130,10 @@ class TrainingManager:
                 "finished_at": state.finished_at,
                 "metrics": copy.deepcopy(state.latest_metrics),
             }
+        persisted = registry_for_config(state.cfg).get_run(run_id)
+        if persisted is not None:
+            status["metrics"] = persisted["metrics"]
+        return status
 
     def list_runs(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -137,7 +154,7 @@ class TrainingManager:
                 return {"error": f"Unknown run_id: {run_id}"}
             if state.status != "running":
                 return {"error": "Run is not active"}
-            state.pending_tuning_events.append(copy.deepcopy(params))
+            registry_for_config(state.cfg).enqueue_tuning(run_id, params)
         return {"applied": True, "params": params}
 
     def get_frames(self, run_id: str, since: int = 0) -> dict[str, Any]:
@@ -226,11 +243,22 @@ class TrainingManager:
                 state.status = "completed"
                 state.model_path = str(model_path)
                 state.finished_at = time.time()
+            registry_for_config(state.cfg).update_run(
+                state.run_id, status="completed", model_path=model_path
+            )
+            registry_for_config(state.cfg).record_event(
+                state.run_id, "gui_run_completed", {"model_path": str(model_path)}
+            )
         except Exception:
+            error = traceback.format_exc()
             with self._lock:
                 state.status = "failed"
-                state.error = traceback.format_exc()
+                state.error = error
                 state.finished_at = time.time()
+            registry_for_config(state.cfg).update_run(
+                state.run_id, status="failed", error=error
+            )
+            registry_for_config(state.cfg).record_event(state.run_id, "gui_run_failed", {})
         finally:
             with self._lock:
                 if state.status in ("running", "stopping"):
@@ -244,14 +272,9 @@ class TrainingManager:
         """
         with self._lock:
             state = self._runs.get(run_id)
-            if state is None or not state.pending_tuning_events:
+            if state is None:
                 return None
-            merged: dict[str, Any] = {}
-            for event in state.pending_tuning_events:
-                if isinstance(event, dict):
-                    merged.update(event)
-            state.pending_tuning_events.clear()
-            return merged or None
+            return registry_for_config(state.cfg).claim_tuning(run_id)
 
     def _publish_status(self, run_id: str, payload: dict[str, Any]) -> None:
         with self._lock:
@@ -259,3 +282,5 @@ class TrainingManager:
             if state is None:
                 return
             state.latest_metrics = copy.deepcopy(payload)
+            registry_for_config(state.cfg).update_run(run_id, metrics=payload)
+            registry_for_config(state.cfg).record_event(run_id, "metrics", payload)
