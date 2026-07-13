@@ -389,10 +389,10 @@ background.
   lower `alive_bonus`, stronger forward-progress incentives, energy/torque
   costs, and curriculum schedules that ramp target velocity and perturbations
   after balance is learned.
-- Add an observation-version plan before changing policy inputs. Candidate v2
-  signals are foot-contact indicators and a coordinate-free mode that removes
-  absolute x/y while retaining height and velocities. Treat this as checkpoint
-  incompatible and document migration expectations.
+- ~~Add walker observation v2 with foot contacts and a coordinate-free mode.~~
+  **Done (2026-07-12)** — `environment.observation.version: v2` adds right/left
+  contact bits, and `coordinate_free: true` drops global x/y. v1 remains for
+  existing checkpoints; cross-version resume is intentionally rejected.
 
 ### Priority 2: throughput and experiment operations
 - ~~Produce documented local training presets for this 24-core machine.~~
@@ -403,14 +403,12 @@ background.
   controls.~~ **Done (2026-07-12)** — the controls are validated and the
   `walker_smoke_cpu` CLI run completed with `torch_num_threads: 1` and
   `worker_start_method: spawn` at roughly 1,300 FPS.
-- Replace file-based GUI tuning/status IPC with an atomic event stream
-  (SSE/WebSocket) or a durable queue. Preserve the current simple polling API as
-  a fallback until browser and API tests cover no-run, running, stopped, and
-  completed states.
-- Add a first-class run registry that records immutable run identity, config
-  hash, seed, algorithm, checkpoint paths, VecNormalize sidecars, metrics CSVs,
-  and parent/resume relationships. Use it to power comparisons, cleanup, and GUI
-  output discovery instead of directory-name inference.
+- ~~Replace GUI tuning/status IPC with a durable queue.~~ **Done (2026-07-12)**
+  — the SQLite WAL run registry persists status/metrics events and tuning
+  commands, while retaining the polling API.
+- ~~Add a first-class run registry.~~ **Done (2026-07-12)** — immutable run IDs,
+  configs, artifacts, sidecars, status events, and resume lineage are stored in
+  `run_registry.sqlite3`; comparison/analysis views remain future GUI work.
 - ~~Make sweeps and benchmark matrices resumable.~~ **Done (2026-07-12)** —
   sweeps persist fingerprinted `sweep_summary/state.json` plus per-run
   `completion.json` markers and resume with `--resume-incomplete`; the benchmark
@@ -421,15 +419,16 @@ background.
 - Walker curricula: add terrain presets (`flat`, `uneven`, `obstacle/stump`,
   `push_recovery`) and example configs that progress from balance to locomotion
   to perturbation recovery.
-- Algorithm baselines: add optional SAC and TD3 experiment configs for the
-  continuous-control walker. Keep PPO as the default runner until the abstraction
-  cost is justified by working configs and tests.
+- ~~Add SAC and TD3 walker baselines.~~ **Done (2026-07-12)** —
+  `training.algorithm` selects PPO/SAC/TD3 through the shared runner; SAC/TD3
+  are validated as walker-only and ship with CPU v2 baseline configs.
 - Arena richness: add body collision, energy/food mechanics, and speed/size
   tradeoffs so organism morphology has strategic pressure beyond damage and
   health scaling.
-- Arena tooling: extend tournament/eval/replay support beyond head-to-head
-  where it makes sense for N-agent arenas, and let `morph-search` score
-  candidates by tournament Elo rather than a single opponent result.
+- ~~Extend arena tooling beyond head-to-head and score morphology by Elo.~~
+  **Done (2026-07-12)** — slot-ordered N-agent eval, rotating N-agent
+  tournaments, multi-opponent replay, and `morphology_search.scoring:
+  tournament_elo` are implemented.
 - GUI analysis views: add run comparison, best-checkpoint surfacing, league
   snapshot ratings, and replay launch links once the run registry exists.
 

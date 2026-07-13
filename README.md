@@ -186,10 +186,10 @@ python -m rl_framework.cli.main gui --port 8080   # custom port
 | `--seeds` | multi-seed only | — | Comma-separated: `0,1,2,3,4` |
 | `--max-workers` | multi-seed only | cpu count | Parallel worker processes (pass `1` for sequential) |
 | `--device` | No | config value | Override training device for this run: `auto`, `cpu`, `cuda`, `cuda:<N>` |
-| `--resume` | train only | — | Path to a saved PPO `.zip` to continue training from |
+| `--resume` | train only | — | Path to a saved matching-algorithm `.zip` to continue training from |
 | `--trials` | morph-search only | 5 | Number of morphology mutations to evaluate |
 
-### 🏋️ `train` — Train a PPO agent
+### 🏋️ `train` — Train an SB3 agent
 
 ```bash
 python -m rl_framework.cli.main train --config-name robot_walk_basic
@@ -442,6 +442,10 @@ environment:
     sensor_noise_std: 0.0            # Gaussian std added to observations (0 = off)
     action_latency_steps: 0          # FIFO delay on actions (0 = off)
 
+  observation:
+    version: v2                      # v1 legacy; v2 adds two foot-contact bits
+    coordinate_free: true             # v2 only: remove global x/y position
+
   terrain:
     preset: flat                     # flat | uneven | obstacles | push_recovery
     height: 0.025                    # Uneven terrain height variation (m)
@@ -469,6 +473,7 @@ environment:
 
 # ─── Training ───────────────────────────────────────────────────
 training:
+  algorithm: PPO                     # PPO (default), SAC, or TD3 (walker-only)
   policy: MlpPolicy                  # SB3 policy class
   total_timesteps: 20000             # Total training steps
   learning_rate: 0.0003              # PPO learning rate
@@ -546,7 +551,7 @@ Rigid-body bipedal walker in PyBullet. Goal: maintain upright posture while trac
 
 | Property | Value |
 |---|---|
-| **Observation** | `Box(35,)` — position (3), quaternion (4), linear/angular velocity (6), 10 joint positions, 10 joint velocities, mass scale, friction scale |
+| **Observation** | v1 `Box(35,)`; v2 `Box(37,)` adds right/left foot contacts. Coordinate-free v2 is `Box(35,)` without global x/y. |
 | **Action** | `Box(10,)` — normalized joint targets for hips, knees, ankles, shoulders, and elbows |
 | **Reward** | alive bonus + velocity tracking − orientation penalty − torque penalty |
 
@@ -828,11 +833,8 @@ checkpoint comparison.
 
 ### 🤖 Swap the RL Algorithm
 
-Change `sb3_runner.py` (currently uses `PPO`):
-
-1. Swap import: `from stable_baselines3 import SAC`
-2. Update YAML `training` hyperparameters
-3. No changes to envs, eval, or sweep 🎉
+Set `training.algorithm: SAC` or `TD3` in a walker config. The runner,
+evaluation flow, checkpoints, and VecNormalize sidecars are shared with PPO.
 
 ---
 
@@ -885,7 +887,7 @@ Change `sb3_runner.py` (currently uses `PPO`):
 | Single-agent API | Gymnasium | Stable, widely supported, simple step/reset contract |
 | Multi-agent API | PettingZoo Parallel | Matches SB3 shared-policy path via SuperSuit |
 | Physics backend | PyBullet | Lightweight, no licence friction; swap to MuJoCo via registry |
-| RL algorithm | SB3 PPO | Reliable baseline; algorithm is swappable in `sb3_runner.py` |
+| RL algorithm | SB3 PPO, SAC, TD3 | PPO default; SAC/TD3 walker-only baselines |
 | Config system | OmegaConf / Hydra | Readable YAML + structured overrides |
 | Experiment ops | TensorBoard + CSV + SB3 checkpoints | Low-dependency, works offline |
 
@@ -920,9 +922,20 @@ Change `sb3_runner.py` (currently uses `PPO`):
 The active development plan lives in [`docs/open_items_todo.md`](docs/open_items_todo.md). The next work is grouped into:
 
 - Priority 0 correctness fixes are currently cleared for the arena self-play validation path; new confirmed bugs should be added here first.
-- Walker stability and learning-quality work: observation v2 planning and empirical reward tuning.
+- Walker stability and learning-quality work: empirical reward tuning.
 - Throughput and operations: GUI analysis views and multi-run orchestration beyond the current single-run policy.
-- Feature additions: SAC/TD3 baselines, richer organism arena mechanics, and expanded N-agent tooling.
+- Feature additions: richer organism arena mechanics and GUI analysis views.
+
+Walker observation v2 is checkpoint-incompatible with v1: v2 adds right/left
+foot-contact signals, and coordinate-free v2 removes global x/y while retaining
+height. Start a new run with `walker_v2_smoke_cpu`, `walker_sac_baseline`, or
+`walker_td3_baseline`; do not resume across observation versions.
+
+`arena-eval --policies a.zip,b.zip,c.zip` assigns one checkpoint per N-agent
+slot. N-agent tournaments rotate competitors through slots and derive Elo from
+placement scores. For N-agent replay, pass comma-separated `--replay-opponent`
+paths for every slot after `agent_0`. Set `morphology_search.scoring:
+tournament_elo` to rank morphology trials by tournament Elo.
 
 ---
 
