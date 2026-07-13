@@ -231,6 +231,7 @@ def _resume_fingerprint(cfg: dict[str, Any]) -> dict[str, Any]:
     training = cfg.get("training", {})
     return {
         "environment": env,
+        "training.algorithm": training.get("algorithm", "PPO"),
         "training.policy": training.get("policy", "MlpPolicy"),
         "training.policy_kwargs": training.get("policy_kwargs"),
         "training.normalize_observations": training.get("normalize_observations", True),

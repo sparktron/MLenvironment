@@ -100,6 +100,14 @@ def test_flipped_normalization_is_strict_failure(tmp_path: Path) -> None:
         check_resume_provenance(model_path, cfg, strict=True)
 
 
+def test_changed_algorithm_is_strict_failure(tmp_path: Path) -> None:
+    model_path = _make_checkpoint(tmp_path, _source_cfg())
+    cfg = copy.deepcopy(_source_cfg())
+    cfg["training"]["algorithm"] = "SAC"
+    with pytest.raises(RuntimeError, match="training.algorithm"):
+        check_resume_provenance(model_path, cfg, strict=True)
+
+
 def test_missing_manifest_is_unverifiable(tmp_path: Path) -> None:
     # Checkpoint with no run_metadata.json anywhere near it.
     ckpt_dir = tmp_path / "loose" / "checkpoints"
