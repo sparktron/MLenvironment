@@ -91,6 +91,17 @@ def test_aggregate_mean_uses_only_successful_seeds(tmp_path: Path, monkeypatch) 
     assert abs(result["mean_return_mean"] - 1.5) < 1e-9
 
 
+def test_parallel_rollouts_default_multi_seed_to_sequential(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(ms_module, "_run_one_seed", _fake_run_one_seed_factory())
+    cfg = _base_cfg(tmp_path)
+    cfg["training"]["num_envs"] = 8
+
+    with pytest.warns(UserWarning, match="max_workers=1"):
+        result = ms_module.run_multi_seed(cfg, seeds=[0, 1])
+
+    assert result["successful_seeds"] == [0, 1]
+
+
 def test_per_seed_configs_update_environment_seed(tmp_path: Path, monkeypatch) -> None:
     """Arena env construction reads environment.seed, so it must vary too."""
     seen: dict[int, int] = {}

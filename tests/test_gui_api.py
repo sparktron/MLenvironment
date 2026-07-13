@@ -107,6 +107,12 @@ def test_create_config_missing_name(client):
     assert resp.status_code == 400
 
 
+def test_create_config_rejects_blank_name(client):
+    c, _, _ = client
+    resp = c.post("/api/configs", json=_minimal_cfg("   "))
+    assert resp.status_code == 400
+
+
 def test_create_config_rejects_traversal_name(client):
     c, _, _ = client
     resp = c.post("/api/configs", json={"experiment_name": "../evil"})

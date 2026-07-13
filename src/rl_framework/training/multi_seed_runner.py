@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import os
+import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from copy import deepcopy
 from pathlib import Path
@@ -42,7 +43,8 @@ def run_multi_seed(
         List of integer seeds.  Falls back to ``cfg["multi_seed"]["seeds"]``
         or ``[0, 1, 2, 3, 4]`` when not provided.
     max_workers:
-        Number of parallel worker processes.  Defaults to ``min(len(seeds), cpu_count)``.
+        Number of parallel worker processes. Defaults to one when each run has
+        parallel rollout workers, avoiding nested process oversubscription.
         Pass ``1`` to force sequential execution (useful for debugging or when
         the training itself already saturates all CPUs via SubprocVecEnv).
 
@@ -55,7 +57,18 @@ def run_multi_seed(
     seeds = [int(s) for s in seeds]
 
     if max_workers is None:
-        max_workers = min(len(seeds), os.cpu_count() or 1)
+        rollout_workers = int(cfg.get("training", {}).get("num_envs", 1))
+        if rollout_workers > 1:
+            max_workers = 1
+            warnings.warn(
+                "multi-seed defaults to max_workers=1 because each seed uses "
+                f"training.num_envs={rollout_workers}; set --max-workers explicitly "
+                "only after sizing the combined process count.",
+                UserWarning,
+                stacklevel=2,
+            )
+        else:
+            max_workers = min(len(seeds), os.cpu_count() or 1)
 
     # Build per-seed configs up front. The seed is the only thing that varies;
     # create_experiment_paths already nests each run under seed_<seed>/, so the

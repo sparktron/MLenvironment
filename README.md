@@ -185,7 +185,7 @@ python -m rl_framework.cli.main gui --port 8080   # custom port
 | `--config-dir` | No | `src/rl_framework/configs/experiments` | Config directory |
 | `--model-path` | Eval/replay only | — | Path to trained model `.zip` |
 | `--seeds` | multi-seed only | — | Comma-separated: `0,1,2,3,4` |
-| `--max-workers` | multi-seed only | cpu count | Parallel worker processes (pass `1` for sequential) |
+| `--max-workers` | multi-seed only | `1` when `num_envs > 1`; otherwise CPU count | Parallel worker processes |
 | `--device` | No | config value | Override training device for this run: `auto`, `cpu`, `cuda`, `cuda:<N>` |
 | `--resume` | train only | — | Path to a saved matching-algorithm `.zip` to continue training from |
 | `--trials` | morph-search only | 5 | Number of morphology mutations to evaluate |
@@ -681,7 +681,11 @@ overnight, high-throughput, arena self-play, and multi-seed commands.
 
 ### 📈 Multi-Seed Aggregation
 
-Train across multiple seeds for **statistically rigorous** results. Seeds run **in parallel by default** (one subprocess per seed, up to `cpu_count`). Pass `--max-workers 1` for sequential. See [`multi-seed` command](#-multi-seed--train-across-multiple-seeds-statistical-significance) above.
+Train across multiple seeds for **statistically rigorous** results. When each
+training run uses parallel rollout workers (`training.num_envs > 1`),
+multi-seed defaults to one sequential worker to avoid nested process
+oversubscription. Set `--max-workers` explicitly only after sizing the combined
+process count. See [`multi-seed` command](#-multi-seed--train-across-multiple-seeds-statistical-significance) above.
 
 ### 🏆 Self-Play League
 
@@ -700,6 +704,8 @@ vector-env path and can parallelize arena rollout collection. Shared-policy
 arena training still uses the SuperSuit path and must keep `num_envs: 1`.
 The shared-policy adapter supplies `render_mode` metadata locally, so this
 otherwise-compatible boundary no longer emits SB3's missing-render-mode warning.
+Arena damage-reward annealing updates environments at rollout boundaries rather
+than every step, avoiding unnecessary cross-process calls during parallel runs.
 For N-agent matches, the live policy's training episode ends immediately on its
 own knockout instead of collecting inert spectator transitions.
 

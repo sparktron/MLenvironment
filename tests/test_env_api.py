@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pybullet as p
 import pytest
@@ -78,6 +80,25 @@ def test_walker_construction_tolerates_null_sections() -> None:
     obs, _ = env.reset(seed=1)
     assert obs.shape == env.observation_space.shape
     env.close()
+
+
+def test_walker_warns_for_unknown_reward_and_termination_keys() -> None:
+    cfg = {
+        "type": "walker_bullet",
+        "seed": 1,
+        "reward": {"foward_velocity_weight": 2.0},
+        "termination": {"min_heigth": 0.2},
+    }
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        env = make_env("walker_bullet", cfg)
+    try:
+        assert env.reward_fn.forward_velocity_weight == 2.0
+        messages = [str(item.message) for item in caught]
+        assert any("unknown reward keys" in message for message in messages)
+        assert any("unknown termination keys" in message for message in messages)
+    finally:
+        env.close()
 
 
 def test_walker_update_live_params_tolerates_null_sections() -> None:

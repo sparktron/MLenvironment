@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from typing import Any
+import warnings
 
 import gymnasium as gym
 import numpy as np
@@ -54,6 +55,7 @@ class WalkerBulletEnv(gym.Env):
             # the first agent observation.
             self._settle_steps = int(sim_cfg.get("settle_steps", 30))
             reward_cfg = get_section(cfg, "reward")
+            self._warn_unknown_section_keys(reward_cfg, WalkerReward, "reward")
             self.reward_fn = WalkerReward(
                 **{
                     k: v
@@ -62,6 +64,7 @@ class WalkerBulletEnv(gym.Env):
                 }
             )
             term_cfg = get_section(cfg, "termination")
+            self._warn_unknown_section_keys(term_cfg, WalkerTermination, "termination")
             self.termination = WalkerTermination(
                 **{
                     k: v
@@ -141,6 +144,16 @@ class WalkerBulletEnv(gym.Env):
     TORSO_STAND_Z = (
         _FOOT_H[2] + 2 * _SHIN_H[2] + 2 * _THIGH_H[2] + _TORSO_H[2]
     )  # ≈ 0.678 m
+
+    @staticmethod
+    def _warn_unknown_section_keys(section: dict[str, Any], cls: type, name: str) -> None:
+        unknown = sorted(set(section) - set(cls.__annotations__))
+        if unknown:
+            warnings.warn(
+                f"Ignoring unknown {name} keys {unknown}; valid keys are "
+                f"{sorted(cls.__annotations__)}",
+                stacklevel=3,
+            )
 
     def _build_world(self) -> None:
         cid = self._connection

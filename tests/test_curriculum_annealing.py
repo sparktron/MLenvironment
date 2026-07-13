@@ -62,11 +62,11 @@ def test_reward_annealing_pushes_decreasing_scale() -> None:
     cb = RewardAnnealingCallback(anneal_steps=1000)
 
     _attach(cb, num_timesteps=0, env=env)
-    cb._on_step()
+    cb._on_rollout_end()
     _attach(cb, num_timesteps=250, env=env)
-    cb._on_step()
+    cb._on_rollout_end()
     _attach(cb, num_timesteps=1000, env=env)
-    cb._on_step()
+    cb._on_rollout_end()
 
     scales = [call[1][0]["reward.damage_scale"] for call in env.calls]
     assert scales[0] == pytest.approx(1.0)
@@ -80,9 +80,9 @@ def test_reward_annealing_clamps_at_zero_and_dedupes() -> None:
     cb = RewardAnnealingCallback(anneal_steps=100)
     # Past anneal_steps the scale stays 0.0 and should not re-push every step.
     _attach(cb, num_timesteps=200, env=env)
-    cb._on_step()
+    cb._on_rollout_end()
     _attach(cb, num_timesteps=300, env=env)
-    cb._on_step()
+    cb._on_rollout_end()
     scales = [call[1][0]["reward.damage_scale"] for call in env.calls]
     assert scales == [0.0]  # second identical update suppressed
 

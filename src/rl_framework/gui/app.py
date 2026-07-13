@@ -144,7 +144,10 @@ def create_config():
     data = request.get_json(force=True)
     if not data or "experiment_name" not in data:
         return jsonify({"error": "experiment_name is required"}), 400
-    name = data["experiment_name"].replace(" ", "_").lower()
+    raw_name = data["experiment_name"]
+    if not isinstance(raw_name, str) or not raw_name.strip():
+        return jsonify({"error": "experiment_name must not be empty"}), 400
+    name = raw_name.replace(" ", "_").lower()
     # Reject unsafe names.
     if ".." in name or "/" in name or "\\" in name:
         return jsonify({"error": "Invalid experiment name"}), 400

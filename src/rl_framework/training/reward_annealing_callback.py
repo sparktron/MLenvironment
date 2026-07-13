@@ -14,8 +14,9 @@ class RewardAnnealingCallback(BaseCallback):
     terminal ``+1 / -1`` win/loss signal drives learning. The health damage
     itself is unaffected, so combat still resolves throughout.
 
-    Pushes the current scale into every live arena env each step via
-    ``training_env.env_method("update_live_params", ...)``.
+    Pushes the current scale once at each rollout boundary. This keeps the
+    schedule smooth at training timescales while avoiding a cross-process
+    ``env_method`` call for every vectorized environment step.
     """
 
     def __init__(self, anneal_steps: int = 500_000, verbose: int = 0) -> None:
@@ -26,10 +27,13 @@ class RewardAnnealingCallback(BaseCallback):
         self._last_scale: float | None = None
 
     def _on_step(self) -> bool:
+        return True
+
+    def _on_rollout_end(self) -> None:
         scale = max(0.0, 1.0 - self.num_timesteps / self.anneal_steps)
-        # Avoid redundant env_method calls once fully annealed or unchanged.
+        # Avoid redundant calls once fully annealed or when no timesteps moved.
         if scale == self._last_scale:
-            return True
+            return
         if self.training_env is not None:
             self.training_env.env_method(
                 "update_live_params", {"reward.damage_scale": scale}
@@ -37,4 +41,3 @@ class RewardAnnealingCallback(BaseCallback):
         self._last_scale = scale
         if self.verbose >= 1 and self.logger is not None:
             self.logger.record("arena/damage_reward_scale", scale)
-        return True
