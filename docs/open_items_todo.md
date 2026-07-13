@@ -12,7 +12,11 @@
 
 ## Larger changes (separate session)
 - ~~Rework experiment storage layout to avoid name mutation in multi-seed and sweep orchestration.~~ **Done** — variants now route through `output.run_id` (`<experiment>/runs/<run_id>/seed_<seed>/`); multi-seed no longer mutates the name. See `create_experiment_paths`.
-- Replace file-based GUI tuning/status IPC with atomic event stream (SSE/WebSocket or durable queue).
+- ~~Replace file-based GUI tuning/status IPC with a durable queue.~~ **Done
+  (2026-07-12)** — `utils.run_registry.RunRegistry` stores GUI tuning commands,
+  status/metric events, and run state in a SQLite WAL database under the output
+  root. The training callback atomically claims queued tuning commands at the
+  next rollout boundary; status is persisted independently of the GUI process.
 - ~~Work through the GUI correctness and layout plan in `docs/ui_roadmap.md`.~~ **Done** — fixed stale walker metadata, template-to-environment state reset, dashboard disabled/empty states, variant run labels, compact mobile wizard progress, and denser desktop dashboard layout. The roadmap file now records implementation status and the browser checklist.
 - ~~Introduce end-to-end reproducibility mode (deterministic settings + enforcement + metadata).~~
   **Done (2026-07-12)** — `reproducibility.deterministic: true` seeds Python,
@@ -24,8 +28,7 @@
 
 ## Known limitations currently retained
 - Single active GUI run policy.
-- Floating dependency ranges in `pyproject.toml` (not lockfile-backed yet).
-- No first-class run registry for comparing experiments by immutable metadata.
+- GUI still permits only one active in-process training run.
 
 ## Next development roadmap (2026-07-05) — full code review
 

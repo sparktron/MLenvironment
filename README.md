@@ -421,7 +421,7 @@ environment:
     max_force: 35.0                  # Maximum applied force (N)
 
   reward:
-    alive_bonus: 1.0                 # Reward per step for staying upright
+    alive_bonus: 0.25                # Small uprightness incentive; locomotion dominates
     forward_velocity_weight: 2.0     # Weight on velocity-tracking reward
     target_velocity: 1.0             # Desired forward velocity (m/s)
     orientation_penalty_weight: 1.0  # Weight on roll+pitch penalty
@@ -441,6 +441,15 @@ environment:
     friction_range: [0.9, 1.1]       # Multiply base friction by U(low, high) each reset
     sensor_noise_std: 0.0            # Gaussian std added to observations (0 = off)
     action_latency_steps: 0          # FIFO delay on actions (0 = off)
+
+  terrain:
+    preset: flat                     # flat | uneven | obstacles | push_recovery
+    height: 0.025                    # Uneven terrain height variation (m)
+    obstacle_height: 0.10            # Obstacle height (m)
+    push_recovery:
+      interval_steps: 120
+      start_step: 60
+      force: 180.0                   # Lateral impulse magnitude
 
   # --- Multi-agent-specific (type: organism_arena_parallel) ---
   sim:
@@ -522,7 +531,10 @@ self_play:
 | Config | Environment | Description |
 |---|---|---|
 | **robot_walk_basic** | `walker_bullet` | Bipedal locomotion with domain randomization. Sweeps velocity & torque penalty. ✅ Good for getting started |
-| **robot_push_recovery** | `walker_bullet` | Aggressive randomization (mass 0.8-1.2×, friction 0.7-1.3×) for robustness. |
+| **robot_push_recovery** | `walker_bullet` | Lateral push-recovery curriculum plus aggressive mass/friction randomization. |
+| **walker_curriculum_flat** | `walker_bullet` | Flat-ground speed curriculum. |
+| **walker_curriculum_uneven** | `walker_bullet` | Uneven-terrain speed curriculum. |
+| **walker_curriculum_obstacles** | `walker_bullet` | Low-obstacle speed curriculum. |
 | **organisms_fight_arena** | `organism_arena_parallel` | Self-play combat arena with parallel rollout workers. Sweeps attack range & cooldown. |
 | **organisms_growth_competition** | `organism_arena_parallel` | Two-agent arena with in-episode growth. Sweeps base size & damage. |
 
@@ -899,9 +911,6 @@ Change `sb3_runner.py` (currently uses `PPO`):
 | **CPU physics** | PyBullet simulation is CPU-only; GPU speeds up the neural network only |
 | **Shared-policy arena parallelism** | Shared-policy SuperSuit arena training is single-process; enable `self_play` to use the native SB3 parallel path |
 | **Single active GUI run** | Use CLI runs for concurrent experiments until GUI run orchestration grows beyond the current single-run policy |
-| **File-based GUI status/tuning IPC** | Keep runs local and short-lived; roadmap tracks an SSE/WebSocket or durable queue replacement |
-| **No first-class run registry** | Use output directory structure and `run_metadata.json`; roadmap tracks immutable run indexing and comparison views |
-| **Version sensitivity** | Pin versions in `pyproject.toml` for production deployments |
 | **Sequential sweeps** | Use `xargs` / `GNU parallel` / job scheduler for parallel hyperparameter sweeps |
 
 ---
@@ -911,9 +920,9 @@ Change `sb3_runner.py` (currently uses `PPO`):
 The active development plan lives in [`docs/open_items_todo.md`](docs/open_items_todo.md). The next work is grouped into:
 
 - Priority 0 correctness fixes are currently cleared for the arena self-play validation path; new confirmed bugs should be added here first.
-- Walker stability and learning-quality work: high-throughput presets, best-checkpoint eval, reward rebalance, and observation v2 planning.
-- Throughput and operations: documented local presets, optional CPU/thread controls, GUI event streaming, a run registry, and resumable sweeps.
-- Feature additions: walker terrain curricula, SAC/TD3 baselines, richer organism arena mechanics, expanded N-agent tooling, and GUI analysis views.
+- Walker stability and learning-quality work: observation v2 planning and empirical reward tuning.
+- Throughput and operations: GUI analysis views and multi-run orchestration beyond the current single-run policy.
+- Feature additions: SAC/TD3 baselines, richer organism arena mechanics, and expanded N-agent tooling.
 
 ---
 
@@ -923,6 +932,15 @@ The active development plan lives in [`docs/open_items_todo.md`](docs/open_items
 - Incremental fixes report: `docs/fixes_2026-04-22.md`
 - Open items and future plan: `docs/open_items_todo.md`
 - UI review roadmap: `docs/ui_roadmap.md`
+
+### Run Registry
+
+Each train run is registered in `outputs/run_registry.sqlite3` (or the configured
+`output.base_dir`). The SQLite registry assigns the run identity, snapshots the
+resolved config, records status/metrics events and tuning commands, indexes
+artifacts, and links resumed runs to their parent. GUI tuning uses this durable
+queue, so commands survive a GUI process restart until the training callback
+claims them.
 - Agent workflow notes: `AGENTS.md`
 
 ---

@@ -34,7 +34,7 @@ from rl_framework.utils.checkpoint import (
     vecnormalize_path_for_model as _vecnormalize_path_for_model,
 )
 from rl_framework.utils.logging_utils import create_experiment_paths
-from rl_framework.utils.run_registry import registry_for_config
+from rl_framework.utils.run_registry import new_run_id, registry_for_config
 from rl_framework.utils.reproducibility import (
     check_resume_provenance,
     configure_deterministic_mode,
@@ -402,7 +402,7 @@ def train(
         resume_from=resume_from,
     )
     registry = registry_for_config(cfg)
-    run_identity = str(cfg["output"].get("run_id") or paths.run_dir.name)
+    run_identity = str(cfg["output"].get("run_id") or new_run_id())
     registry.register_run(run_identity, cfg, paths.run_dir, resume_from=resume_from)
     env_cfg = cfg["environment"]
 
@@ -624,6 +624,9 @@ def train(
         registry.record_artifact(run_identity, "final_model", final_path.with_suffix(".zip"))
         registry.record_artifact(run_identity, "run_metadata", paths.run_dir / "run_metadata.json")
         registry.record_artifact(run_identity, "vecnormalize", paths.checkpoints_dir / "vecnormalize.pkl")
+        for artifact in paths.checkpoints_dir.iterdir():
+            if artifact.is_file():
+                registry.record_artifact(run_identity, "checkpoint", artifact)
         return final_path
     finally:
         if "best_eval_env" in locals() and best_eval_env is not None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,7 @@ class RunRegistry:
                     run_id TEXT PRIMARY KEY,
                     experiment_name TEXT NOT NULL,
                     seed INTEGER NOT NULL,
-                    run_dir TEXT NOT NULL UNIQUE,
+                    run_dir TEXT NOT NULL,
                     config_json TEXT NOT NULL,
                     parent_run_id TEXT,
                     resume_from TEXT,
@@ -71,6 +72,34 @@ class RunRegistry:
                 );
                 """
             )
+            schema = db.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'runs'"
+            ).fetchone()["sql"]
+            if "run_dir TEXT NOT NULL UNIQUE" in schema:
+                # Version 1 keyed runs by output directory. Preserve its rows
+                # while allowing later executions to reuse an output location.
+                db.executescript(
+                    """
+                    ALTER TABLE runs RENAME TO runs_v1;
+                    CREATE TABLE runs (
+                        run_id TEXT PRIMARY KEY,
+                        experiment_name TEXT NOT NULL,
+                        seed INTEGER NOT NULL,
+                        run_dir TEXT NOT NULL,
+                        config_json TEXT NOT NULL,
+                        parent_run_id TEXT,
+                        resume_from TEXT,
+                        status TEXT NOT NULL,
+                        error TEXT NOT NULL DEFAULT '',
+                        model_path TEXT NOT NULL DEFAULT '',
+                        started_at REAL NOT NULL,
+                        finished_at REAL,
+                        latest_metrics_json TEXT NOT NULL DEFAULT '{}'
+                    );
+                    INSERT INTO runs SELECT * FROM runs_v1;
+                    DROP TABLE runs_v1;
+                    """
+                )
 
     def register_run(
         self, run_id: str, cfg: dict[str, Any], run_dir: Path, *, resume_from: str | Path | None = None
@@ -79,7 +108,7 @@ class RunRegistry:
         now = time.time()
         parent = self.find_run_for_artifact(resume_from) if resume_from else None
         with self._connect() as db:
-            existing = db.execute("SELECT run_id FROM runs WHERE run_dir = ?", (str(run_dir),)).fetchone()
+            existing = db.execute("SELECT run_id FROM runs WHERE run_id = ?", (run_id,)).fetchone()
             if existing is not None:
                 return str(existing["run_id"])
             db.execute(
@@ -98,7 +127,8 @@ class RunRegistry:
         path = Path(artifact).resolve()
         with self._connect() as db:
             row = db.execute(
-                "SELECT run_id FROM runs WHERE ? LIKE run_dir || '%' ORDER BY length(run_dir) DESC LIMIT 1",
+                "SELECT run_id FROM runs WHERE ? LIKE run_dir || '%' "
+                "ORDER BY length(run_dir) DESC, started_at DESC LIMIT 1",
                 (str(path),),
             ).fetchone()
         return str(row["run_id"]) if row else None
@@ -173,3 +203,8 @@ class RunRegistry:
 
 def registry_for_config(cfg: dict[str, Any]) -> RunRegistry:
     return RunRegistry(cfg.get("output", {}).get("base_dir", "outputs"))
+
+
+def new_run_id() -> str:
+    """Return an opaque immutable identity for a non-orchestrated CLI run."""
+    return f"run_{uuid.uuid4().hex}"
