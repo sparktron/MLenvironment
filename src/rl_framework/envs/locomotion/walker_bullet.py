@@ -91,6 +91,14 @@ class WalkerBulletEnv(gym.Env):
             self._action_latency_steps = int(rand_cfg.get("action_latency_steps", 0))
             self._action_buffer: deque[np.ndarray] = deque()
 
+            terrain_cfg = get_section(cfg, "terrain")
+            self._terrain_preset = str(terrain_cfg.get("preset", "flat"))
+            self._terrain_body_ids: list[int] = []
+            push_cfg = get_section(terrain_cfg, "push_recovery")
+            self._push_interval_steps = int(push_cfg.get("interval_steps", 0))
+            self._push_force = float(push_cfg.get("force", 0.0))
+            self._push_start_step = int(push_cfg.get("start_step", 0))
+
             self.step_count = 0
             self.robot_id = -1
             self.plane_id = -1
@@ -133,6 +141,8 @@ class WalkerBulletEnv(gym.Env):
         sim_cfg = get_section(self.cfg, "sim")
         p.setGravity(0, 0, sim_cfg.get("gravity", -9.81), physicsClientId=cid)
         self.plane_id = p.loadURDF("plane.urdf", physicsClientId=cid)
+        self._terrain_body_ids = []
+        self._build_terrain()
 
         sim = sim_cfg
         mass = sim.get("mass", 3.0)
@@ -315,6 +325,38 @@ class WalkerBulletEnv(gym.Env):
             for link_id in self._DYNAMIC_LINK_IDS
         }
 
+    def _build_terrain(self) -> None:
+        """Add deterministic static terrain without changing the spawn surface."""
+        if self._terrain_preset == "flat" or self._terrain_preset == "push_recovery":
+            return
+
+        cid = self._connection
+        terrain_cfg = get_section(self.cfg, "terrain")
+        friction = float(get_section(self.cfg, "sim").get("friction", 0.8))
+
+        def add_box(position: tuple[float, float, float], half_extents: tuple[float, float, float]) -> None:
+            collision = p.createCollisionShape(p.GEOM_BOX, halfExtents=half_extents, physicsClientId=cid)
+            visual = p.createVisualShape(
+                p.GEOM_BOX, halfExtents=half_extents, rgbaColor=[0.25, 0.45, 0.25, 1.0], physicsClientId=cid
+            )
+            body_id = p.createMultiBody(
+                baseMass=0.0, baseCollisionShapeIndex=collision, baseVisualShapeIndex=visual,
+                basePosition=position, physicsClientId=cid,
+            )
+            p.changeDynamics(body_id, -1, lateralFriction=friction, physicsClientId=cid)
+            self._terrain_body_ids.append(body_id)
+
+        if self._terrain_preset == "uneven":
+            height = float(terrain_cfg.get("height", 0.025))
+            # Start after x=0.6 so reset randomization never begins in contact.
+            for index, x in enumerate((0.8, 1.4, 2.0, 2.6, 3.2)):
+                offset = height if index % 2 == 0 else -height
+                add_box((x, 0.0, offset - 0.03), (0.32, 0.6, 0.03))
+        elif self._terrain_preset == "obstacles":
+            obstacle_height = float(terrain_cfg.get("obstacle_height", 0.10))
+            for x in (1.2, 2.4, 3.6):
+                add_box((x, 0.0, obstacle_height / 2), (0.10, 0.55, obstacle_height / 2))
+
     def _get_obs(
         self,
         pos=None,
@@ -457,6 +499,19 @@ class WalkerBulletEnv(gym.Env):
             action = self._action_buffer.popleft()
         # Frame-skip: hold the same command across `frame_skip` physics ticks
         # so the policy operates at ~60 Hz while physics runs at ~240 Hz.
+        push_applied = False
+        if (
+            self._push_force > 0.0
+            and self.step_count >= self._push_start_step
+            and self._push_interval_steps > 0
+            and self.step_count % self._push_interval_steps == 0
+        ):
+            direction = -1.0 if self._rng.integers(0, 2) else 1.0
+            p.applyExternalForce(
+                self.robot_id, -1, [0.0, direction * self._push_force, 0.0], [0.0, 0.0, 0.0],
+                p.WORLD_FRAME, physicsClientId=self._connection,
+            )
+            push_applied = True
         self.dynamics.apply_action(
             self.robot_id, action, physicsClientId=self._connection
         )
@@ -515,6 +570,7 @@ class WalkerBulletEnv(gym.Env):
             "x_position": pos[0],
             "lin_vel_x": lin_vel[0],
             "torso_contact": torso_contact,
+            "push_applied": push_applied,
         }
         return obs, reward, terminated, truncated, info
 

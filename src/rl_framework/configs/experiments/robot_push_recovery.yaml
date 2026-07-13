@@ -14,11 +14,17 @@ environment:
       position_gain: 0.1
       velocity_gain: 1.0
   reward:
-    alive_bonus: 1.2
-    forward_velocity_weight: 1.2
+    alive_bonus: 0.25
+    forward_velocity_weight: 2.0
     target_velocity: 0.8
     orientation_penalty_weight: 1.8
     torque_penalty_weight: 0.015
+  terrain:
+    preset: push_recovery
+    push_recovery:
+      interval_steps: 120
+      start_step: 60
+      force: 180.0
   termination:
     min_height: 0.18
     max_height: 1.5
@@ -45,6 +51,16 @@ evaluation:
 
 output:
   base_dir: outputs
+
+curriculum:
+  enabled: true
+  level_up_threshold: 80.0
+  max_level: 2
+  level_params:
+    1:
+      reward.target_velocity: 1.0
+    2:
+      reward.target_velocity: 1.2
 
 sweep:
   parameters:

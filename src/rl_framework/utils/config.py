@@ -212,6 +212,22 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
                     raise ValueError(
                         f"environment.reward.{key} must be a non-negative number, got {val!r}"
                     )
+        terrain = env_cfg.get("terrain", {})
+        preset = terrain.get("preset", "flat")
+        valid_presets = {"flat", "uneven", "obstacles", "push_recovery"}
+        if preset not in valid_presets:
+            raise ValueError(
+                "environment.terrain.preset must be one of "
+                f"{sorted(valid_presets)}, got {preset!r}"
+            )
+        push = terrain.get("push_recovery", {})
+        for key in ("interval_steps", "start_step"):
+            if key in push:
+                _ensure_int(push[key], f"environment.terrain.push_recovery.{key}", min_value=0)
+        if "force" in push:
+            force = push["force"]
+            if isinstance(force, bool) or not isinstance(force, (int, float)) or force < 0:
+                raise ValueError("environment.terrain.push_recovery.force must be non-negative")
 
     if env_type == "organism_arena_parallel":
         num_envs = int(cfg.get("training", {}).get("num_envs", 1))

@@ -1,0 +1,38 @@
+experiment_name: walker_curriculum_uneven
+seed: 42
+environment:
+  type: walker_bullet
+  seed: 42
+  terrain:
+    preset: uneven
+    height: 0.025
+  reward:
+    alive_bonus: 0.25
+    forward_velocity_weight: 2.0
+    target_velocity: 0.6
+    torque_penalty_weight: 0.01
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+training:
+  policy: MlpPolicy
+  total_timesteps: 1000000
+  num_envs: 24
+  n_steps: 2048
+  batch_size: 512
+  learning_rate: 0.0003
+  checkpoint_every: 50000
+  normalize_observations: true
+  device: cpu
+output:
+  base_dir: outputs
+curriculum:
+  enabled: true
+  level_up_threshold: 120.0
+  max_level: 2
+  level_params:
+    1:
+      reward.target_velocity: 0.8
+    2:
+      reward.target_velocity: 1.0

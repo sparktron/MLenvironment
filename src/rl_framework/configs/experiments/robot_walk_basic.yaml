@@ -17,13 +17,15 @@ environment:
       position_gain: 0.1
       velocity_gain: 1.0
   reward:
-    alive_bonus: 5.0
-    forward_velocity_weight: 1.5
+    alive_bonus: 0.25
+    forward_velocity_weight: 2.0
     target_velocity: 1.0
     velocity_sigma: 0.5
     orientation_penalty_weight: 0.3
     torque_penalty_weight: 0.01
     fall_penalty: 10.0
+  terrain:
+    preset: flat
   termination:
     min_height: 0.18
     max_height: 1.5

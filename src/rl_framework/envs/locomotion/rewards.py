@@ -11,9 +11,8 @@ class WalkerReward:
     """Shaped reward for the bipedal walker.
 
     Design notes (vs. the original v-shape velocity term):
-    - ``alive_bonus`` dominates: surviving a step is worth more than walking
-      perfectly at the target velocity, so the agent's first lesson is "don't
-      fall." We only add the bonus while ``alive=True``.
+    - ``alive_bonus`` is deliberately small: velocity tracking is the main
+      positive signal, while survival remains a gentle bootstrap incentive.
     - The velocity reward is a **Gaussian around the target**, so standing
       still scores a small positive (≈ alive_bonus + 0.3) instead of being
       penalised harder than falling.
@@ -23,8 +22,8 @@ class WalkerReward:
       bootstrap easier; raise it later via curriculum.
     """
 
-    alive_bonus: float = 5.0
-    forward_velocity_weight: float = 1.5
+    alive_bonus: float = 0.25
+    forward_velocity_weight: float = 2.0
     target_velocity: float = 1.0
     # Width (1 sigma) of the Gaussian around target_velocity. Larger →
     # broader credit for "close to target" speeds.

@@ -191,3 +191,10 @@ def test_robot_push_recovery_config_uses_current_atlas_body() -> None:
     assert sim["max_force"] == 35.0, (
         "max_force must match the current 1.0x per-joint torque baseline"
     )
+    assert cfg["environment"]["terrain"]["preset"] == "push_recovery"
+
+
+@pytest.mark.parametrize("name", ["walker_curriculum_flat", "walker_curriculum_uneven", "walker_curriculum_obstacles"])
+def test_walker_curriculum_presets_validate(name: str) -> None:
+    cfg = to_container(load_config(name, "src/rl_framework/configs/experiments"))
+    validate_experiment_config(cfg)

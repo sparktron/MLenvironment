@@ -25,6 +25,29 @@ def test_walker_env_api() -> None:
     env.close()
 
 
+@pytest.mark.parametrize("preset,expected_bodies", [("flat", 0), ("uneven", 5), ("obstacles", 3)])
+def test_walker_terrain_presets_build_static_geometry(preset: str, expected_bodies: int) -> None:
+    env = make_env("walker_bullet", {"type": "walker_bullet", "seed": 1, "terrain": {"preset": preset}})
+    try:
+        env.reset(seed=1)
+        assert len(env._terrain_body_ids) == expected_bodies
+    finally:
+        env.close()
+
+
+def test_walker_push_recovery_publishes_push_event() -> None:
+    env = make_env(
+        "walker_bullet",
+        {"type": "walker_bullet", "seed": 1, "terrain": {"preset": "push_recovery", "push_recovery": {"interval_steps": 1, "force": 100.0}}},
+    )
+    try:
+        env.reset(seed=1)
+        _, _, _, _, info = env.step(np.zeros(env.action_space.shape, dtype=np.float32))
+        assert info["push_applied"] is True
+    finally:
+        env.close()
+
+
 def test_walker_construction_tolerates_null_sections() -> None:
     """The GUI wizard has historically written `section: null` for empty
     nested groups. Construction must not crash on it."""
