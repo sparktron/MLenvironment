@@ -58,6 +58,9 @@ def test_reward_annealing_validates_anneal_steps() -> None:
 
 
 def test_reward_annealing_pushes_decreasing_scale() -> None:
+    """Pushed at _on_rollout_end (per-rollout granularity), not every step —
+    an env_method push on every vector step would be a subprocess round-trip
+    per step during the whole anneal window."""
     env = _FakeVecEnv()
     cb = RewardAnnealingCallback(anneal_steps=1000)
 
@@ -75,10 +78,24 @@ def test_reward_annealing_pushes_decreasing_scale() -> None:
     assert all(call[0] == "update_live_params" for call in env.calls)
 
 
+def test_reward_annealing_does_not_push_on_every_step() -> None:
+    env = _FakeVecEnv()
+    cb = RewardAnnealingCallback(anneal_steps=1000)
+
+    _attach(cb, num_timesteps=0, env=env)
+    for step in range(1, 50):
+        cb.num_timesteps = step
+        cb._on_step()
+
+    assert env.calls == []  # nothing pushed until a rollout actually ends
+    cb._on_rollout_end()
+    assert len(env.calls) == 1
+
+
 def test_reward_annealing_clamps_at_zero_and_dedupes() -> None:
     env = _FakeVecEnv()
     cb = RewardAnnealingCallback(anneal_steps=100)
-    # Past anneal_steps the scale stays 0.0 and should not re-push every step.
+    # Past anneal_steps the scale stays 0.0 and should not re-push every rollout.
     _attach(cb, num_timesteps=200, env=env)
     cb._on_rollout_end()
     _attach(cb, num_timesteps=300, env=env)

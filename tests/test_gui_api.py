@@ -119,6 +119,20 @@ def test_create_config_rejects_traversal_name(client):
     assert resp.status_code == 400
 
 
+def test_create_config_rejects_empty_name(client):
+    c, configs_dir, _ = client
+    resp = c.post("/api/configs", json=_minimal_cfg(""))
+    assert resp.status_code == 400
+    assert not (configs_dir / ".yaml").exists()
+
+
+def test_create_config_rejects_whitespace_only_name(client):
+    c, configs_dir, _ = client
+    resp = c.post("/api/configs", json=_minimal_cfg("   "))
+    assert resp.status_code == 400
+    assert list(configs_dir.glob("*.yaml")) == []
+
+
 # ----- schema -----
 
 
@@ -142,6 +156,35 @@ def test_schema_allows_parallel_self_play_arena_training(client):
     assert training["num_envs"]["value"] == 1
     assert training["num_envs"]["max"] > 1
     assert "self-play" in training["num_envs"]["desc"]
+
+
+def test_schema_exposes_arena_self_play_league_curriculum_groups(client):
+    """These previously had no wizard fields at all — only loading the bundled
+    organisms_fight_arena template exposed self_play/reward_annealing/
+    curriculum, so building a self-play arena config from scratch required
+    hand-editing YAML."""
+    c, _, _ = client
+    resp = c.get("/api/schema")
+
+    assert resp.status_code == 200
+    extra = resp.get_json()["organism_arena_parallel"]["extra"]
+    assert set(extra) == {"self_play", "reward_annealing", "curriculum"}
+    assert extra["self_play"]["sampling_mode"]["choices"] == ["uniform", "recent_bias"]
+    assert extra["reward_annealing"]["anneal_steps"]["type"] == "int"
+    assert extra["curriculum"]["level_up_thresholds"]["type"] == "json"
+    # walker_bullet has no self-play/annealing/curriculum concept.
+    assert "extra" not in resp.get_json()["walker_bullet"]
+
+
+def test_schema_arena_battle_rules_includes_sensing_and_falloff(client):
+    c, _, _ = client
+    resp = c.get("/api/schema")
+
+    battle_rules = resp.get_json()["organism_arena_parallel"]["environment"][
+        "battle_rules"
+    ]
+    assert battle_rules["sensing_radius"]["type"] == "float"
+    assert battle_rules["attack_falloff"]["choices"] == ["linear", "binary"]
 
 
 def test_schema_no_longer_exposes_ignored_walker_geometry(client):

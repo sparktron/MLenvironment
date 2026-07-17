@@ -1,8 +1,10 @@
 """Callback to capture environment frames during training for live visualization."""
+
 from __future__ import annotations
 
 import base64
 import threading
+import time
 from collections import deque
 from dataclasses import dataclass
 from io import BytesIO
@@ -16,6 +18,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 @dataclass
 class FrameData:
     """A single captured frame with metadata."""
+
     frame_index: int
     timestep: int
     episode_num: int
@@ -37,21 +40,28 @@ class FrameCaptureCallback(BaseCallback):
         self,
         capture_interval: int = 50,
         max_frames: int = 200,
+        min_wall_interval_s: float = 1.0,
         verbose: int = 0,
     ):
         """
         Args:
             capture_interval: Capture frame every N timesteps
             max_frames: Maximum frames to keep in buffer (ring buffer)
+            min_wall_interval_s: Minimum wall-clock seconds between captures.
+                Guards against ``capture_interval`` (a step count) resolving to
+                sub-second cadence at high ``num_envs`` throughput, which would
+                otherwise render every couple of vector steps.
             verbose: Verbosity level
         """
         super().__init__(verbose)
         self.capture_interval = capture_interval
         self.max_frames = max_frames
+        self.min_wall_interval_s = min_wall_interval_s
         self.frames: deque[FrameData] = deque(maxlen=max_frames)
         self.frame_index = 0
         self.episode_num = 0
         self.last_capture_step = 0
+        self.last_capture_wall_time = 0.0
         self._lock = threading.Lock()
 
     def _on_step(self) -> bool:
@@ -62,35 +72,39 @@ class FrameCaptureCallback(BaseCallback):
             self.episode_num += int(sum(dones))
 
         current_step = self.model.num_timesteps
-        if current_step - self.last_capture_step >= self.capture_interval:
+        now = time.monotonic()
+        if (
+            current_step - self.last_capture_step >= self.capture_interval
+            and now - self.last_capture_wall_time >= self.min_wall_interval_s
+        ):
             self._capture_frame(current_step)
             self.last_capture_step = current_step
+            self.last_capture_wall_time = now
 
         return True
 
     def _capture_frame(self, timestep: int) -> None:
-        """Capture a frame from the environment."""
+        """Capture a frame from env index 0 only.
+
+        Rendering through the VecEnv directly (``env.render()``) invokes
+        ``render()`` on every worker and tiles the results into a mosaic —
+        expensive at high ``num_envs`` and not what the dashboard displays
+        (one robot, not a grid). ``env_method`` targets a single sub-env.
+        """
         try:
             env = self.training_env
             if env is None:
                 return
 
-            # Try to get a frame from the environment
             frame = None
 
-            # Try calling render() on VecEnv (newer API)
             try:
-                result = env.render()
-                if result is not None:
-                    if isinstance(result, list) and len(result) > 0:
-                        frame = result[0]
-                    elif isinstance(result, np.ndarray):
-                        if len(result.shape) == 4:  # Multiple envs: (n, h, w, c)
-                            frame = result[0]
-                        else:  # Single env: (h, w, c)
-                            frame = result
+                result = env.env_method("render", indices=[0])
+                if result and isinstance(result[0], np.ndarray):
+                    frame = result[0]
             except (AttributeError, TypeError):
-                # Fallback: try to get underlying envs directly
+                # Fallback: try to get the underlying env directly (e.g. a
+                # VecEnv variant without env_method support).
                 if hasattr(env, "envs") and len(env.envs) > 0:
                     try:
                         frame = env.envs[0].render()
@@ -130,7 +144,9 @@ class FrameCaptureCallback(BaseCallback):
                 self.frame_index += 1
 
             if self.verbose >= 2:
-                print(f"[FrameCapture] Captured frame {self.frame_index} at step {timestep}")
+                print(
+                    f"[FrameCapture] Captured frame {self.frame_index} at step {timestep}"
+                )
         except Exception as e:
             if self.verbose >= 1:
                 print(f"[FrameCapture] Error capturing frame: {e}")

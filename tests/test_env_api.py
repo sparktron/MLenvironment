@@ -32,7 +32,10 @@ def test_walker_env_api() -> None:
     [({"version": "v2"}, (37,)), ({"version": "v2", "coordinate_free": True}, (35,))],
 )
 def test_walker_observation_v2_adds_foot_contacts(observation, shape) -> None:
-    env = make_env("walker_bullet", {"type": "walker_bullet", "seed": 1, "observation": observation})
+    env = make_env(
+        "walker_bullet",
+        {"type": "walker_bullet", "seed": 1, "observation": observation},
+    )
     try:
         obs, _ = env.reset(seed=1)
         assert obs.shape == env.observation_space.shape == shape
@@ -41,9 +44,16 @@ def test_walker_observation_v2_adds_foot_contacts(observation, shape) -> None:
         env.close()
 
 
-@pytest.mark.parametrize("preset,expected_bodies", [("flat", 0), ("uneven", 5), ("obstacles", 3)])
-def test_walker_terrain_presets_build_static_geometry(preset: str, expected_bodies: int) -> None:
-    env = make_env("walker_bullet", {"type": "walker_bullet", "seed": 1, "terrain": {"preset": preset}})
+@pytest.mark.parametrize(
+    "preset,expected_bodies", [("flat", 0), ("uneven", 5), ("obstacles", 3)]
+)
+def test_walker_terrain_presets_build_static_geometry(
+    preset: str, expected_bodies: int
+) -> None:
+    env = make_env(
+        "walker_bullet",
+        {"type": "walker_bullet", "seed": 1, "terrain": {"preset": preset}},
+    )
     try:
         env.reset(seed=1)
         assert len(env._terrain_body_ids) == expected_bodies
@@ -54,7 +64,14 @@ def test_walker_terrain_presets_build_static_geometry(preset: str, expected_bodi
 def test_walker_push_recovery_publishes_push_event() -> None:
     env = make_env(
         "walker_bullet",
-        {"type": "walker_bullet", "seed": 1, "terrain": {"preset": "push_recovery", "push_recovery": {"interval_steps": 1, "force": 100.0}}},
+        {
+            "type": "walker_bullet",
+            "seed": 1,
+            "terrain": {
+                "preset": "push_recovery",
+                "push_recovery": {"interval_steps": 1, "force": 100.0},
+            },
+        },
     )
     try:
         env.reset(seed=1)
@@ -284,7 +301,11 @@ def test_organism_env_obs_shape() -> None:
 def test_arena_collision_separates_overlapping_organisms() -> None:
     env = make_env(
         "organism_arena_parallel",
-        {"type": "organism_arena_parallel", "seed": 0, "sim": {"collision_radius": 0.1}},
+        {
+            "type": "organism_arena_parallel",
+            "seed": 0,
+            "sim": {"collision_radius": 0.1},
+        },
     )
     try:
         env.reset(seed=0)
@@ -292,7 +313,9 @@ def test_arena_collision_separates_overlapping_organisms() -> None:
             env.state[agent]["pos"] = np.zeros(2, dtype=np.float32)
         noop = np.zeros(3, dtype=np.float32)
         env.step({agent: noop for agent in env.agents})
-        distance = np.linalg.norm(env.state["agent_0"]["pos"] - env.state["agent_1"]["pos"])
+        distance = np.linalg.norm(
+            env.state["agent_0"]["pos"] - env.state["agent_1"]["pos"]
+        )
         assert distance >= 0.2 - 1e-6
     finally:
         env.close()
@@ -301,7 +324,11 @@ def test_arena_collision_separates_overlapping_organisms() -> None:
 def test_arena_food_restores_energy_and_respawns() -> None:
     env = make_env(
         "organism_arena_parallel",
-        {"type": "organism_arena_parallel", "seed": 0, "resources": {"food_count": 1, "food_energy": 0.4, "food_respawn_steps": 1}},
+        {
+            "type": "organism_arena_parallel",
+            "seed": 0,
+            "resources": {"food_count": 1, "food_energy": 0.4, "food_respawn_steps": 1},
+        },
     )
     try:
         env.reset(seed=0)
@@ -320,13 +347,24 @@ def test_arena_food_restores_energy_and_respawns() -> None:
 def test_arena_larger_size_moves_more_slowly() -> None:
     env = make_env(
         "organism_arena_parallel",
-        {"type": "organism_arena_parallel", "seed": 0, "morphology": {"base_size": 2.0}},
+        {
+            "type": "organism_arena_parallel",
+            "seed": 0,
+            "morphology": {"base_size": 2.0},
+        },
     )
     try:
         env.reset(seed=0)
         start = env.state["agent_0"]["pos"].copy()
-        env.step({"agent_0": np.array([1.0, 0.0, 0.0], dtype=np.float32), "agent_1": np.zeros(3, dtype=np.float32)})
-        assert np.linalg.norm(env.state["agent_0"]["pos"] - start) == pytest.approx(env.move_speed / 2.0)
+        env.step(
+            {
+                "agent_0": np.array([1.0, 0.0, 0.0], dtype=np.float32),
+                "agent_1": np.zeros(3, dtype=np.float32),
+            }
+        )
+        assert np.linalg.norm(env.state["agent_0"]["pos"] - start) == pytest.approx(
+            env.move_speed / 2.0
+        )
     finally:
         env.close()
 

@@ -286,6 +286,32 @@
       evalGroup.appendChild(inputEl);
     });
     container.appendChild(evalGroup);
+
+    // Arena-only extra groups (self_play / reward_annealing / curriculum).
+    // These are top-level config keys (siblings of environment/training/
+    // evaluation), not nested under environment — populateGroup's "top."
+    // prefix (handled in assembleConfig) writes them there directly.
+    if (envSchema.extra) {
+      var prefillExtra = prefill || selectedConfig;
+      Object.keys(envSchema.extra).forEach(function (groupKey) {
+        var groupTitle = document.createElement("div");
+        groupTitle.className = "form-group-title";
+        groupTitle.textContent = groupKey
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+        container.appendChild(groupTitle);
+
+        var groupContainer = document.createElement("div");
+        groupContainer.className = "form-group";
+        populateGroup(
+          "top." + groupKey,
+          envSchema.extra[groupKey],
+          prefillExtra ? prefillExtra[groupKey] : null,
+          groupContainer
+        );
+        container.appendChild(groupContainer);
+      });
+    }
   }
 
   // ------------------------------------------------------------------
@@ -336,6 +362,18 @@
       input = document.createElement("input");
       input.type = "text";
       input.value = Array.isArray(value) ? value.join(", ") : String(value);
+    } else if (spec.type === "text") {
+      input = document.createElement("input");
+      input.type = "text";
+      input.value = value != null ? value : "";
+    } else if (spec.type === "json") {
+      // A dict-valued leaf (e.g. curriculum per-level thresholds/overrides)
+      // rendered as raw JSON text — the wizard's flat-field form has no
+      // generic editor for arbitrarily-shaped nested config.
+      input = document.createElement("textarea");
+      input.rows = 4;
+      input.value = JSON.stringify(value != null ? value : spec.value, null, 2);
+      input.dataset.jsonField = "1";
     } else if (spec.type === "int") {
       input = document.createElement("input");
       input.type = "number";
@@ -365,18 +403,18 @@
     var _seedRaw = parseInt($("#cfg-seed").value);
     var _seed = isNaN(_seedRaw) ? 42 : _seedRaw;
     // Rebuild only the sections the wizard form actually renders
-    // (experiment_name/seed/environment/training/evaluation/output), and
-    // mutate the existing currentConfig object in place rather than
-    // replacing it wholesale. A loaded template can carry sections the
-    // wizard has no fields for (self_play, reward_annealing, curriculum,
-    // sweep, multi_seed, reproducibility, ...); a full replacement here
-    // silently dropped them, so a template's launch could fail validation
-    // (e.g. a self-play arena's num_envs > 1) or — via "Save config as YAML
-    // template", checked by default — overwrite the source YAML with a
-    // stripped copy. Selecting a different environment type still clears
-    // currentConfig entirely (see the env-card click handler above), which
-    // is the right point to drop template state that may not apply to the
-    // new environment.
+    // (experiment_name/seed/environment/training/evaluation/output, plus
+    // self_play/reward_annealing/curriculum for the arena's "extra" schema
+    // group when present), and mutate the existing currentConfig object in
+    // place rather than replacing it wholesale. A loaded template can still
+    // carry sections the wizard has no fields for at all (sweep, multi_seed,
+    // reproducibility, ...); a full replacement here would silently drop
+    // them, so a template's launch could fail validation or — via "Save
+    // config as YAML template", checked by default — overwrite the source
+    // YAML with a stripped copy. Selecting a different environment type
+    // still clears currentConfig entirely (see the env-card click handler
+    // above), which is the right point to drop template state that may not
+    // apply to the new environment.
     if (!currentConfig || typeof currentConfig !== "object") currentConfig = {};
     currentConfig.experiment_name = $("#cfg-experiment-name").value || "experiment";
     currentConfig.seed = _seed;
@@ -392,7 +430,14 @@
       if (!path) return;
 
       var val;
-      if (input.type === "checkbox") {
+      if (input.dataset.jsonField) {
+        try {
+          val = JSON.parse(input.value);
+        } catch (e) {
+          toast("Invalid JSON in " + path + " — keeping previous value", "error");
+          return;
+        }
+      } else if (input.type === "checkbox") {
         val = input.checked;
       } else if (input.type === "number") {
         val = input.step === "1" ? parseInt(input.value) : parseFloat(input.value);
@@ -432,6 +477,15 @@
         currentConfig.training[parts[1]] = val;
       } else if (parts[0] === "evaluation") {
         currentConfig.evaluation[parts[1]] = val;
+      } else if (parts[0] === "top") {
+        // top.<group>.<key> — a top-level config section (self_play,
+        // reward_annealing, curriculum), a sibling of environment/training/
+        // evaluation rather than nested under any of them.
+        var groupKey = parts[1];
+        if (!currentConfig[groupKey] || typeof currentConfig[groupKey] !== "object") {
+          currentConfig[groupKey] = {};
+        }
+        currentConfig[groupKey][parts[2]] = val;
       }
     });
   }

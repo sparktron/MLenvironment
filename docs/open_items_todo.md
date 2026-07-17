@@ -1,21 +1,19 @@
 # Development Roadmap
 
-Last updated: 2026-07-12
+Last updated: 2026-07-17
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
 
 ## Priority 1: Runtime And GUI Performance
 
-- **Capture GUI frames from one environment on a wall-clock budget.** GUI
-  training currently enables RGB rendering for every worker and captures a
-  tiled vector render. Render environment 0 only, cap capture frequency at
-  roughly one frame per second, and only enable rendering when the dashboard
-  frame view is requested.
-- **Finish GUI schema coverage.** Expose `self_play`, `reward_annealing`, and
-  `curriculum` sections, plus arena `sensing_radius`, `attack_falloff`, and
-  resource settings. The backend accepts loaded templates today, but the
-  wizard cannot author every supported option directly.
+- **Finish GUI resource-settings schema coverage.** The wizard now exposes
+  `self_play`, `reward_annealing`, `curriculum`, and arena `sensing_radius`/
+  `attack_falloff` (2026-07-17 — see Completed Foundations), but the newer
+  arena `resources` section (`initial_energy`, `max_energy`, `food_count`,
+  `food_energy`, `food_radius`, `food_respawn_steps`) and `sim.collision_radius`
+  still have no wizard fields; a resource-tuned arena still requires
+  hand-edited YAML.
 - **Persist analysis jobs.** Replay and league-rating jobs are intentionally
   lightweight/process-local. Store their lifecycle in the run registry if GUI
   restart recovery or multi-process GUI deployment becomes necessary.
@@ -65,6 +63,17 @@ the completed summary below so completed work is not presented as pending.
 - N-agent arena evaluation/tournament/replay support, tournament-Elo morphology
   scoring, collision/resource mechanics, and warning-free shared-policy vector
   metadata handling.
+- (2026-07-17) GUI frame capture renders environment 0 only (`env_method`,
+  not the tiling `VecEnv.render()`) with a wall-clock capture throttle. GUI
+  wizard schema gained `self_play`/`reward_annealing`/`curriculum` groups and
+  arena `sensing_radius`/`attack_falloff` fields (resource settings remain
+  open — see Priority 1), and `create_config` rejects an empty/whitespace
+  `experiment_name`. `RewardAnnealingCallback` now pushes its scale once per
+  rollout instead of every vector step. `run_multi_seed` defaults to
+  sequential execution, with a warning, when a seed's own training already
+  parallelizes via `num_envs > 1`. `WalkerBulletEnv` warns on unknown
+  `reward`/`termination` keys, matching the arena's existing `battle_rules`
+  warning.
 
 ## Validation Standard
 

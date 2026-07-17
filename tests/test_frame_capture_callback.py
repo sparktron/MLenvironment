@@ -3,6 +3,7 @@
 Exercises the ring buffer, since-filtering, thread-safety, episode counting,
 and render fallback — without spinning up a real SB3 training loop.
 """
+
 from __future__ import annotations
 
 import threading
@@ -17,6 +18,7 @@ from rl_framework.training.frame_capture_callback import FrameCaptureCallback
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_rgb_frame(h: int = 4, w: int = 4) -> np.ndarray:
     """Return a tiny uint8 HxWx3 array usable as a fake rendered frame."""
@@ -34,6 +36,7 @@ def _stub_callback(
     capture_interval: int = 1,
     max_frames: int = 10,
     render_return=_SENTINEL,
+    min_wall_interval_s: float = 0.0,
 ) -> FrameCaptureCallback:
     """Return a callback with model/env stubs attached so _on_step can run.
 
@@ -42,16 +45,28 @@ def _stub_callback(
     the property directly.
 
     Pass render_return=None explicitly to simulate an env that returns no frame.
-    Omit it (default) to get a tiny RGB frame.
+    Omit it (default) to get a tiny RGB frame. Frames are captured via
+    ``env.env_method("render", indices=[0])`` (single-env, not the tiling
+    VecEnv.render()), returning a one-element list like a real VecEnv would.
+
+    min_wall_interval_s defaults to 0 here so tests can drive many steps in a
+    tight loop without the wall-clock throttle (exercised separately below)
+    suppressing captures purely due to real elapsed time.
     """
-    cb = FrameCaptureCallback(capture_interval=capture_interval, max_frames=max_frames)
+    cb = FrameCaptureCallback(
+        capture_interval=capture_interval,
+        max_frames=max_frames,
+        min_wall_interval_s=min_wall_interval_s,
+    )
 
     if render_return is _SENTINEL:
         render_return = _make_rgb_frame()
 
     # VecEnv stub
     env = MagicMock()
-    env.render.return_value = render_return
+    env.env_method.return_value = (
+        [render_return] if render_return is not None else [None]
+    )
 
     # Model stub: num_timesteps is read in _on_step; get_env() powers training_env
     model = MagicMock()
@@ -68,6 +83,7 @@ def _stub_callback(
 # ---------------------------------------------------------------------------
 # Basic frame capture
 # ---------------------------------------------------------------------------
+
 
 def test_first_frame_captured_at_interval() -> None:
     cb = _stub_callback(capture_interval=50)
@@ -106,6 +122,7 @@ def test_frame_index_monotonically_increases() -> None:
 # Ring buffer (maxlen)
 # ---------------------------------------------------------------------------
 
+
 def test_ring_buffer_drops_oldest_when_full() -> None:
     cb = _stub_callback(capture_interval=1, max_frames=3)
     for step in range(1, 6):
@@ -121,6 +138,7 @@ def test_ring_buffer_drops_oldest_when_full() -> None:
 # ---------------------------------------------------------------------------
 # since filtering
 # ---------------------------------------------------------------------------
+
 
 def test_get_frames_since_zero_returns_all() -> None:
     cb = _stub_callback(capture_interval=1, max_frames=10)
@@ -164,6 +182,7 @@ def test_get_frames_returns_dicts_with_required_keys() -> None:
 # episode_num tracking
 # ---------------------------------------------------------------------------
 
+
 def test_episode_num_increments_on_done() -> None:
     cb = _stub_callback(capture_interval=1, max_frames=10)
 
@@ -205,6 +224,7 @@ def test_episode_num_absent_dones_does_not_raise() -> None:
 # RGBA → RGB conversion
 # ---------------------------------------------------------------------------
 
+
 def test_rgba_frame_stripped_to_rgb() -> None:
     cb = _stub_callback(capture_interval=1, render_return=_make_rgba_frame())
     cb.model.num_timesteps = 1
@@ -216,12 +236,13 @@ def test_rgba_frame_stripped_to_rgb() -> None:
 # Render fallback: VecEnv with .envs attribute
 # ---------------------------------------------------------------------------
 
+
 def test_fallback_to_sub_env_render() -> None:
-    # Primary render() raises AttributeError; .envs[0].render() works
+    # Primary env_method("render", ...) raises AttributeError; .envs[0].render() works
     sub_env = MagicMock()
     sub_env.render.return_value = _make_rgb_frame()
     primary_env = MagicMock()
-    primary_env.render.side_effect = AttributeError("no render")
+    primary_env.env_method.side_effect = AttributeError("no env_method")
     primary_env.envs = [sub_env]
 
     cb = _stub_callback(capture_interval=1)
@@ -230,6 +251,17 @@ def test_fallback_to_sub_env_render() -> None:
     cb.model.num_timesteps = 1
     cb._on_step()
     assert len(cb.frames) == 1
+
+
+def test_render_targets_env_zero_only() -> None:
+    """env_method must be called with indices=[0], never the tiling env.render()."""
+    cb = _stub_callback(capture_interval=1)
+    cb.model.num_timesteps = 1
+    cb._on_step()
+
+    env = cb.model.get_env.return_value
+    env.env_method.assert_called_once_with("render", indices=[0])
+    env.render.assert_not_called()
 
 
 def test_none_render_result_skipped() -> None:
@@ -242,6 +274,7 @@ def test_none_render_result_skipped() -> None:
 # ---------------------------------------------------------------------------
 # Thread-safety: concurrent write/read must not corrupt snapshot
 # ---------------------------------------------------------------------------
+
 
 def test_concurrent_write_and_read_does_not_raise() -> None:
     cb = _stub_callback(capture_interval=1, max_frames=50)
@@ -272,3 +305,54 @@ def test_concurrent_write_and_read_does_not_raise() -> None:
     t_r.join()
 
     assert errors == [], f"Concurrent access raised: {errors}"
+
+
+# ---------------------------------------------------------------------------
+# Wall-clock throttle
+# ---------------------------------------------------------------------------
+
+
+def test_wall_clock_throttle_suppresses_rapid_captures(monkeypatch) -> None:
+    """A step-count interval that resolves to sub-second cadence (high
+    num_envs throughput) must still be capped by min_wall_interval_s."""
+    cb = _stub_callback(capture_interval=1, max_frames=10, min_wall_interval_s=1.0)
+
+    fake_now = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: fake_now[0])
+
+    cb.model.num_timesteps = 1
+    cb._on_step()
+    assert len(cb.frames) == 1
+
+    # Step-count gate is satisfied every step, but less than a second passed.
+    fake_now[0] += 0.1
+    cb.model.num_timesteps = 2
+    cb._on_step()
+    assert len(cb.frames) == 1  # still just the first capture
+
+    fake_now[0] += 0.1
+    cb.model.num_timesteps = 3
+    cb._on_step()
+    assert len(cb.frames) == 1
+
+    # A full second elapses — capture resumes.
+    fake_now[0] += 1.0
+    cb.model.num_timesteps = 4
+    cb._on_step()
+    assert len(cb.frames) == 2
+    assert cb.frames[-1].timestep == 4
+
+
+def test_wall_clock_throttle_disabled_by_default_zero(monkeypatch) -> None:
+    """min_wall_interval_s=0 (the test helper default) never throttles,
+    independent of real elapsed wall-clock time."""
+    cb = _stub_callback(capture_interval=1, max_frames=10, min_wall_interval_s=0.0)
+
+    fake_now = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: fake_now[0])
+
+    for step in range(1, 4):
+        cb.model.num_timesteps = step
+        cb._on_step()  # fake_now never advances
+
+    assert len(cb.frames) == 3

@@ -147,9 +147,9 @@ def create_config():
     raw_name = data["experiment_name"]
     if not isinstance(raw_name, str) or not raw_name.strip():
         return jsonify({"error": "experiment_name must not be empty"}), 400
-    name = raw_name.replace(" ", "_").lower()
+    name = raw_name.strip().replace(" ", "_").lower()
     # Reject unsafe names.
-    if ".." in name or "/" in name or "\\" in name:
+    if not name or ".." in name or "/" in name or "\\" in name:
         return jsonify({"error": "Invalid experiment name"}), 400
     try:
         validate_experiment_config(data)
@@ -450,6 +450,19 @@ def get_schema():
                         "min": 0,
                         "max": 20,
                     },
+                    "sensing_radius": {
+                        "value": 2.0,
+                        "type": "float",
+                        "desc": "Distance at which an opponent becomes visible",
+                        "min": 0.1,
+                        "max": 10,
+                    },
+                    "attack_falloff": {
+                        "value": "linear",
+                        "type": "choice",
+                        "choices": ["linear", "binary"],
+                        "desc": "Damage falloff with distance: linear (graded) or binary (hard cliff)",
+                    },
                     "max_steps": {
                         "value": 400,
                         "type": "int",
@@ -468,9 +481,112 @@ def get_schema():
             },
             "training": _training_schema("organism_arena_parallel"),
             "evaluation": _eval_schema(),
+            "extra": _arena_extra_schema(),
         },
     }
     return jsonify(schema)
+
+
+def _arena_extra_schema() -> dict[str, Any]:
+    """Top-level (not ``environment``-nested) groups for the self-play arena
+    path: league self-play, dense-to-sparse reward annealing, and the
+    win-rate-gated curriculum. These are the arena's documented preferred
+    training path (see ``docs/organism_arena_config.md``) but previously had
+    no wizard fields at all, so building one from scratch required hand-editing
+    YAML — only loading the bundled ``organisms_fight_arena`` template exposed
+    them. Defaults mirror that bundled config."""
+    return {
+        "self_play": {
+            "enabled": {
+                "value": False,
+                "type": "bool",
+                "desc": "Train agent_0 against frozen past-self snapshots (agent_1)",
+            },
+            "snapshot_freq": {
+                "value": 5000,
+                "type": "int",
+                "desc": "Save a league snapshot every N env timesteps",
+                "min": 100,
+                "max": 1_000_000,
+            },
+            "max_league_size": {
+                "value": 10,
+                "type": "int",
+                "desc": "Max snapshots retained (oldest pruned first)",
+                "min": 1,
+                "max": 50,
+            },
+            "sampling_mode": {
+                "value": "uniform",
+                "type": "choice",
+                "choices": ["uniform", "recent_bias"],
+                "desc": "How opponents are sampled from the league",
+            },
+        },
+        "reward_annealing": {
+            "enabled": {
+                "value": False,
+                "type": "bool",
+                "desc": "Ramp the dense per-hit reward to 0 so the terminal win/loss signal dominates",
+            },
+            "anneal_steps": {
+                "value": 15000,
+                "type": "int",
+                "desc": "Timesteps over which the damage reward scale ramps from 1.0 to 0.0",
+                "min": 100,
+                "max": 10_000_000,
+            },
+        },
+        "curriculum": {
+            "enabled": {
+                "value": False,
+                "type": "bool",
+                "desc": "Ramp battle_rules difficulty as the configured metric improves",
+            },
+            "metric": {
+                "value": "arena/agent_0_win_rate",
+                "type": "text",
+                "desc": "Logger/ep_info_buffer key gating level-ups",
+            },
+            "warmup_steps": {
+                "value": 5000,
+                "type": "int",
+                "desc": "Hold level-ups until this many timesteps have elapsed",
+                "min": 0,
+                "max": 10_000_000,
+            },
+            "max_level": {
+                "value": 3,
+                "type": "int",
+                "desc": "Highest curriculum level reachable",
+                "min": 1,
+                "max": 10,
+            },
+            "level_up_thresholds": {
+                "value": {"0": 0.6, "1": 0.65, "2": 0.7},
+                "type": "json",
+                "desc": 'Per-level metric threshold to advance, e.g. {"0": 0.6, "1": 0.65}',
+            },
+            "level_params": {
+                "value": {
+                    "1": {
+                        "battle_rules.cooldown_steps": 3,
+                        "battle_rules.damage": 0.08,
+                    },
+                    "2": {
+                        "battle_rules.cooldown_steps": 2,
+                        "battle_rules.damage": 0.10,
+                    },
+                    "3": {
+                        "battle_rules.cooldown_steps": 2,
+                        "battle_rules.damage": 0.12,
+                    },
+                },
+                "type": "json",
+                "desc": "Per-level config overrides applied on level-up (dotted-key: value)",
+            },
+        },
+    }
 
 
 def _training_schema(env_type: str) -> dict[str, Any]:
@@ -895,9 +1011,13 @@ def launch_replay():
     def worker():
         from rl_framework.cli.main import _render_replay
 
-        return _render_replay(config, str(model), opponent_path=data.get("opponent") or None)
+        return _render_replay(
+            config, str(model), opponent_path=data.get("opponent") or None
+        )
 
-    return jsonify({"job_id": _start_analysis_job("replay", worker), "status": "running"})
+    return jsonify(
+        {"job_id": _start_analysis_job("replay", worker), "status": "running"}
+    )
 
 
 @app.route("/api/analysis/league-ratings", methods=["POST"])
@@ -910,15 +1030,21 @@ def launch_league_ratings():
     config = _read_run_config(target)
     snapshots = _league_snapshots(target / "checkpoints" / "league")
     if config is None or len(snapshots) < 2:
-        return jsonify({"error": "At least two snapshots and run metadata are required"}), 400
+        return jsonify(
+            {"error": "At least two snapshots and run metadata are required"}
+        ), 400
 
     def worker():
         from rl_framework.training.arena_tournament import run_tournament
 
-        paths = [str(target / "checkpoints" / "league" / snap["name"]) for snap in snapshots]
+        paths = [
+            str(target / "checkpoints" / "league" / snap["name"]) for snap in snapshots
+        ]
         return run_tournament(paths, config, n_episodes=int(data.get("episodes", 10)))
 
-    return jsonify({"job_id": _start_analysis_job("league_ratings", worker), "status": "running"})
+    return jsonify(
+        {"job_id": _start_analysis_job("league_ratings", worker), "status": "running"}
+    )
 
 
 @app.route("/api/analysis/jobs/<job_id>", methods=["GET"])
