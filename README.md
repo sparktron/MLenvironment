@@ -393,8 +393,12 @@ python -m rl_framework.cli.main morph-search \
 ```
 
 Mutates the organism's morphology parameters (base size, health) across N
-trials, trains + evaluates each, and prints the best-scoring configuration.
-Currently scoped to `organism_arena_parallel`.
+trials, trains each, and ranks trials by round-robin tournament Elo
+(`morphology_search.scoring: tournament_elo`, the only supported/default
+mode). Currently scoped to `organism_arena_parallel`. The legacy
+shared-policy `mean_return` mode is rejected outright — the arena is
+zero-sum, so a shared policy's mean return sums to ~0 by construction and
+would rank trials on noise, not skill.
 
 ---
 
@@ -962,8 +966,9 @@ height. Start a new run with `walker_v2_smoke_cpu`, `walker_sac_baseline`, or
 `arena-eval --policies a.zip,b.zip,c.zip` assigns one checkpoint per N-agent
 slot. N-agent tournaments rotate competitors through slots and derive Elo from
 placement scores. For N-agent replay, pass comma-separated `--replay-opponent`
-paths for every slot after `agent_0`. Set `morphology_search.scoring:
-tournament_elo` to rank morphology trials by tournament Elo.
+paths for every slot after `agent_0`. `morphology_search` ranks trials by
+tournament Elo (`morphology_search.scoring: tournament_elo`, the default and
+only supported mode).
 
 ---
 

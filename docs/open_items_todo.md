@@ -20,10 +20,6 @@ the completed summary below so completed work is not presented as pending.
 
 ## Priority 2: Evaluation And Operations
 
-- **Retire mirror-return morphology scoring.** `morphology_search.scoring:
-  tournament_elo` is now the meaningful arena score. Deprecate or reject the
-  legacy shared-policy `mean_return` mode for arena searches, because zero-sum
-  cancellation makes it uninformative.
 - **Add registry maintenance commands.** Provide CLI support to inspect,
   export, and prune registry records/artifacts, including stale analysis jobs.
 - **Broaden analysis comparisons.** Add metric history and configurable run
@@ -74,6 +70,12 @@ the completed summary below so completed work is not presented as pending.
   parallelizes via `num_envs > 1`. `WalkerBulletEnv` warns on unknown
   `reward`/`termination` keys, matching the arena's existing `battle_rules`
   warning.
+- (2026-07-17) Retired mirror-return morphology scoring: `run_morphology_search`
+  now defaults to `tournament_elo` and rejects an explicit
+  `morphology_search.scoring: mean_return` with a clear error, since morphology
+  search only targets the zero-sum `organism_arena_parallel` env, where a
+  shared policy's mean return sums to ~0 by construction and ranked trials on
+  noise rather than skill.
 
 ## Validation Standard
 
