@@ -414,7 +414,8 @@ def test_analysis_runs_reads_registry(client):
     run_dir = base / "outputs" / "walker" / "seed_0"
     registry = RunRegistry(base / "outputs")
     cfg = {
-        "experiment_name": "walker", "seed": 0,
+        "experiment_name": "walker",
+        "seed": 0,
         "output": {"base_dir": str(base / "outputs")},
         "environment": {"type": "walker_bullet"},
         "training": {"algorithm": "PPO"},
@@ -448,6 +449,73 @@ def test_league_ratings_requires_two_snapshots_and_metadata(client):
     _make_league(seed_dir, [100])
     response = c.post("/api/analysis/league-ratings", json={"path": "arena/seed_0"})
     assert response.status_code == 400
+
+
+def test_analysis_job_endpoints_read_persisted_registry_state(client):
+    c, _, base = client
+    from rl_framework.utils.run_registry import RunRegistry
+
+    registry = RunRegistry(base / "outputs")
+    registry.create_analysis_job("analysis_done", "replay", {"path": "exp/seed_0"})
+    registry.finish_analysis_job(
+        "analysis_done", status="completed", result={"saved_replay": "replay.gif"}
+    )
+    registry.create_analysis_job(
+        "analysis_live", "league_ratings", {"path": "a/seed_0"}
+    )
+
+    response = c.get("/api/analysis/jobs/analysis_done")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "completed"
+    assert payload["result"] == {"saved_replay": "replay.gif"}
+
+    listing = c.get("/api/analysis/jobs")
+    assert listing.status_code == 200
+    assert [job["job_id"] for job in listing.get_json()] == [
+        "analysis_live",
+        "analysis_done",
+    ]
+
+    assert c.get("/api/analysis/jobs/missing").status_code == 404
+
+
+def test_start_analysis_job_persists_thread_result(client):
+    import time
+
+    c, _, _ = client
+    from rl_framework.gui import app as gui_app
+
+    job_id = gui_app._start_analysis_job("replay", lambda: {"ok": True}, {"path": "p"})
+    payload = None
+    for _ in range(100):
+        payload = c.get(f"/api/analysis/jobs/{job_id}").get_json()
+        if payload["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert payload["status"] == "completed"
+    assert payload["result"] == {"ok": True}
+    assert payload["params"] == {"path": "p"}
+
+
+def test_failed_analysis_job_records_error(client):
+    import time
+
+    c, _, _ = client
+    from rl_framework.gui import app as gui_app
+
+    def worker():
+        raise RuntimeError("boom")
+
+    job_id = gui_app._start_analysis_job("replay", worker)
+    payload = None
+    for _ in range(100):
+        payload = c.get(f"/api/analysis/jobs/{job_id}").get_json()
+        if payload["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert payload["status"] == "failed"
+    assert payload["error"] == "boom"
 
 
 # ----- self-play league dashboard -----

@@ -940,6 +940,17 @@
   // ------------------------------------------------------------------
   // Analysis tab
   // ------------------------------------------------------------------
+  function describeAnalysisJob(job) {
+    if (job.status === "running") return "";
+    if (job.error) return job.error;
+    if (!job.result) return "";
+    if (job.kind === "replay") return "Replay: " + job.result.saved_replay;
+    var standings = (job.result.standings || []).map(function (s) {
+      return s.rank + ". " + s.competitor + " (" + s.elo + ")";
+    });
+    return standings.join("  ·  ");
+  }
+
   async function pollAnalysisJob(jobId, resultEl) {
     var job = await api("GET", "/api/analysis/jobs/" + jobId);
     if (job.status === "running") {
@@ -947,21 +958,34 @@
       setTimeout(function () { pollAnalysisJob(jobId, resultEl); }, 1000);
       return;
     }
-    if (job.error) {
-      resultEl.textContent = "Analysis failed: " + job.error;
-      return;
-    }
-    if (job.kind === "replay") {
-      resultEl.textContent = "Replay: " + job.result.saved_replay;
-    } else {
-      var standings = (job.result.standings || []).map(function (s) {
-        return s.rank + ". " + s.competitor + " (" + s.elo + ")";
-      });
-      resultEl.textContent = standings.join("  ·  ");
-    }
+    resultEl.textContent = job.error
+      ? "Analysis failed: " + job.error
+      : describeAnalysisJob(job) || job.status;
+    renderRecentAnalysisJobs();
+  }
+
+  async function renderRecentAnalysisJobs() {
+    var jobs = await api("GET", "/api/analysis/jobs");
+    var container = $("#analysis-jobs");
+    container.innerHTML = "";
+    if (!Array.isArray(jobs) || jobs.length === 0) return;
+    var heading = document.createElement("h3");
+    heading.textContent = "Recent analysis jobs";
+    container.appendChild(heading);
+    jobs.forEach(function (job) {
+      var item = document.createElement("div");
+      item.className = "meta";
+      var pieces = [job.kind, job.status];
+      if (job.params && job.params.path) pieces.push(job.params.path);
+      var detail = describeAnalysisJob(job);
+      if (detail) pieces.push(detail);
+      item.textContent = pieces.join(" · ");
+      container.appendChild(item);
+    });
   }
 
   async function refreshAnalysis() {
+    renderRecentAnalysisJobs();
     var runs = await api("GET", "/api/analysis/runs");
     var container = $("#analysis-list");
     if (!Array.isArray(runs) || runs.length === 0) {

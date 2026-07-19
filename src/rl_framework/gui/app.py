@@ -33,8 +33,6 @@ app.config["MAX_CONTENT_LENGTH"] = (
     5 * 1024 * 1024
 )  # 5 MB — guard against oversized JSON payloads
 manager = TrainingManager()
-_analysis_jobs: dict[str, dict[str, Any]] = {}
-_analysis_lock = threading.Lock()
 
 
 # ------------------------------------------------------------------
@@ -973,19 +971,25 @@ def _read_run_config(seed_dir: Path) -> dict[str, Any] | None:
     return config if isinstance(config, dict) else None
 
 
-def _start_analysis_job(kind: str, worker) -> str:
+def _analysis_registry() -> RunRegistry:
+    # Resolved at call time so tests can repoint _DEFAULT_OUTPUTS_DIR.
+    return RunRegistry(_DEFAULT_OUTPUTS_DIR)
+
+
+def _start_analysis_job(kind: str, worker, params: dict[str, Any] | None = None) -> str:
     job_id = f"analysis_{uuid.uuid4().hex[:10]}"
-    with _analysis_lock:
-        _analysis_jobs[job_id] = {"job_id": job_id, "kind": kind, "status": "running"}
+    _analysis_registry().create_analysis_job(job_id, kind, params)
 
     def run() -> None:
         try:
             result = worker()
-            with _analysis_lock:
-                _analysis_jobs[job_id].update(status="completed", result=result)
+            _analysis_registry().finish_analysis_job(
+                job_id, status="completed", result=result
+            )
         except Exception as exc:
-            with _analysis_lock:
-                _analysis_jobs[job_id].update(status="failed", error=str(exc))
+            _analysis_registry().finish_analysis_job(
+                job_id, status="failed", error=str(exc)
+            )
 
     threading.Thread(target=run, daemon=True).start()
     return job_id
@@ -1015,8 +1019,12 @@ def launch_replay():
             config, str(model), opponent_path=data.get("opponent") or None
         )
 
+    params = {
+        "path": str(data.get("path", "")),
+        "opponent": data.get("opponent") or None,
+    }
     return jsonify(
-        {"job_id": _start_analysis_job("replay", worker), "status": "running"}
+        {"job_id": _start_analysis_job("replay", worker, params), "status": "running"}
     )
 
 
@@ -1042,16 +1050,28 @@ def launch_league_ratings():
         ]
         return run_tournament(paths, config, n_episodes=int(data.get("episodes", 10)))
 
+    params = {
+        "path": str(data.get("path", "")),
+        "episodes": int(data.get("episodes", 10)),
+    }
     return jsonify(
-        {"job_id": _start_analysis_job("league_ratings", worker), "status": "running"}
+        {
+            "job_id": _start_analysis_job("league_ratings", worker, params),
+            "status": "running",
+        }
     )
+
+
+@app.route("/api/analysis/jobs", methods=["GET"])
+def analysis_jobs_list():
+    """Return recent persisted analysis jobs, newest first."""
+    return jsonify(_analysis_registry().list_analysis_jobs(limit=20))
 
 
 @app.route("/api/analysis/jobs/<job_id>", methods=["GET"])
 def analysis_job(job_id: str):
-    with _analysis_lock:
-        job = _analysis_jobs.get(job_id)
-        return jsonify(job or {"error": "Unknown analysis job"}), 200 if job else 404
+    job = _analysis_registry().get_analysis_job(job_id)
+    return jsonify(job or {"error": "Unknown analysis job"}), 200 if job else 404
 
 
 # ------------------------------------------------------------------
@@ -1060,6 +1080,11 @@ def analysis_job(job_id: str):
 
 
 def run_gui(host: str = "127.0.0.1", port: int = 5001, debug: bool = False) -> None:
+    # Jobs marked running belong to a previous (dead) process at this point;
+    # settle them so the dashboard doesn't show phantom in-flight work.
+    interrupted = _analysis_registry().recover_interrupted_analysis_jobs()
+    if interrupted:
+        print(f"  Marked {interrupted} orphaned analysis job(s) as interrupted")
     print(f"\n  RL Experiment GUI running at http://{host}:{port}\n")
     # Reloader on: edits to .py files auto-restart the server. Note that this
     # also kills any in-progress training (it lives in this process). Stop a

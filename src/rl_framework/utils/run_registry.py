@@ -70,6 +70,16 @@ class RunRegistry:
                     created_at REAL NOT NULL,
                     PRIMARY KEY (run_id, kind, path)
                 );
+                CREATE TABLE IF NOT EXISTS analysis_jobs (
+                    job_id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    params_json TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL,
+                    result_json TEXT,
+                    error TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL,
+                    finished_at REAL
+                );
                 """
             )
             schema = db.execute(
@@ -102,21 +112,36 @@ class RunRegistry:
                 )
 
     def register_run(
-        self, run_id: str, cfg: dict[str, Any], run_dir: Path, *, resume_from: str | Path | None = None
+        self,
+        run_id: str,
+        cfg: dict[str, Any],
+        run_dir: Path,
+        *,
+        resume_from: str | Path | None = None,
     ) -> str:
         """Create a run record once; subsequent calls preserve its identity/config."""
         now = time.time()
         parent = self.find_run_for_artifact(resume_from) if resume_from else None
         with self._connect() as db:
-            existing = db.execute("SELECT run_id FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+            existing = db.execute(
+                "SELECT run_id FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
             if existing is not None:
                 return str(existing["run_id"])
             db.execute(
                 """INSERT INTO runs (run_id, experiment_name, seed, run_dir, config_json, parent_run_id,
                    resume_from, status, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (run_id, cfg["experiment_name"], int(cfg["seed"]), str(run_dir),
-                 json.dumps(cfg, sort_keys=True), parent, str(resume_from) if resume_from else None,
-                 "running", now),
+                (
+                    run_id,
+                    cfg["experiment_name"],
+                    int(cfg["seed"]),
+                    str(run_dir),
+                    json.dumps(cfg, sort_keys=True),
+                    parent,
+                    str(resume_from) if resume_from else None,
+                    "running",
+                    now,
+                ),
             )
         self.record_event(run_id, "run_started", {"run_dir": str(run_dir)})
         return run_id
@@ -133,8 +158,15 @@ class RunRegistry:
             ).fetchone()
         return str(row["run_id"]) if row else None
 
-    def update_run(self, run_id: str, *, status: str | None = None, error: str | None = None,
-                   model_path: str | Path | None = None, metrics: dict[str, Any] | None = None) -> None:
+    def update_run(
+        self,
+        run_id: str,
+        *,
+        status: str | None = None,
+        error: str | None = None,
+        model_path: str | Path | None = None,
+        metrics: dict[str, Any] | None = None,
+    ) -> None:
         fields: list[str] = []
         values: list[Any] = []
         if status is not None:
@@ -160,7 +192,9 @@ class RunRegistry:
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as db:
-            row = db.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+            row = db.execute(
+                "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
         if row is None:
             return None
         data = dict(row)
@@ -191,24 +225,36 @@ class RunRegistry:
             result.append(data)
         return result
 
-    def record_event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
+    def record_event(
+        self, run_id: str, event_type: str, payload: dict[str, Any]
+    ) -> None:
         with self._connect() as db:
-            db.execute("INSERT INTO run_events (run_id, created_at, event_type, payload_json) VALUES (?, ?, ?, ?)",
-                       (run_id, time.time(), event_type, json.dumps(payload, sort_keys=True)))
+            db.execute(
+                "INSERT INTO run_events (run_id, created_at, event_type, payload_json) VALUES (?, ?, ?, ?)",
+                (run_id, time.time(), event_type, json.dumps(payload, sort_keys=True)),
+            )
 
     def enqueue_tuning(self, run_id: str, params: dict[str, Any]) -> None:
         with self._connect() as db:
-            db.execute("INSERT INTO tuning_commands (run_id, created_at, params_json) VALUES (?, ?, ?)",
-                       (run_id, time.time(), json.dumps(params, sort_keys=True)))
+            db.execute(
+                "INSERT INTO tuning_commands (run_id, created_at, params_json) VALUES (?, ?, ?)",
+                (run_id, time.time(), json.dumps(params, sort_keys=True)),
+            )
         self.record_event(run_id, "tuning_requested", params)
 
     def claim_tuning(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as db:
-            rows = db.execute("SELECT command_id, params_json FROM tuning_commands WHERE run_id = ? AND status = 'pending' ORDER BY command_id", (run_id,)).fetchall()
+            rows = db.execute(
+                "SELECT command_id, params_json FROM tuning_commands WHERE run_id = ? AND status = 'pending' ORDER BY command_id",
+                (run_id,),
+            ).fetchall()
             if not rows:
                 return None
             ids = [row["command_id"] for row in rows]
-            db.executemany("UPDATE tuning_commands SET status = 'applied', applied_at = ? WHERE command_id = ?", [(time.time(), command_id) for command_id in ids])
+            db.executemany(
+                "UPDATE tuning_commands SET status = 'applied', applied_at = ? WHERE command_id = ?",
+                [(time.time(), command_id) for command_id in ids],
+            )
         merged: dict[str, Any] = {}
         for row in rows:
             merged.update(json.loads(row["params_json"]))
@@ -220,8 +266,84 @@ class RunRegistry:
         if not path.exists():
             return
         with self._connect() as db:
-            db.execute("INSERT OR IGNORE INTO run_artifacts (run_id, kind, path, created_at) VALUES (?, ?, ?, ?)",
-                       (run_id, kind, str(path), time.time()))
+            db.execute(
+                "INSERT OR IGNORE INTO run_artifacts (run_id, kind, path, created_at) VALUES (?, ?, ?, ?)",
+                (run_id, kind, str(path), time.time()),
+            )
+
+    # ---- analysis jobs ------------------------------------------------
+    # Replay and league-rating jobs run as GUI threads; their lifecycle is
+    # persisted here so a restarted GUI can list past results and mark jobs
+    # orphaned by a dead process instead of losing them silently.
+
+    def create_analysis_job(
+        self, job_id: str, kind: str, params: dict[str, Any] | None = None
+    ) -> str:
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO analysis_jobs (job_id, kind, params_json, status, created_at) VALUES (?, ?, ?, 'running', ?)",
+                (job_id, kind, json.dumps(params or {}, sort_keys=True), time.time()),
+            )
+        return job_id
+
+    def finish_analysis_job(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        result: dict[str, Any] | None = None,
+        error: str = "",
+    ) -> None:
+        with self._connect() as db:
+            db.execute(
+                "UPDATE analysis_jobs SET status = ?, result_json = ?, error = ?, finished_at = ? WHERE job_id = ?",
+                (
+                    status,
+                    json.dumps(result, sort_keys=True) if result is not None else None,
+                    error,
+                    time.time(),
+                    job_id,
+                ),
+            )
+
+    def get_analysis_job(self, job_id: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM analysis_jobs WHERE job_id = ?", (job_id,)
+            ).fetchone()
+        return self._analysis_job_row(row) if row else None
+
+    def list_analysis_jobs(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM analysis_jobs ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        return [self._analysis_job_row(row) for row in rows]
+
+    def recover_interrupted_analysis_jobs(self) -> int:
+        """Mark jobs left 'running' by a previous process as interrupted.
+
+        Call once at GUI startup: worker threads are process-local, so any
+        job still marked running at that point can never complete.
+        """
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE analysis_jobs SET status = 'interrupted', "
+                "error = 'GUI restarted before the job finished', finished_at = ? "
+                "WHERE status = 'running'",
+                (time.time(),),
+            )
+        return cursor.rowcount
+
+    @staticmethod
+    def _analysis_job_row(row: sqlite3.Row) -> dict[str, Any]:
+        data = dict(row)
+        params = data.pop("params_json")
+        result = data.pop("result_json")
+        data["params"] = json.loads(params) if params else {}
+        data["result"] = json.loads(result) if result else None
+        return data
 
 
 def registry_for_config(cfg: dict[str, Any]) -> RunRegistry:

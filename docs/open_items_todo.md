@@ -1,6 +1,6 @@
 # Development Roadmap
 
-Last updated: 2026-07-17
+Last updated: 2026-07-19
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
@@ -14,9 +14,6 @@ the completed summary below so completed work is not presented as pending.
   `food_energy`, `food_radius`, `food_respawn_steps`) and `sim.collision_radius`
   still have no wizard fields; a resource-tuned arena still requires
   hand-edited YAML.
-- **Persist analysis jobs.** Replay and league-rating jobs are intentionally
-  lightweight/process-local. Store their lifecycle in the run registry if GUI
-  restart recovery or multi-process GUI deployment becomes necessary.
 
 ## Priority 2: Evaluation And Operations
 
@@ -54,6 +51,10 @@ the completed summary below so completed work is not presented as pending.
   dependencies, CPU-first MLP presets, and resumable sweeps/benchmarks.
 - Durable SQLite run registry, GUI tuning queue, best-checkpoint evaluation,
   registry-backed run analysis, replay jobs, and league Elo jobs.
+- (2026-07-19) Registry-persisted analysis job lifecycles with GUI startup
+  recovery:
+  orphaned running jobs are marked interrupted, and recent jobs (with results)
+  survive restarts and render in the Analysis tab.
 - Walker v2 observations, terrain curricula, reward rebalance, SAC/TD3
   baselines, and CPU throughput presets.
 - N-agent arena evaluation/tournament/replay support, tournament-Elo morphology
