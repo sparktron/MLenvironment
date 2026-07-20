@@ -75,6 +75,87 @@ def test_json_out_writes_file(monkeypatch, tmp_path, _patched_config):
     assert payload == {"saved_model": "/out/model.zip"}
 
 
+def test_registry_cli_inspects_exports_and_prunes(monkeypatch, capsys, tmp_path):
+    from rl_framework.utils.run_registry import RunRegistry
+
+    registry = RunRegistry(tmp_path)
+    registry.create_analysis_job("stale_job", "replay")
+    registry.finish_analysis_job("stale_job", status="interrupted", error="restart")
+
+    _run_cli(
+        monkeypatch,
+        ["registry", "--base-dir", str(tmp_path), "--json"],
+    )
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["analysis_jobs_by_status"] == {"interrupted": 1}
+
+    export_path = tmp_path / "registry-export.json"
+    _run_cli(
+        monkeypatch,
+        [
+            "registry",
+            "--base-dir",
+            str(tmp_path),
+            "--registry-action",
+            "export",
+            "--json-out",
+            str(export_path),
+        ],
+    )
+    assert json.loads(export_path.read_text())["analysis_jobs"][0]["job_id"] == "stale_job"
+
+    _run_cli(
+        monkeypatch,
+        [
+            "registry",
+            "--base-dir",
+            str(tmp_path),
+            "--registry-action",
+            "prune",
+            "--status",
+            "interrupted",
+            "--older-than-days",
+            "0",
+            "--dry-run",
+            "--json",
+        ],
+    )
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["ids"] == ["stale_job"]
+    assert registry.get_analysis_job("stale_job") is not None
+
+    _run_cli(
+        monkeypatch,
+        [
+            "registry",
+            "--base-dir",
+            str(tmp_path),
+            "--registry-action",
+            "prune",
+            "--status",
+            "interrupted",
+            "--all",
+            "--json",
+        ],
+    )
+    assert json.loads(capsys.readouterr().out)["matched"] == 1
+    assert registry.get_analysis_job("stale_job") is None
+
+
+def test_registry_cli_requires_a_prune_filter(monkeypatch, tmp_path):
+    with pytest.raises(SystemExit, match="requires --status"):
+        _run_cli(
+            monkeypatch,
+            [
+                "registry",
+                "--base-dir",
+                str(tmp_path),
+                "--registry-action",
+                "prune",
+            ],
+        )
+
+
 def test_walker_render_replay_loads_vecnormalize_sidecar(monkeypatch, tmp_path):
     import gymnasium as gym
     from gymnasium import spaces

@@ -345,6 +345,220 @@ class RunRegistry:
         data["result"] = json.loads(result) if result else None
         return data
 
+    # ---- maintenance -------------------------------------------------
+    # Inspect / export / prune helpers backing the `registry` CLI command.
+
+    def summary(self) -> dict[str, Any]:
+        """Return counts of runs and analysis jobs by status plus row totals."""
+        with self._connect() as db:
+            run_rows = db.execute(
+                "SELECT status, COUNT(*) AS c FROM runs GROUP BY status"
+            ).fetchall()
+            job_rows = db.execute(
+                "SELECT status, COUNT(*) AS c FROM analysis_jobs GROUP BY status"
+            ).fetchall()
+            artifact_rows = db.execute("SELECT path FROM run_artifacts").fetchall()
+
+            def _count(table: str) -> int:
+                return int(
+                    db.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()["c"]
+                )
+
+            return {
+                "path": str(self.path),
+                "runs_total": sum(int(r["c"]) for r in run_rows),
+                "runs_by_status": {r["status"]: int(r["c"]) for r in run_rows},
+                "analysis_jobs_total": sum(int(r["c"]) for r in job_rows),
+                "analysis_jobs_by_status": {r["status"]: int(r["c"]) for r in job_rows},
+                "run_events_total": _count("run_events"),
+                "tuning_commands_total": _count("tuning_commands"),
+                "run_artifacts_total": _count("run_artifacts"),
+                "missing_artifacts_total": sum(
+                    not Path(row["path"]).exists() for row in artifact_rows
+                ),
+            }
+
+    def export(self) -> dict[str, Any]:
+        """Return every registry table as lists of rows for backup/inspection."""
+        tables = (
+            "runs",
+            "run_events",
+            "tuning_commands",
+            "run_artifacts",
+            "analysis_jobs",
+        )
+        with self._connect() as db:
+            return {
+                table: [dict(row) for row in db.execute(f"SELECT * FROM {table}")]
+                for table in tables
+            }
+
+    @staticmethod
+    def _prune_where(
+        age_column: str,
+        statuses: list[str] | None,
+        older_than: float | None,
+    ) -> tuple[str, list[Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if statuses:
+            clauses.append(f"status IN ({','.join('?' * len(statuses))})")
+            params.extend(statuses)
+        if older_than is not None:
+            clauses.append(f"{age_column} < ?")
+            params.append(older_than)
+        return (f" WHERE {' AND '.join(clauses)}" if clauses else "", params)
+
+    def _prune(
+        self,
+        table: str,
+        id_column: str,
+        age_column: str,
+        *,
+        statuses: list[str] | None,
+        older_than: float | None,
+        dry_run: bool,
+    ) -> list[str]:
+        where, params = self._prune_where(age_column, statuses, older_than)
+        with self._connect() as db:
+            ids = [
+                str(row[id_column])
+                for row in db.execute(
+                    f"SELECT {id_column} FROM {table}{where} ORDER BY {id_column}",
+                    params,
+                ).fetchall()
+            ]
+            if ids and not dry_run:
+                db.execute(f"DELETE FROM {table}{where}", params)
+        return ids
+
+    def prune_analysis_jobs(
+        self,
+        *,
+        statuses: list[str] | None = None,
+        older_than: float | None = None,
+        dry_run: bool = False,
+    ) -> list[str]:
+        """Delete analysis jobs matching *statuses* and/or age.
+
+        *older_than* is a unix timestamp compared against each job's
+        ``finished_at`` (falling back to ``created_at`` for jobs that never
+        finished). Returns the matched job ids; with ``dry_run`` nothing is
+        deleted but the ids are still returned for preview.
+        """
+        return self._prune(
+            "analysis_jobs",
+            "job_id",
+            "COALESCE(finished_at, created_at)",
+            statuses=statuses,
+            older_than=older_than,
+            dry_run=dry_run,
+        )
+
+    def prune_runs(
+        self,
+        *,
+        statuses: list[str] | None = None,
+        older_than: float | None = None,
+        dry_run: bool = False,
+    ) -> list[str]:
+        """Delete run records (and their events/tuning/artifact rows) by
+        status and/or age.
+
+        *older_than* compares against ``finished_at`` (falling back to
+        ``started_at`` for still-running rows). This removes only registry
+        rows; artifact files on disk are left untouched. Returns the matched
+        run ids.
+        """
+        where, params = self._prune_where(
+            "COALESCE(finished_at, started_at)",
+            statuses,
+            older_than,
+        )
+        with self._connect() as db:
+            run_ids = [
+                str(row["run_id"])
+                for row in db.execute(
+                    f"SELECT run_id FROM runs{where} ORDER BY run_id", params
+                ).fetchall()
+            ]
+            if run_ids and not dry_run:
+                placeholders = ",".join("?" * len(run_ids))
+                for table in ("run_events", "tuning_commands", "run_artifacts"):
+                    db.execute(
+                        f"DELETE FROM {table} WHERE run_id IN ({placeholders})",
+                        run_ids,
+                    )
+                db.execute(
+                    f"DELETE FROM runs WHERE run_id IN ({placeholders})", run_ids
+                )
+        return run_ids
+
+    def prune_artifacts(
+        self,
+        *,
+        older_than: float | None = None,
+        missing_only: bool = False,
+        dry_run: bool = False,
+    ) -> list[str]:
+        """Delete matching artifact index rows, never the artifact files.
+
+        ``missing_only`` limits the operation to paths that no longer exist.
+        ``older_than`` is a unix timestamp compared with ``created_at``. The
+        returned identifiers include the run and kind because artifact paths
+        alone are not guaranteed to be unique across registry records.
+        """
+        with self._connect() as db:
+            if older_than is None:
+                rows = db.execute(
+                    "SELECT run_id, kind, path FROM run_artifacts "
+                    "ORDER BY run_id, kind, path"
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT run_id, kind, path FROM run_artifacts "
+                    "WHERE created_at < ? ORDER BY run_id, kind, path",
+                    (older_than,),
+                ).fetchall()
+            matched = [
+                row
+                for row in rows
+                if not missing_only or not Path(row["path"]).exists()
+            ]
+            if matched and not dry_run:
+                db.executemany(
+                    "DELETE FROM run_artifacts "
+                    "WHERE run_id = ? AND kind = ? AND path = ?",
+                    [tuple(row) for row in matched],
+                )
+        return [
+            f"{row['run_id']}:{row['kind']}:{row['path']}" for row in matched
+        ]
+
+    def metric_history(
+        self, run_id: str, keys: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return this run's persisted metric snapshots oldest-first.
+
+        Each training metrics push is stored as a ``metrics`` run event; this
+        replays them as ``{"t": <created_at>, <metric>: <value>, ...}`` points.
+        When *keys* is given, each point is narrowed to those metric keys (plus
+        the timestamp), so callers can chart a specific series cheaply.
+        """
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT created_at, payload_json FROM run_events "
+                "WHERE run_id = ? AND event_type = 'metrics' ORDER BY event_id",
+                (run_id,),
+            ).fetchall()
+        history: list[dict[str, Any]] = []
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            if keys is not None:
+                payload = {k: payload[k] for k in keys if k in payload}
+            history.append({"t": float(row["created_at"]), **payload})
+        return history
+
 
 def registry_for_config(cfg: dict[str, Any]) -> RunRegistry:
     return RunRegistry(cfg.get("output", {}).get("base_dir", "outputs"))

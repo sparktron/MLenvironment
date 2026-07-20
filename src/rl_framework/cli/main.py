@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json as _json
+import time
 from pathlib import Path
 
 
@@ -19,12 +20,13 @@ def _parse_args() -> argparse.Namespace:
             "render-replay",
             "gui",
             "morph-search",
+            "registry",
         ],
     )
     parser.add_argument(
         "--config-name",
         default="",
-        help="YAML file name without extension (required for all commands except gui)",
+        help="YAML file name without extension (not used by gui or registry)",
     )
     parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
     parser.add_argument("--model-path", default="")
@@ -95,7 +97,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Plan runs without executing training (sweep only)",
+        help="Preview without changing state (sweep and registry prune)",
     )
     parser.add_argument(
         "--resume-incomplete",
@@ -123,6 +125,47 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=5,
         help="Number of trials for morph-search (default: 5)",
+    )
+    parser.add_argument(
+        "--registry-action",
+        default="inspect",
+        choices=["inspect", "export", "prune"],
+        help="registry subcommand: inspect (summary counts), export (full JSON "
+        "dump), or prune (delete matching records). Default: inspect.",
+    )
+    parser.add_argument(
+        "--base-dir",
+        default="outputs",
+        help="Outputs directory holding run_registry.sqlite3 (registry command).",
+    )
+    parser.add_argument(
+        "--prune-target",
+        default="analysis-jobs",
+        choices=["analysis-jobs", "runs", "artifacts"],
+        help="What `registry --registry-action prune` deletes (default: analysis-jobs).",
+    )
+    parser.add_argument(
+        "--status",
+        default="",
+        help="Comma-separated status filter for registry prune "
+        "(e.g. interrupted,failed). Empty matches any status.",
+    )
+    parser.add_argument(
+        "--older-than-days",
+        type=float,
+        default=None,
+        help="Registry prune: only delete records older than this many days.",
+    )
+    parser.add_argument(
+        "--missing-only",
+        action="store_true",
+        help="Registry artifact prune: only remove index rows for missing files.",
+    )
+    parser.add_argument(
+        "--all",
+        dest="prune_all",
+        action="store_true",
+        help="Allow an unfiltered registry prune. Artifact files are never deleted.",
     )
     parser.add_argument(
         "--host", default="127.0.0.1", help="GUI server host (default: 127.0.0.1)"
@@ -269,6 +312,89 @@ def _render_replay(
         vec_env.close()
 
 
+def _run_registry_command(args: argparse.Namespace) -> dict:
+    """Inspect, export, or prune the durable run registry.
+
+    Returns a result dict (also emitted via --json/--json-out by the caller).
+    """
+    from rl_framework.utils.run_registry import RunRegistry
+
+    registry = RunRegistry(args.base_dir)
+    statuses = [s.strip() for s in args.status.split(",") if s.strip()] or None
+    if args.older_than_days is not None and args.older_than_days < 0:
+        raise SystemExit("--older-than-days must be non-negative")
+    older_than = (
+        None
+        if args.older_than_days is None
+        else time.time() - args.older_than_days * 86400.0
+    )
+
+    if args.registry_action == "inspect":
+        result = registry.summary()
+        if not args.json:
+            print(f"registry={result['path']}")
+            print(f"runs={result['runs_total']} by_status={result['runs_by_status']}")
+            print(
+                f"analysis_jobs={result['analysis_jobs_total']} "
+                f"by_status={result['analysis_jobs_by_status']}"
+            )
+            print(
+                f"events={result['run_events_total']} "
+                f"tuning={result['tuning_commands_total']} "
+                f"artifacts={result['run_artifacts_total']} "
+                f"missing_artifacts={result['missing_artifacts_total']}"
+            )
+        return result
+
+    if args.registry_action == "export":
+        result = registry.export()
+        if not args.json and not args.json_out:
+            counts = {table: len(rows) for table, rows in result.items()}
+            print(f"exported rows={counts}")
+            print("(pass --json or --json-out to capture the full dump)")
+        return result
+
+    # Pruning without a selector is too easy to invoke accidentally because
+    # analysis-jobs is the default target. Require an explicit --all opt-in.
+    has_filter = bool(statuses or older_than is not None or args.missing_only)
+    if not has_filter and not args.prune_all:
+        raise SystemExit(
+            "registry prune requires --status, --older-than-days, --missing-only, "
+            "or explicit --all"
+        )
+    if args.prune_target != "artifacts" and args.missing_only:
+        raise SystemExit("--missing-only is valid only with --prune-target artifacts")
+    if args.prune_target == "artifacts" and statuses:
+        raise SystemExit("--status is not valid with --prune-target artifacts")
+
+    if args.prune_target == "runs":
+        pruned = registry.prune_runs(
+            statuses=statuses, older_than=older_than, dry_run=args.dry_run
+        )
+    elif args.prune_target == "artifacts":
+        pruned = registry.prune_artifacts(
+            older_than=older_than,
+            missing_only=args.missing_only,
+            dry_run=args.dry_run,
+        )
+    else:
+        pruned = registry.prune_analysis_jobs(
+            statuses=statuses, older_than=older_than, dry_run=args.dry_run
+        )
+    result = {
+        "target": args.prune_target,
+        "dry_run": args.dry_run,
+        "matched": len(pruned),
+        "ids": pruned,
+    }
+    if not args.json:
+        verb = "would prune" if args.dry_run else "pruned"
+        print(f"{verb} {len(pruned)} {args.prune_target} record(s)")
+        for pruned_id in pruned:
+            print(f"  {pruned_id}")
+    return result
+
+
 def main() -> None:
     args = _parse_args()
 
@@ -276,6 +402,16 @@ def main() -> None:
         from rl_framework.gui.app import run_gui
 
         run_gui(host=args.host, port=args.port)
+        return
+
+    if args.command == "registry":
+        result = _run_registry_command(args)
+        if args.json:
+            print(_json.dumps(result))
+        if args.json_out:
+            out_path = Path(args.json_out)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(_json.dumps(result), encoding="utf-8")
         return
 
     from rl_framework.utils.config import (
@@ -332,12 +468,18 @@ def main() -> None:
             raise ValueError("--policy is required for arena-eval")
         else:
             result = run_arena_eval(
-                args.policy, args.opponent, cfg_dict, n_episodes=args.n_episodes,
-                swap_roles=not args.no_swap_roles, output_path=args.output or None,
+                args.policy,
+                args.opponent,
+                cfg_dict,
+                n_episodes=args.n_episodes,
+                swap_roles=not args.no_swap_roles,
+                output_path=args.output or None,
             )
         if not args.json:
             if args.policies:
-                print(f"agent_win_rates={result['agent_win_rates']} n_episodes={result['n_episodes']}")
+                print(
+                    f"agent_win_rates={result['agent_win_rates']} n_episodes={result['n_episodes']}"
+                )
             else:
                 print(
                     f"policy_win_rate={result['policy_win_rate']:.3f}  "
