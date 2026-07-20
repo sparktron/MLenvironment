@@ -21,12 +21,13 @@ def _parse_args() -> argparse.Namespace:
             "gui",
             "morph-search",
             "registry",
+            "quality-study",
         ],
     )
     parser.add_argument(
         "--config-name",
         default="",
-        help="YAML file name without extension (not used by gui or registry)",
+        help="YAML file name without extension (not used by gui, registry, or quality-study)",
     )
     parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
     parser.add_argument("--model-path", default="")
@@ -97,12 +98,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Preview without changing state (sweep and registry prune)",
+        help="Preview without changing state (sweep, registry prune, and quality-study)",
     )
     parser.add_argument(
         "--resume-incomplete",
         action="store_true",
-        help="Resume completed sweep variants from sweep_summary/state.json",
+        help="Resume a sweep or quality study from its saved state",
     )
     parser.add_argument(
         "--resume",
@@ -125,6 +126,35 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=5,
         help="Number of trials for morph-search (default: 5)",
+    )
+    parser.add_argument(
+        "--study",
+        default="all",
+        choices=["walker", "arena", "algorithms", "all"],
+        help="Priority-3 quality study to run (default: all).",
+    )
+    parser.add_argument(
+        "--study-step-budget",
+        type=int,
+        default=None,
+        help="Override the per-run study step budget.",
+    )
+    parser.add_argument(
+        "--study-wall-clock-seconds",
+        type=float,
+        default=900.0,
+        help="Per-run wall-clock algorithm budget (default: 900 seconds).",
+    )
+    parser.add_argument(
+        "--study-eval-episodes",
+        type=int,
+        default=20,
+        help="Episodes per deterministic/stochastic or tournament evaluation.",
+    )
+    parser.add_argument(
+        "--study-output-dir",
+        default="outputs/quality_studies",
+        help="Quality-study state, models, and report directory.",
     )
     parser.add_argument(
         "--registry-action",
@@ -408,6 +438,31 @@ def main() -> None:
         result = _run_registry_command(args)
         if args.json:
             print(_json.dumps(result))
+        if args.json_out:
+            out_path = Path(args.json_out)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(_json.dumps(result), encoding="utf-8")
+        return
+
+    if args.command == "quality-study":
+        from rl_framework.training.quality_study import run_quality_study
+
+        seeds = [int(seed) for seed in args.seeds.split(",") if seed.strip()]
+        result = run_quality_study(
+            args.study,
+            seeds=seeds or [0, 1, 2],
+            config_dir=args.config_dir,
+            output_dir=args.study_output_dir,
+            step_budget=args.study_step_budget,
+            wall_clock_seconds=args.study_wall_clock_seconds,
+            eval_episodes=args.study_eval_episodes,
+            resume=args.resume_incomplete,
+            dry_run=args.dry_run,
+        )
+        if args.json:
+            print(_json.dumps(result))
+        elif not args.json_out:
+            print(_json.dumps(result, indent=2))
         if args.json_out:
             out_path = Path(args.json_out)
             out_path.parent.mkdir(parents=True, exist_ok=True)

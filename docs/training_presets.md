@@ -26,6 +26,26 @@ The bundled walker reward uses `alive_bonus: 0.25` and
 positive signal. Do not compare returns from older `alive_bonus: 5.0` runs
 directly with the rebalanced presets.
 
+## Learning Quality Studies
+
+Run all three multi-seed Priority 3 matrices with their promotion-scale
+defaults:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
+  --study all --seeds 0,1,2
+```
+
+The walker matrix compares the legacy reward control, rebalanced flat preset,
+and all terrain curriculum stages with zero-action, deterministic, stochastic,
+transfer, launch-height, and push-recovery diagnostics. The arena matrix first
+runs resource tournaments, then evaluates contested-food and body-collision
+candidates; native-regime measurements are kept separate from common-baseline
+tournaments. The algorithm matrix compares PPO, SAC, and TD3 under both equal
+step and equal wall-clock budgets. See
+[`learning_quality_studies.md`](learning_quality_studies.md) for gates and
+report interpretation.
+
 ## Durable Run Records
 
 Training writes immutable run records to `<output.base_dir>/run_registry.sqlite3`.

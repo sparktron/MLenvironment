@@ -594,6 +594,7 @@ class WalkerBulletEnv(gym.Env):
         )
         info = {
             "x_position": pos[0],
+            "z_position": pos[2],
             "lin_vel_x": lin_vel[0],
             "torso_contact": torso_contact,
             "push_applied": push_applied,

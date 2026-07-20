@@ -150,10 +150,34 @@ def test_validate_experiment_config_rejects_invalid_worker_start_method() -> Non
         validate_experiment_config(cfg)
 
 
-@pytest.mark.parametrize("name", ["walker_sac_baseline", "walker_td3_baseline"])
+@pytest.mark.parametrize(
+    "name", ["walker_ppo_baseline", "walker_sac_baseline", "walker_td3_baseline"]
+)
 def test_off_policy_walker_baselines_validate(name: str) -> None:
     cfg = to_container(load_config(name, "src/rl_framework/configs/experiments"))
     validate_experiment_config(cfg)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value", "match"),
+    [
+        ("battle_rules", "collision_damage", -0.1, "collision_damage"),
+        ("resources", "food_placement", "corners", "food_placement"),
+    ],
+)
+def test_arena_rejects_invalid_strategic_depth_settings(
+    section: str, field: str, value, match: str
+) -> None:
+    cfg = _base_cfg()
+    cfg["environment"] = {
+        "type": "organism_arena_parallel",
+        "battle_rules": {"damage": 0.05, "attack_range": 0.2},
+        "resources": {},
+    }
+    cfg["environment"][section][field] = value
+
+    with pytest.raises(ValueError, match=match):
+        validate_experiment_config(cfg)
 
 
 def test_off_policy_algorithms_reject_arena() -> None:

@@ -51,6 +51,7 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
   - [multi-seed](#multi-seed)
   - [render-replay](#render-replay)
   - [registry](#registry)
+  - [quality-study](#quality-study)
 - [Configuration](#configuration)
   - [YAML Structure](#yaml-structure)
   - [Included Experiments](#included-experiments)
@@ -428,6 +429,25 @@ removes the selected runs' event, tuning, and artifact-index rows in one
 transaction. Maintenance never deletes checkpoint or other artifact files.
 An unfiltered prune is rejected unless `--all` is supplied explicitly.
 
+### 🧭 `quality-study` — Reproducible learning-quality comparisons
+
+Run the Priority 3 walker, arena, and algorithm study matrices with durable,
+resumable state and machine-readable reports:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
+  --study all --seeds 0,1,2
+```
+
+`--study` also accepts `walker`, `arena`, or `algorithms`. The default promotion
+budgets are 750k walker steps, 30k arena steps, and 500k algorithm steps plus a
+900-second wall-clock comparison. Override them with `--study-step-budget`,
+`--study-wall-clock-seconds`, and `--study-eval-episodes`; use
+`--resume-incomplete` to continue from `state.json`. Results are written to
+`outputs/quality_studies/{report.json,report.md}`. See
+[`docs/learning_quality_studies.md`](docs/learning_quality_studies.md) for the
+matrix, metrics, readiness gates, and preliminary findings.
+
 ---
 
 ## ⚙️ Configuration
@@ -502,6 +522,7 @@ environment:
 
   battle_rules:
     damage: 0.06                     # Base damage per hit
+    collision_damage: 0.0           # Optional contact damage, scaled by body size
     attack_range: 0.2                # Distance threshold for attacks
     cooldown_steps: 3                # Steps between consecutive attacks
     max_steps: 400                   # Episode truncation limit
@@ -516,6 +537,7 @@ environment:
     food_energy: 0.35
     food_radius: 0.10
     food_respawn_steps: 40
+    food_placement: uniform          # uniform | center (contested patch)
 
 # ─── Training ───────────────────────────────────────────────────
 training:
@@ -976,15 +998,19 @@ evaluation flow, checkpoints, and VecNormalize sidecars are shared with PPO.
 The active development plan lives in [`docs/open_items_todo.md`](docs/open_items_todo.md). The next work is grouped into:
 
 - Priority 0 correctness fixes are currently cleared for the arena self-play validation path; new confirmed bugs should be added here first.
-- Walker stability and learning-quality work: empirical reward tuning.
-- Throughput and operations: GUI analysis views and multi-run orchestration beyond the current single-run policy.
-- Feature additions: richer organism arena mechanics and GUI analysis views.
+- Learning-quality decisions are made through the resumable `quality-study`
+  matrices; candidate defaults remain gated on promotion-scale evidence.
+- Throughput and operations: multi-run GUI orchestration beyond the current
+  single-run policy.
+- Feature additions should be proposed only after the study reports identify a
+  measured bottleneck or strategic gap.
 
-Arena mechanics now include size-scaled collision radii, deterministic food
-spawns, energy costs for movement and attacks, and inverse size/speed scaling.
-Food restores energy and respawns after its configured delay. This expands the
-arena observation from 8 to 13 values, so existing arena checkpoints are not
-compatible with the richer mechanics.
+Arena mechanics now include size-scaled collision radii, optional body-contact
+damage, uniform or center-contested food placement, energy costs for movement
+and attacks, and inverse size/speed scaling. Terminal episode metrics report
+contacts, damage, food pickups, attacks, and energy depletion for tournament
+studies. The richer mechanics expand the arena observation from 8 to 13 values,
+so existing arena checkpoints are not compatible with them.
 
 Walker observation v2 is checkpoint-incompatible with v1: v2 adds right/left
 foot-contact signals, and coordinate-free v2 removes global x/y while retaining

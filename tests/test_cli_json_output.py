@@ -156,6 +156,31 @@ def test_registry_cli_requires_a_prune_filter(monkeypatch, tmp_path):
         )
 
 
+def test_quality_study_cli_dry_run_json(monkeypatch, capsys, tmp_path):
+    _run_cli(
+        monkeypatch,
+        [
+            "quality-study",
+            "--study",
+            "algorithms",
+            "--seeds",
+            "0,1,2",
+            "--study-output-dir",
+            str(tmp_path),
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["planned_runs"] == {
+        "walker": 0,
+        "arena": 0,
+        "algorithms": 18,
+    }
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_walker_render_replay_loads_vecnormalize_sidecar(monkeypatch, tmp_path):
     import gymnasium as gym
     from gymnasium import spaces

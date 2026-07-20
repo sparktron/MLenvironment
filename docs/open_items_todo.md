@@ -15,17 +15,11 @@ the completed summary below so completed work is not presented as pending.
 
 ## Priority 3: Learning Quality And Features
 
-- **Empirically tune walker reward/curriculum quality.** The rebalance and
-  terrain curricula are implemented; compare learned gait, recovery, and
-  transfer metrics across seeds before changing the shipped defaults again.
-- **Balance arena resources.** Collision, food, energy, and size/speed
-  tradeoffs are implemented. Run self-play/tournament studies to tune resource
-  costs, respawn cadence, and food density, then promote measured presets.
-- **Arena strategic depth.** Consider body collision damage, richer food
-  placement, or territory/objective mechanics only after resource balance data
-  demonstrates a clear need.
-- **Algorithm comparison.** Benchmark PPO, SAC, and TD3 v2 walker baselines
-  on equal step and wall-clock budgets, including deterministic evaluation.
+- All tracked Priority 3 implementation items are complete. Promotion-scale
+  training remains an explicit release operation: run `quality-study` and
+  change shipped defaults only when its readiness gate is true. The checked-in
+  preliminary study record is summarized in
+  [`learning_quality_studies.md`](learning_quality_studies.md).
 
 ## Retained Limitations
 
@@ -37,6 +31,14 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-19) Added resumable Priority 3 learning-quality studies. Walker
+  studies compare reward and terrain curricula across seeds using zero-action,
+  deterministic/stochastic, transfer, launch-height, and push-recovery
+  diagnostics. Arena studies tournament resource variants before optional
+  contested-food and body-collision candidates, with native-regime episode
+  metrics kept distinct from common-arena Elo. Algorithm studies compare PPO,
+  SAC, and TD3 with both equal-step and equal-wall-clock budgets. Readiness
+  gates prevent short smoke results from changing shipped defaults.
 - Deterministic/reproducible training, strict resume provenance, pinned direct
   dependencies, CPU-first MLP presets, and resumable sweeps/benchmarks.
 - Durable SQLite run registry, GUI tuning queue, best-checkpoint evaluation,
