@@ -16,6 +16,7 @@ environment:
     health: 1.2
   battle_rules:
     damage: 0.06
+    collision_damage: 0.0
     attack_range: 0.2
     cooldown_steps: 3
     max_steps: 400
@@ -29,6 +30,7 @@ environment:
     food_energy: 0.35
     food_radius: 0.10
     food_respawn_steps: 40
+    food_placement: uniform
 
 training:
   policy: MlpPolicy

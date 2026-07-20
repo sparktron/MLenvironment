@@ -321,6 +321,53 @@ def test_arena_collision_separates_overlapping_organisms() -> None:
         env.close()
 
 
+def test_arena_collision_damage_and_episode_metrics_are_reported() -> None:
+    env = make_env(
+        "organism_arena_parallel",
+        {
+            "type": "organism_arena_parallel",
+            "seed": 0,
+            "sim": {"collision_radius": 0.1},
+            "battle_rules": {"collision_damage": 0.1, "max_steps": 1},
+        },
+    )
+    try:
+        env.reset(seed=0)
+        for agent in env.agents:
+            env.state[agent]["pos"] = np.zeros(2, dtype=np.float32)
+        noop = np.zeros(3, dtype=np.float32)
+        _, _, _, _, infos = env.step({agent: noop for agent in env.agents})
+
+        assert env.state["agent_0"]["health"] == pytest.approx(0.9)
+        assert env.state["agent_1"]["health"] == pytest.approx(0.9)
+        for info in infos.values():
+            assert info["episode_metrics"]["collision_contacts"] == 1.0
+            assert info["episode_metrics"]["damage_dealt"] == pytest.approx(0.1)
+    finally:
+        env.close()
+
+
+def test_arena_center_food_placement_stays_in_contested_patch() -> None:
+    env = make_env(
+        "organism_arena_parallel",
+        {
+            "type": "organism_arena_parallel",
+            "seed": 0,
+            "sim": {"arena_half_extent": 2.0},
+            "resources": {
+                "food_count": 20,
+                "food_radius": 0.1,
+                "food_placement": "center",
+            },
+        },
+    )
+    try:
+        env.reset(seed=0)
+        assert all(np.max(np.abs(food["pos"])) <= 0.57 for food in env._food)
+    finally:
+        env.close()
+
+
 def test_arena_food_restores_energy_and_respawns() -> None:
     env = make_env(
         "organism_arena_parallel",

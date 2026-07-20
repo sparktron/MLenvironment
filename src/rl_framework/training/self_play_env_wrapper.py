@@ -102,7 +102,7 @@ def load_frozen_policy(path: str | Path, action_space: Any) -> Any:
     if str(path) == "random":
         return RandomPolicy(action_space)
     path = Path(path)
-    model = PPO.load(str(path))
+    model = PPO.load(str(path), device="cpu")
     sidecar = path.with_name(path.stem + VECNORM_SUFFIX)
     normalizer = load_obs_normalizer(sidecar)
     if normalizer is None:
@@ -201,7 +201,9 @@ class LeagueSampler:
         sidecar = path.with_name(path.stem + VECNORM_SUFFIX)
         cached = self._cache.get(path)
         if cached is None:
-            cached = FrozenPolicy(PPO.load(str(path)), load_obs_normalizer(sidecar))
+            cached = FrozenPolicy(
+                PPO.load(str(path), device="cpu"), load_obs_normalizer(sidecar)
+            )
             self._cache[path] = cached
         elif cached._normalizer is None:
             normalizer = load_obs_normalizer(sidecar)

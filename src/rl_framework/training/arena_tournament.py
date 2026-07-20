@@ -190,6 +190,12 @@ def run_tournament(
                     "opponent_win_rate": res["opponent_win_rate"],
                     "draw_rate": res["draw_rate"],
                     "timeout_rate": res["timeout_rate"],
+                    "competitor_episode_metrics": res.get(
+                        "policy_episode_metrics", {}
+                    ),
+                    "opponent_episode_metrics": res.get(
+                        "opponent_episode_metrics", {}
+                    ),
                     "n_episodes": total,
                 }
             )

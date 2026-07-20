@@ -448,6 +448,13 @@ def get_schema():
                         "min": 0.01,
                         "max": 1,
                     },
+                    "collision_damage": {
+                        "value": 0.0,
+                        "type": "float",
+                        "desc": "Optional contact damage scaled by the other organism's size",
+                        "min": 0,
+                        "max": 1,
+                    },
                     "attack_range": {
                         "value": 0.2,
                         "type": "float",
@@ -546,6 +553,12 @@ def get_schema():
                         "desc": "Steps before an eaten pellet reappears",
                         "min": 0,
                         "max": 2000,
+                    },
+                    "food_placement": {
+                        "value": "uniform",
+                        "type": "choice",
+                        "choices": ["uniform", "center"],
+                        "desc": "Uniform food or a contested central food patch",
                     },
                 },
             },

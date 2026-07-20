@@ -203,6 +203,9 @@ def test_schema_arena_exposes_resources_and_sim_collision(client):
     assert resources["food_energy"]["type"] == "float"
     # Defaults must round-trip the validator, which enforces initial <= max.
     assert resources["initial_energy"]["value"] <= resources["max_energy"]["value"]
+    assert resources["food_placement"]["choices"] == ["uniform", "center"]
+
+    assert env["battle_rules"]["collision_damage"]["value"] == 0.0
 
     sim = env["sim"]
     assert sim["collision_radius"]["type"] == "float"

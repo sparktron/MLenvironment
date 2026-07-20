@@ -14,6 +14,7 @@ from rl_framework.utils.config_merge import get_section
 @dataclass
 class BattleRules:
     damage: float = 0.05
+    collision_damage: float = 0.0
     attack_range: float = 0.2
     cooldown_steps: int = 3
     sensing_radius: float = 2.0
@@ -34,6 +35,7 @@ class ResourceRules:
     food_energy: float = 0.35
     food_radius: float = 0.10
     food_respawn_steps: int = 40
+    food_placement: str = "uniform"
 
 
 class OrganismArenaParallelEnv(ParallelEnv):
@@ -96,6 +98,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
         # egocentric observation. Repopulated on reset and updated each step.
         self._prev_positions: dict[str, np.ndarray] = {}
         self._food: list[dict[str, Any]] = []
+        self._episode_stats: dict[str, dict[str, float]] = {}
         # Scales only the dense per-hit reward (not the health damage itself).
         # Annealed toward 0 by RewardAnnealingCallback so the terminal win/loss
         # signal eventually dominates. See update_live_params().
@@ -171,7 +174,12 @@ class OrganismArenaParallelEnv(ParallelEnv):
 
     def _spawn_food_position(self) -> np.ndarray:
         margin = max(self.resources.food_radius, 0.05)
-        return self._rng.uniform(-self.bounds + margin, self.bounds - margin, size=2).astype(np.float32)
+        extent = max(self.bounds - margin, 0.0)
+        if self.resources.food_placement == "center":
+            # A contested central patch makes food a strategic objective while
+            # preserving symmetric access from every spawn slot.
+            extent *= 0.3
+        return self._rng.uniform(-extent, extent, size=2).astype(np.float32)
 
     def _reset_food(self) -> None:
         self._food = [
@@ -194,6 +202,16 @@ class OrganismArenaParallelEnv(ParallelEnv):
             for i, name in enumerate(self.possible_agents)
         }
         self._reset_food()
+        self._episode_stats = {
+            agent: {
+                "attack_hits": 0.0,
+                "collision_contacts": 0.0,
+                "damage_dealt": 0.0,
+                "energy_depleted_steps": 0.0,
+                "food_pickups": 0.0,
+            }
+            for agent in self.agents
+        }
         # Seed previous positions so velocity reads zero on the first observation.
         self._prev_positions = {
             agent: self.state[agent]["pos"].copy() for agent in self.agents
@@ -400,6 +418,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
             if energy <= 0.0:
                 move = np.zeros(2, dtype=np.float32)
                 move_distance = 0.0
+                self._episode_stats[agent]["energy_depleted_steps"] += 1.0
             else:
                 move = move * self._effective_move_speed(agent)
                 self.state[agent]["energy"] = max(
@@ -453,9 +472,12 @@ class OrganismArenaParallelEnv(ParallelEnv):
             if falloff > 0.0:
                 self.state[attacker]["energy"] -= self.resources.attack_cost
                 damage = self.rules.damage * falloff * self.state[attacker]["size"]
+                damage = min(damage, self.state[target]["health"])
                 self.state[target]["health"] = max(
                     0.0, self.state[target]["health"] - damage
                 )
+                self._episode_stats[attacker]["attack_hits"] += 1.0
+                self._episode_stats[attacker]["damage_dealt"] += damage
                 # Health always takes full damage so combat resolves; only the
                 # dense reward is scaled (annealed toward the sparse win signal).
                 dense_reward = damage * self._damage_scale
@@ -512,6 +534,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
         if episode_outcome is not None:
             for agent in active_agents:
                 infos[agent]["episode_outcome"] = episode_outcome
+                infos[agent]["episode_metrics"] = dict(self._episode_stats[agent])
         # Record positions *after* building observations so the next step's
         # velocity reflects the displacement that occurs during that step.
         for agent in active_agents:
@@ -531,6 +554,21 @@ class OrganismArenaParallelEnv(ParallelEnv):
                 minimum = self.collision_radius * (self.state[left]["size"] + self.state[right]["size"])
                 if distance >= minimum:
                     continue
+                self._episode_stats[left]["collision_contacts"] += 1.0
+                self._episode_stats[right]["collision_contacts"] += 1.0
+                if self.rules.collision_damage > 0.0:
+                    damage_to_left = min(
+                        self.rules.collision_damage * self.state[right]["size"],
+                        self.state[left]["health"],
+                    )
+                    damage_to_right = min(
+                        self.rules.collision_damage * self.state[left]["size"],
+                        self.state[right]["health"],
+                    )
+                    self.state[left]["health"] -= damage_to_left
+                    self.state[right]["health"] -= damage_to_right
+                    self._episode_stats[right]["damage_dealt"] += damage_to_left
+                    self._episode_stats[left]["damage_dealt"] += damage_to_right
                 direction = delta / distance if distance > 1e-8 else np.array([1.0, 0.0], dtype=np.float32)
                 correction = (minimum - distance) / 2.0
                 self.state[left]["pos"] = np.clip(self.state[left]["pos"] - direction * correction, -self.bounds, self.bounds)
@@ -550,6 +588,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
                 before = self.state[eater]["energy"]
                 self.state[eater]["energy"] = min(self.resources.max_energy, before + self.resources.food_energy)
                 rewards[eater] += self.state[eater]["energy"] - before
+                self._episode_stats[eater]["food_pickups"] += 1.0
                 food["respawn_at"] = self.step_count + self.resources.food_respawn_steps
 
     def render(self):

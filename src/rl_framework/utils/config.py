@@ -260,6 +260,16 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
                     raise ValueError(
                         f"environment.battle_rules.{key} must be a positive number, got {val!r}"
                     )
+        collision_damage = battle.get("collision_damage", 0.0)
+        if (
+            isinstance(collision_damage, bool)
+            or not isinstance(collision_damage, (int, float))
+            or collision_damage < 0
+        ):
+            raise ValueError(
+                "environment.battle_rules.collision_damage must be a "
+                f"non-negative number, got {collision_damage!r}"
+            )
         morphology = env_cfg.get("morphology", {})
         valid_morph_keys = {"base_size", "episode_growth_scale", "health"}
         unknown = set(morphology) - valid_morph_keys
@@ -272,6 +282,7 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
         valid_resource_keys = {
             "initial_energy", "max_energy", "movement_cost", "attack_cost",
             "food_count", "food_energy", "food_radius", "food_respawn_steps",
+            "food_placement",
         }
         unknown_resources = set(resources) - valid_resource_keys
         if unknown_resources:
@@ -287,6 +298,10 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
                 _ensure_int(resources[key], f"environment.resources.{key}", min_value=0)
         if resources.get("initial_energy", 1.0) > resources.get("max_energy", 1.0):
             raise ValueError("environment.resources.initial_energy must be <= max_energy")
+        if resources.get("food_placement", "uniform") not in {"uniform", "center"}:
+            raise ValueError(
+                "environment.resources.food_placement must be 'uniform' or 'center'"
+            )
 
 
 def _validate_curriculum(cfg: dict[str, Any]) -> None:

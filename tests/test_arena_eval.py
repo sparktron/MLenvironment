@@ -41,8 +41,11 @@ def test_arena_eval_returns_expected_keys() -> None:
         "timeout_rate",
         "policy_mean_return",
         "opponent_mean_return",
+        "policy_episode_metrics",
+        "opponent_episode_metrics",
         "n_episodes",
     }.issubset(result.keys())
+    assert "food_pickups" in result["policy_episode_metrics"]
 
 
 def test_arena_eval_rates_are_a_partition() -> None:

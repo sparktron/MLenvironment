@@ -92,7 +92,15 @@ def run_n_agent_eval(
     return result
 
 
-def _play_episode(env: Any, policy: Any, opponent: Any, policy_slot: str, seed: int):
+def _play_episode(
+    env: Any,
+    policy: Any,
+    opponent: Any,
+    policy_slot: str,
+    seed: int,
+    *,
+    include_metrics: bool = False,
+):
     """Run one episode; return (outcome_for_policy, policy_return, opponent_return).
 
     ``outcome_for_policy`` is ``"win"``, ``"loss"``, or ``"timeout"`` from the
@@ -102,6 +110,7 @@ def _play_episode(env: Any, policy: Any, opponent: Any, policy_slot: str, seed: 
     observations, _ = env.reset(seed=seed)
     returns = {a: 0.0 for a in _AGENTS}
     final_outcome: dict[str, Any] | None = None
+    final_metrics: dict[str, dict[str, float]] = {}
 
     while env.agents:
         actions = {}
@@ -115,6 +124,9 @@ def _play_episode(env: Any, policy: Any, opponent: Any, policy_slot: str, seed: 
         for info in infos.values():
             if "episode_outcome" in info:
                 final_outcome = info["episode_outcome"]
+        for agent, info in infos.items():
+            if "episode_metrics" in info:
+                final_metrics[agent] = info["episode_metrics"]
 
     if final_outcome is None or final_outcome.get("outcome") == "timeout":
         result = "timeout"
@@ -125,7 +137,18 @@ def _play_episode(env: Any, policy: Any, opponent: Any, policy_slot: str, seed: 
         result = "win"
     else:
         result = "loss"
-    return result, returns[policy_slot], returns[opp_slot]
+    basic = (result, returns[policy_slot], returns[opp_slot])
+    if not include_metrics:
+        return basic
+    return (*basic, final_metrics.get(policy_slot, {}), final_metrics.get(opp_slot, {}))
+
+
+def _mean_episode_metrics(rows: list[dict[str, float]]) -> dict[str, float]:
+    keys = sorted({key for row in rows for key in row})
+    return {
+        key: float(np.mean([float(row.get(key, 0.0)) for row in rows]))
+        for key in keys
+    }
 
 
 def run_arena_eval(
@@ -179,6 +202,8 @@ def run_arena_eval(
     wins = losses = draws = timeouts = 0
     policy_returns: list[float] = []
     opponent_returns: list[float] = []
+    policy_metrics: list[dict[str, float]] = []
+    opponent_metrics: list[dict[str, float]] = []
     episode = 0
     try:
         # Pair the two spawn orientations on identical seeds so role-swapping
@@ -187,12 +212,19 @@ def run_arena_eval(
         # orientation drawing fresh (unmatched) seeds.
         for i in range(n_episodes):
             for policy_slot in slots:
-                result, p_ret, o_ret = _play_episode(
-                    env, policy, opponent, policy_slot, base_seed + i
+                result, p_ret, o_ret, p_metrics, o_metrics = _play_episode(
+                    env,
+                    policy,
+                    opponent,
+                    policy_slot,
+                    base_seed + i,
+                    include_metrics=True,
                 )
                 episode += 1
                 policy_returns.append(p_ret)
                 opponent_returns.append(o_ret)
+                policy_metrics.append(p_metrics)
+                opponent_metrics.append(o_metrics)
                 if result == "win":
                     wins += 1
                 elif result == "loss":
@@ -214,6 +246,8 @@ def run_arena_eval(
         "opponent_mean_return": (
             float(np.mean(opponent_returns)) if opponent_returns else 0.0
         ),
+        "policy_episode_metrics": _mean_episode_metrics(policy_metrics),
+        "opponent_episode_metrics": _mean_episode_metrics(opponent_metrics),
         "n_episodes": episode,
     }
     if output_path is not None:
