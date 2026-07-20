@@ -760,6 +760,8 @@ The shared-policy adapter supplies `render_mode` metadata locally, so this
 otherwise-compatible boundary no longer emits SB3's missing-render-mode warning.
 Arena damage-reward annealing updates environments at rollout boundaries rather
 than every step, avoiding unnecessary cross-process calls during parallel runs.
+GUI live frame capture configures RGB rendering only on rollout worker 0 and
+throttles capture by wall-clock time, so the remaining workers stay headless.
 For N-agent matches, the live policy's training episode ends immediately on its
 own knockout instead of collecting inert spectator transitions.
 

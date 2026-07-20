@@ -275,7 +275,10 @@ class ArenaMetricsCallback(BaseCallback):
 
 
 def _build_single_env(
-    env_cfg: dict[str, Any], monitor_dir: Path | None = None, rank: int = 0
+    env_cfg: dict[str, Any],
+    monitor_dir: Path | None = None,
+    rank: int = 0,
+    render_env_index: int | None = None,
 ):
     """Return a factory that creates one gym env wrapped in SB3's ``Monitor``.
 
@@ -287,7 +290,8 @@ def _build_single_env(
     """
 
     def _make():
-        env = make_env(env_cfg["type"], env_cfg)
+        rank_cfg = _worker_env_config(env_cfg, rank, render_env_index)
+        env = make_env(rank_cfg["type"], rank_cfg)
         filename = (
             str(monitor_dir / f"monitor_env{rank}.csv")
             if monitor_dir is not None
@@ -305,6 +309,7 @@ def _build_arena_selfplay_env(
     base_seed: int,
     monitor_dir: Path | None = None,
     rank: int = 0,
+    render_env_index: int | None = None,
 ):
     """Factory for one self-play arena env on SB3's native vec-env path.
 
@@ -320,7 +325,7 @@ def _build_arena_selfplay_env(
     """
 
     def _make():
-        rank_cfg = copy.deepcopy(env_cfg)
+        rank_cfg = _worker_env_config(env_cfg, rank, render_env_index)
         # Spread per-worker seeds so spawn jitter and the RNG differ by rank.
         rank_cfg["seed"] = base_seed + 1000 * rank
         par_env = make_env(rank_cfg["type"], rank_cfg)
@@ -341,6 +346,22 @@ def _build_arena_selfplay_env(
         return Monitor(env, filename=filename, info_keywords=("episode_outcome",))
 
     return _make
+
+
+def _worker_env_config(
+    env_cfg: dict[str, Any], rank: int, render_env_index: int | None
+) -> dict[str, Any]:
+    """Return an isolated config for one rollout worker.
+
+    When a caller selects one render worker (the GUI frame-capture path), all
+    other workers have ``render_mode`` removed. A ``None`` selection preserves
+    the existing behavior for non-GUI callers that deliberately configure a
+    render mode for every environment.
+    """
+    rank_cfg = copy.deepcopy(env_cfg)
+    if render_env_index is not None and rank != render_env_index:
+        rank_cfg.pop("render_mode", None)
+    return rank_cfg
 
 
 def _make_lr_schedule(start: float, end: float | None):
@@ -373,6 +394,7 @@ def train(
     extra_callbacks: list[BaseCallback] | None = None,
     stop_event: threading.Event | None = None,
     resume_from: str | Path | None = None,
+    render_env_index: int | None = None,
 ) -> Path:
     """Train an SB3 agent from *cfg* and return the path to the saved model.
 
@@ -392,8 +414,18 @@ def train(
         When provided, the model weights and optimizer state are restored and
         training continues from the saved timestep counter.  If a sibling
         ``vecnormalize.pkl`` exists, its running statistics are also restored.
+    render_env_index:
+        Optional rollout-worker index that alone retains the configured
+        ``environment.render_mode``. The GUI uses index 0 for live frame
+        capture without enabling RGB rendering on every parallel worker.
     """
     train_cfg = cfg["training"]
+    num_envs = int(train_cfg.get("num_envs", 1))
+    if render_env_index is not None and not 0 <= render_env_index < max(num_envs, 1):
+        raise ValueError(
+            f"render_env_index must be in [0, {max(num_envs, 1) - 1}], "
+            f"got {render_env_index}"
+        )
     repro_cfg = cfg.get("reproducibility", {})
     if repro_cfg.get("deterministic", False):
         train_cfg.setdefault("torch_num_threads", 1)
@@ -427,8 +459,6 @@ def train(
     env_cfg = cfg["environment"]
     algorithm_name = str(train_cfg.get("algorithm", "PPO")).upper()
     algorithm_cls = _algorithm_class(algorithm_name)
-
-    num_envs = int(cfg["training"].get("num_envs", 1))
 
     # Self-play league config — used both to wrap the env (opponent routing) and
     # to register the snapshot-saving callback later. The snapshot directory is
@@ -474,6 +504,7 @@ def train(
                 base_seed=int(cfg["seed"]),
                 monitor_dir=paths.logs_dir,
                 rank=i,
+                render_env_index=render_env_index,
             )
             for i in range(max(num_envs, 1))
         ]
@@ -483,7 +514,8 @@ def train(
             vec_env = DummyVecEnv(env_fns)
     elif env_cfg["type"] == "organism_arena_parallel":
         # Shared-policy arena: SuperSuit multi-agent conversion, single process.
-        par_env = make_env(env_cfg["type"], env_cfg)
+        arena_cfg = _worker_env_config(env_cfg, 0, render_env_index)
+        par_env = make_env(arena_cfg["type"], arena_cfg)
         vec_env = ss.pettingzoo_env_to_vec_env_v1(par_env)
         vec_env = ss.concat_vec_envs_v1(
             vec_env,
@@ -495,7 +527,12 @@ def train(
         vec_env = _ArenaVecEnvAdapter(vec_env)
     else:
         env_fns = [
-            _build_single_env(env_cfg, monitor_dir=paths.logs_dir, rank=i)
+            _build_single_env(
+                env_cfg,
+                monitor_dir=paths.logs_dir,
+                rank=i,
+                render_env_index=render_env_index,
+            )
             for i in range(max(num_envs, 1))
         ]
         if num_envs > 1:
@@ -592,7 +629,8 @@ def train(
         best_model_cfg = cfg.get("evaluation", {}).get("best_model", {})
         if best_model_cfg.get("enabled", False):
             best_model_path = paths.checkpoints_dir / "best_model"
-            best_eval_env = _build_best_model_eval_env(env_cfg, normalize)
+            eval_env_cfg = _worker_env_config(env_cfg, -1, render_env_index)
+            best_eval_env = _build_best_model_eval_env(eval_env_cfg, normalize)
             callbacks.append(
                 EvalCallback(
                     best_eval_env,

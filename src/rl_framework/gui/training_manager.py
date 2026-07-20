@@ -237,7 +237,10 @@ class TrainingManager:
                 state.frame_capture_callback = frame_cb
 
             model_path = train(
-                cfg, extra_callbacks=[live_cb, frame_cb], stop_event=state.stop_event
+                cfg,
+                extra_callbacks=[live_cb, frame_cb],
+                stop_event=state.stop_event,
+                render_env_index=0,
             )
             with self._lock:
                 state.status = "completed"

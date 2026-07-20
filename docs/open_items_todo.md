@@ -1,6 +1,6 @@
 # Development Roadmap
 
-Last updated: 2026-07-19
+Last updated: 2026-07-20
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
@@ -62,8 +62,10 @@ the completed summary below so completed work is not presented as pending.
 - N-agent arena evaluation/tournament/replay support, tournament-Elo morphology
   scoring, collision/resource mechanics, and warning-free shared-policy vector
   metadata handling.
-- (2026-07-17) GUI frame capture renders environment 0 only (`env_method`,
-  not the tiling `VecEnv.render()`) with a wall-clock capture throttle. GUI
+- (2026-07-20) GUI frame capture renders environment 0 only (`env_method`,
+  not the tiling `VecEnv.render()`) with a wall-clock capture throttle, and
+  only worker 0 retains `render_mode: rgb_array`; other rollout workers and
+  the best-model evaluation env stay headless. GUI
   wizard schema gained `self_play`/`reward_annealing`/`curriculum` groups and
   arena `sensing_radius`/`attack_falloff` fields (resource settings remain
   open — see Priority 1), and `create_config` rejects an empty/whitespace

@@ -43,6 +43,46 @@ def test_status_returns_latest_streamed_metrics() -> None:
     assert status["metrics"] == payload
 
 
+def test_gui_training_selects_only_worker_zero_for_rendering(monkeypatch) -> None:
+    from rl_framework.gui import training_manager as manager_module
+    from rl_framework.training import sb3_runner
+
+    captured: dict[str, Any] = {}
+
+    def _fake_train(cfg, **kwargs):
+        captured["cfg"] = cfg
+        captured["kwargs"] = kwargs
+        return "/tmp/model.zip"
+
+    class _FakeRegistry:
+        def update_run(self, *_args, **_kwargs) -> None:
+            pass
+
+        def record_event(self, *_args, **_kwargs) -> None:
+            pass
+
+    monkeypatch.setattr(sb3_runner, "train", _fake_train)
+    monkeypatch.setattr(
+        manager_module, "registry_for_config", lambda _cfg: _FakeRegistry()
+    )
+
+    manager = TrainingManager()
+    state = _RunState(
+        run_id="render_worker",
+        cfg={
+            "experiment_name": "exp",
+            "environment": {"type": "walker_bullet"},
+        },
+        status="running",
+    )
+
+    manager._train_worker(state)
+
+    assert captured["cfg"]["environment"]["render_mode"] == "rgb_array"
+    assert captured["kwargs"]["render_env_index"] == 0
+    assert state.status == "completed"
+
+
 # ---------------------------------------------------------------------------
 # Concurrency / thread-safety tests (plan §5d)
 # ---------------------------------------------------------------------------

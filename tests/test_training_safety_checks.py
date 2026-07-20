@@ -39,6 +39,27 @@ def test_callback_frequency_scales_with_vector_env_count() -> None:
     assert _callback_freq_from_timesteps(4, 24) == 1
 
 
+def test_gui_render_mode_is_limited_to_selected_worker() -> None:
+    from rl_framework.training.sb3_runner import _worker_env_config
+
+    env_cfg = {"type": "walker_bullet", "render_mode": "rgb_array"}
+
+    rendered = _worker_env_config(env_cfg, rank=0, render_env_index=0)
+    headless = _worker_env_config(env_cfg, rank=1, render_env_index=0)
+
+    assert rendered["render_mode"] == "rgb_array"
+    assert "render_mode" not in headless
+    assert env_cfg["render_mode"] == "rgb_array", "source config must not be mutated"
+
+
+def test_non_gui_training_preserves_configured_render_mode() -> None:
+    from rl_framework.training.sb3_runner import _worker_env_config
+
+    env_cfg = {"type": "walker_bullet", "render_mode": "rgb_array"}
+
+    assert _worker_env_config(env_cfg, rank=1, render_env_index=None) == env_cfg
+
+
 def test_runtime_controls_apply_torch_threads_and_worker_start_method(monkeypatch) -> None:
     from rl_framework.training import sb3_runner
 
