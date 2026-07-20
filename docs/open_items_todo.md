@@ -11,11 +11,7 @@ the completed summary below so completed work is not presented as pending.
 
 ## Priority 2: Evaluation And Operations
 
-- **Add registry maintenance commands.** Provide CLI support to inspect,
-  export, and prune registry records/artifacts, including stale analysis jobs.
-- **Broaden analysis comparisons.** Add metric history and configurable run
-  filters to the GUI comparison view; current cards show latest persisted
-  metrics and artifacts only.
+- All tracked Priority 2 items are complete (see Completed Foundations).
 
 ## Priority 3: Learning Quality And Features
 
@@ -45,6 +41,12 @@ the completed summary below so completed work is not presented as pending.
   dependencies, CPU-first MLP presets, and resumable sweeps/benchmarks.
 - Durable SQLite run registry, GUI tuning queue, best-checkpoint evaluation,
   registry-backed run analysis, replay jobs, and league Elo jobs.
+- (2026-07-19) Added registry operations tooling and broader run comparisons:
+  the `registry` CLI inspects status/table counts, exports every SQLite table,
+  and filter-prunes runs, analysis jobs, and missing artifact index rows with
+  dry-run and unfiltered-prune safeguards. The GUI Analysis tab now charts
+  persisted metric history and filters runs by text, experiment, status,
+  algorithm, and environment.
 - (2026-07-19) Registry-persisted analysis job lifecycles with GUI startup
   recovery:
   orphaned running jobs are marked interrupted, and recent jobs (with results)

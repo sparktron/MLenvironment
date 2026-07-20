@@ -484,6 +484,57 @@ def test_analysis_runs_reads_registry(client):
     assert run["artifacts"][0]["path"].endswith("best_model.zip")
 
 
+def test_analysis_runs_filters_and_returns_metric_history(client):
+    c, _, base = client
+    from rl_framework.utils.run_registry import RunRegistry
+
+    registry = RunRegistry(base / "outputs")
+    walker_cfg = {
+        "experiment_name": "walker",
+        "seed": 1,
+        "output": {"base_dir": str(base / "outputs")},
+        "environment": {"type": "walker_bullet"},
+        "training": {"algorithm": "PPO"},
+    }
+    arena_cfg = {
+        **walker_cfg,
+        "experiment_name": "arena",
+        "environment": {"type": "organism_arena_parallel"},
+        "training": {"algorithm": "SAC"},
+    }
+    registry.register_run("walker_run", walker_cfg, base / "outputs/walker/seed_1")
+    registry.register_run("arena_run", arena_cfg, base / "outputs/arena/seed_1")
+    registry.update_run("walker_run", status="completed")
+    registry.record_event(
+        "walker_run",
+        "metrics",
+        {"timesteps": 10, "rollout/ep_rew_mean": 1.0, "ignored": 3.0},
+    )
+    registry.record_event(
+        "walker_run",
+        "metrics",
+        {"timesteps": 20, "rollout/ep_rew_mean": 2.0, "ignored": 4.0},
+    )
+
+    response = c.get(
+        "/api/analysis/runs?experiment=walker&status=completed&algorithm=PPO"
+        "&environment=walker_bullet&q=walker_run"
+    )
+    assert response.status_code == 200
+    assert [run["run_id"] for run in response.get_json()] == ["walker_run"]
+    assert c.get("/api/analysis/runs?status=missing").get_json() == []
+
+    history = c.get(
+        "/api/analysis/runs/walker_run/metrics"
+        "?keys=timesteps,rollout/ep_rew_mean"
+    )
+    assert history.status_code == 200
+    points = history.get_json()["history"]
+    assert [point["timesteps"] for point in points] == [10, 20]
+    assert all("ignored" not in point for point in points)
+    assert c.get("/api/analysis/runs/missing/metrics").status_code == 404
+
+
 def test_analysis_replay_rejects_invalid_or_unmanifested_path(client):
     c, _, base = client
     assert c.post("/api/analysis/replay", json={"path": "../../etc"}).status_code == 400

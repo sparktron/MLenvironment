@@ -24,6 +24,8 @@
   let lastFrameDisplayTime = 0;   // for frame timing
   let framePollTimer = null;      // timer for polling frames
   let frameDisplayGen = 0;        // generation counter; onload ignores stale loads
+  let analysisRuns = [];          // registry runs available to the comparison view
+  let analysisHistoryGen = 0;     // ignores history responses for superseded filters
 
   // ------------------------------------------------------------------
   // Helpers
@@ -984,16 +986,214 @@
     });
   }
 
-  async function refreshAnalysis() {
-    renderRecentAnalysisJobs();
-    var runs = await api("GET", "/api/analysis/runs");
-    var container = $("#analysis-list");
-    if (!Array.isArray(runs) || runs.length === 0) {
-      $("#analysis-comparison").innerHTML = "";
-      container.innerHTML = '<p class="hint">No registry runs yet. New training runs appear here automatically.</p>';
+  function replaceAnalysisFilterOptions(selector, values, allLabel) {
+    var select = $(selector);
+    var previous = select.value;
+    select.innerHTML = "";
+    var all = document.createElement("option");
+    all.value = "";
+    all.textContent = allLabel;
+    select.appendChild(all);
+    Array.from(new Set(values.filter(Boolean))).sort().forEach(function (value) {
+      var option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
+    });
+    if (Array.from(select.options).some(function (option) { return option.value === previous; })) {
+      select.value = previous;
+    }
+  }
+
+  function populateAnalysisFilters() {
+    replaceAnalysisFilterOptions(
+      "#analysis-filter-experiment",
+      analysisRuns.map(function (run) { return run.experiment_name; }),
+      "All experiments"
+    );
+    replaceAnalysisFilterOptions(
+      "#analysis-filter-status",
+      analysisRuns.map(function (run) { return run.status; }),
+      "All statuses"
+    );
+    replaceAnalysisFilterOptions(
+      "#analysis-filter-algorithm",
+      analysisRuns.map(function (run) { return run.algorithm; }),
+      "All algorithms"
+    );
+    replaceAnalysisFilterOptions(
+      "#analysis-filter-environment",
+      analysisRuns.map(function (run) { return run.environment_type; }),
+      "All environments"
+    );
+
+    var metricSelect = $("#analysis-history-metric");
+    var previousMetric = metricSelect.value || "rollout/ep_rew_mean";
+    var metricKeys = new Set(["rollout/ep_rew_mean", "rollout/ep_len_mean"]);
+    analysisRuns.forEach(function (run) {
+      Object.keys(run.metrics || {}).forEach(function (key) {
+        if (key !== "timesteps" && key !== "applied_count") metricKeys.add(key);
+      });
+    });
+    metricSelect.innerHTML = "";
+    Array.from(metricKeys).sort().forEach(function (key) {
+      var option = document.createElement("option");
+      option.value = key;
+      option.textContent = key;
+      metricSelect.appendChild(option);
+    });
+    metricSelect.value = metricKeys.has(previousMetric)
+      ? previousMetric
+      : "rollout/ep_rew_mean";
+  }
+
+  function filteredAnalysisRuns() {
+    var query = $("#analysis-filter-query").value.trim().toLowerCase();
+    var experiment = $("#analysis-filter-experiment").value;
+    var status = $("#analysis-filter-status").value;
+    var algorithm = $("#analysis-filter-algorithm").value;
+    var environment = $("#analysis-filter-environment").value;
+    return analysisRuns.filter(function (run) {
+      if (experiment && run.experiment_name !== experiment) return false;
+      if (status && run.status !== status) return false;
+      if (algorithm && run.algorithm !== algorithm) return false;
+      if (environment && run.environment_type !== environment) return false;
+      if (!query) return true;
+      return [run.experiment_name, run.run_id, run.run_dir].join(" ").toLowerCase().indexOf(query) >= 0;
+    });
+  }
+
+  function drawAnalysisHistory(series, metric) {
+    var canvas = $("#analysis-history-chart");
+    var legend = $("#analysis-history-legend");
+    var ctx = canvas.getContext("2d");
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    var W = rect.width || 640;
+    var H = 240;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+    legend.innerHTML = "";
+
+    var plotted = series.map(function (item) {
+      var points = item.history.map(function (point, index) {
+        var y = Number(point[metric]);
+        var timestep = Number(point.timesteps);
+        var timestamp = Number(point.t);
+        return {
+          x: Number.isFinite(timestep) ? timestep : (Number.isFinite(timestamp) ? timestamp : index),
+          y: y,
+          usesTimesteps: Number.isFinite(timestep),
+        };
+      }).filter(function (point) { return Number.isFinite(point.y); });
+      return { run: item.run, points: points };
+    }).filter(function (item) { return item.points.length > 0; });
+
+    if (plotted.length === 0) {
+      ctx.fillStyle = "#8b8fa3";
+      ctx.font = "13px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("No persisted history for this metric and filter set.", W / 2, H / 2);
       return;
     }
+
+    var allPoints = [].concat.apply([], plotted.map(function (item) { return item.points; }));
+    var xs = allPoints.map(function (point) { return point.x; });
+    var ys = allPoints.map(function (point) { return point.y; });
+    var xMin = Math.min.apply(null, xs), xMax = Math.max.apply(null, xs);
+    var yMin = Math.min.apply(null, ys), yMax = Math.max.apply(null, ys);
+    if (xMin === xMax) { xMin -= 1; xMax += 1; }
+    if (yMin === yMax) { yMin -= 1; yMax += 1; }
+    var pad = { top: 12, right: 18, bottom: 34, left: 64 };
+    function tx(value) { return pad.left + (value - xMin) / (xMax - xMin) * (W - pad.left - pad.right); }
+    function ty(value) { return pad.top + (1 - (value - yMin) / (yMax - yMin)) * (H - pad.top - pad.bottom); }
+
+    ctx.strokeStyle = "#333746";
+    ctx.lineWidth = 0.5;
+    for (var grid = 0; grid <= 4; grid++) {
+      var gridValue = yMin + (yMax - yMin) * grid / 4;
+      var gridY = ty(gridValue);
+      ctx.beginPath(); ctx.moveTo(pad.left, gridY); ctx.lineTo(W - pad.right, gridY); ctx.stroke();
+      ctx.fillStyle = "#8b8fa3"; ctx.font = "10px sans-serif"; ctx.textAlign = "right";
+      ctx.fillText(fmt(gridValue), pad.left - 6, gridY + 3);
+    }
+    var usesTimesteps = allPoints.every(function (point) { return point.usesTimesteps; });
+    ctx.fillStyle = "#8b8fa3"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+    var formatX = usesTimesteps
+      ? function (value) { return Math.round(value).toLocaleString(); }
+      : function (value) { return new Date(value * 1000).toLocaleDateString(); };
+    ctx.fillText(formatX(xMin), tx(xMin), H - 17);
+    ctx.fillText(formatX(xMax), tx(xMax), H - 17);
+    ctx.fillText(usesTimesteps ? "timesteps" : "recorded time", W / 2, H - 4);
+
+    var colors = ["#6c8cff", "#4ac9a8", "#ffb454", "#e77dcb", "#ff6b6b", "#67b7dc", "#a78bfa", "#84cc16", "#f97316", "#14b8a6"];
+    plotted.forEach(function (item, index) {
+      var color = colors[index % colors.length];
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 2;
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      item.points.forEach(function (point, pointIndex) {
+        if (pointIndex === 0) ctx.moveTo(tx(point.x), ty(point.y));
+        else ctx.lineTo(tx(point.x), ty(point.y));
+      });
+      ctx.stroke();
+      item.points.forEach(function (point) {
+        ctx.beginPath(); ctx.arc(tx(point.x), ty(point.y), 2.25, 0, Math.PI * 2); ctx.fill();
+      });
+
+      var key = document.createElement("span");
+      key.className = "analysis-history-key";
+      var swatch = document.createElement("span");
+      swatch.className = "analysis-history-swatch";
+      swatch.style.backgroundColor = color;
+      key.appendChild(swatch);
+      key.appendChild(document.createTextNode(item.run.experiment_name + " / " + item.run.run_id));
+      legend.appendChild(key);
+    });
+  }
+
+  async function renderAnalysisHistory(runs) {
+    var generation = ++analysisHistoryGen;
+    var metric = $("#analysis-history-metric").value;
+    var chartRuns = runs.slice(0, 10);
+    var summary = $("#analysis-history-summary");
+    summary.textContent = runs.length > 10
+      ? "Loading the 10 newest of " + runs.length + " matching runs..."
+      : "Loading " + runs.length + " matching run" + (runs.length === 1 ? "..." : "s...");
+    var responses = await Promise.all(chartRuns.map(async function (run) {
+      var keys = encodeURIComponent("timesteps," + metric);
+      var response = await api("GET", "/api/analysis/runs/" + encodeURIComponent(run.run_id) + "/metrics?keys=" + keys);
+      return { run: run, history: Array.isArray(response.history) ? response.history : [] };
+    }));
+    if (generation !== analysisHistoryGen) return;
+    drawAnalysisHistory(responses, metric);
+    summary.textContent = runs.length > 10
+      ? "Showing history for the 10 newest of " + runs.length + " matching runs."
+      : "Showing history for " + runs.length + " matching run" + (runs.length === 1 ? "." : "s.");
+  }
+
+  function renderAnalysisRuns() {
+    var runs = filteredAnalysisRuns();
+    var container = $("#analysis-list");
     var comparison = $("#analysis-comparison");
+    comparison.innerHTML = "";
+    container.innerHTML = "";
+
+    if (runs.length === 0) {
+      var empty = document.createElement("p");
+      empty.className = "hint";
+      empty.textContent = analysisRuns.length === 0
+        ? "No registry runs yet. New training runs appear here automatically."
+        : "No runs match the current comparison filters.";
+      container.appendChild(empty);
+      renderAnalysisHistory([]);
+      return;
+    }
+
     var table = document.createElement("table");
     table.className = "comparison-table";
     table.innerHTML = "<thead><tr><th>Experiment</th><th>Run</th><th>Status</th><th>Algorithm</th><th>Latest reward</th><th>Latest length</th></tr></thead>";
@@ -1003,11 +1203,16 @@
       var metrics = run.metrics || {};
       [run.experiment_name, run.run_id, run.status, run.algorithm,
         fmt(metrics["rollout/ep_rew_mean"]), fmt(metrics["rollout/ep_len_mean"])
-      ].forEach(function (value) { var cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); });
+      ].forEach(function (value) {
+        var cell = document.createElement("td");
+        cell.textContent = value;
+        row.appendChild(cell);
+      });
       body.appendChild(row);
     });
-    table.appendChild(body); comparison.innerHTML = ""; comparison.appendChild(table);
-    container.innerHTML = "";
+    table.appendChild(body);
+    comparison.appendChild(table);
+
     runs.forEach(function (run) {
       var item = document.createElement("div");
       item.className = "output-item";
@@ -1052,7 +1257,32 @@
       item.appendChild(title); item.appendChild(meta); item.appendChild(artifact);
       item.appendChild(controls); item.appendChild(result); container.appendChild(item);
     });
+    renderAnalysisHistory(runs);
   }
+
+  async function refreshAnalysis() {
+    renderRecentAnalysisJobs();
+    var runs = await api("GET", "/api/analysis/runs");
+    analysisRuns = Array.isArray(runs) ? runs : [];
+    populateAnalysisFilters();
+    renderAnalysisRuns();
+  }
+
+  ["#analysis-filter-experiment", "#analysis-filter-status", "#analysis-filter-algorithm",
+    "#analysis-filter-environment", "#analysis-history-metric"
+  ].forEach(function (selector) {
+    $(selector).addEventListener("change", renderAnalysisRuns);
+  });
+  $("#analysis-filter-query").addEventListener("input", renderAnalysisRuns);
+  $("#analysis-filter-reset").addEventListener("click", function () {
+    $("#analysis-filter-query").value = "";
+    $("#analysis-filter-experiment").value = "";
+    $("#analysis-filter-status").value = "";
+    $("#analysis-filter-algorithm").value = "";
+    $("#analysis-filter-environment").value = "";
+    $("#analysis-history-metric").value = "rollout/ep_rew_mean";
+    renderAnalysisRuns();
+  });
 
   // ------------------------------------------------------------------
   // Frame Playback

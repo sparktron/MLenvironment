@@ -1028,9 +1028,46 @@ def get_league():
 
 @app.route("/api/analysis/runs", methods=["GET"])
 def analysis_runs():
-    """Return registry-backed run summaries for comparison views."""
+    """Return registry-backed run summaries with optional exact filters."""
     registry = RunRegistry(_DEFAULT_OUTPUTS_DIR)
-    return jsonify(registry.list_runs())
+    runs = registry.list_runs()
+    filters = {
+        "experiment_name": request.args.get("experiment", "").strip(),
+        "status": request.args.get("status", "").strip(),
+        "algorithm": request.args.get("algorithm", "").strip(),
+        "environment_type": request.args.get("environment", "").strip(),
+    }
+    for key, value in filters.items():
+        if value:
+            allowed = {item.strip() for item in value.split(",") if item.strip()}
+            runs = [run for run in runs if str(run.get(key, "")) in allowed]
+    query = request.args.get("q", "").strip().casefold()
+    if query:
+        runs = [
+            run
+            for run in runs
+            if query
+            in " ".join(
+                str(run.get(key, ""))
+                for key in ("experiment_name", "run_id", "run_dir")
+            ).casefold()
+        ]
+    return jsonify(runs)
+
+
+@app.route("/api/analysis/runs/<run_id>/metrics", methods=["GET"])
+def analysis_run_metrics(run_id: str):
+    """Return persisted rollout metric snapshots for one registry run."""
+    registry = RunRegistry(_DEFAULT_OUTPUTS_DIR)
+    if registry.get_run(run_id) is None:
+        return jsonify({"error": "Unknown run"}), 404
+    keys_arg = request.args.get("keys")
+    keys = None
+    if keys_arg is not None:
+        keys = list(dict.fromkeys(key.strip() for key in keys_arg.split(",") if key.strip()))
+        if len(keys) > 20:
+            return jsonify({"error": "At most 20 metric keys may be requested"}), 400
+    return jsonify({"run_id": run_id, "history": registry.metric_history(run_id, keys)})
 
 
 def _read_run_config(seed_dir: Path) -> dict[str, Any] | None:

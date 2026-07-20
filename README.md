@@ -50,6 +50,7 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
   - [sweep](#sweep)
   - [multi-seed](#multi-seed)
   - [render-replay](#render-replay)
+  - [registry](#registry)
 - [Configuration](#configuration)
   - [YAML Structure](#yaml-structure)
   - [Included Experiments](#included-experiments)
@@ -178,6 +179,8 @@ python -m rl_framework.cli.main gui --port 8080   # custom port
 ## 🎮 CLI Commands
 
 **Syntax:** `python -m rl_framework.cli.main <command> --config-name <name> [options]`
+
+`gui` and `registry` do not require `--config-name`.
 
 | Flag | Required | Default | Description |
 |---|---|---|---|
@@ -399,6 +402,31 @@ mode). Currently scoped to `organism_arena_parallel`. The legacy
 shared-policy `mean_return` mode is rejected outright — the arena is
 zero-sum, so a shared policy's mean return sums to ~0 by construction and
 would rank trials on noise, not skill.
+
+### 🗂️ `registry` — Inspect, export, and prune run metadata
+
+```bash
+# Summary counts, including missing artifact paths
+python -m rl_framework.cli.main registry --registry-action inspect
+
+# Full JSON backup of every registry table
+python -m rl_framework.cli.main registry --registry-action export \
+  --json-out outputs/registry-export.json
+
+# Preview stale analysis-job cleanup, then rerun without --dry-run to apply
+python -m rl_framework.cli.main registry --registry-action prune \
+  --prune-target analysis-jobs --status interrupted,failed \
+  --older-than-days 30 --dry-run
+
+# Remove artifact index rows whose files no longer exist
+python -m rl_framework.cli.main registry --registry-action prune \
+  --prune-target artifacts --missing-only
+```
+
+Use `--base-dir` when the registry is outside `outputs`. Run pruning also
+removes the selected runs' event, tuning, and artifact-index rows in one
+transaction. Maintenance never deletes checkpoint or other artifact files.
+An unfiltered prune is rejected unless `--all` is supplied explicitly.
 
 ---
 
@@ -986,17 +1014,22 @@ Each train run is registered in `outputs/run_registry.sqlite3` (or the configure
 resolved config, records status/metrics events and tuning commands, indexes
 artifacts, and links resumed runs to their parent. GUI tuning uses this durable
 queue, so commands survive a GUI process restart until the training callback
-claims them.
+claims them. The `registry` CLI reports table/status counts, exports every table
+as JSON, and safely prunes filtered runs, analysis jobs, or stale artifact index
+entries; see the CLI section for examples.
 
 ### GUI Analysis
 
 The **Analysis** tab reads the run registry to compare the latest episode reward
-and length across runs, show recorded artifacts, and distinguish `best_model`
-from final/periodic checkpoints. Replay launches prefer `best_model.zip` and
-fall back to `final_model.zip`. Arena runs can launch a background round-robin
-rating job for league snapshots; at least two snapshots and `run_metadata.json`
-are required. Analysis jobs remain visible in the tab until completion and do
-not interrupt training.
+and length across runs and chart persisted metric history. Filters narrow the
+comparison by free-text run search, experiment, status, algorithm, and
+environment; the history metric is selectable and charts up to the ten newest
+matching runs. The view also shows recorded artifacts and distinguishes
+`best_model` from final/periodic checkpoints. Replay launches prefer
+`best_model.zip` and fall back to `final_model.zip`. Arena runs can launch a
+background round-robin rating job for league snapshots; at least two snapshots
+and `run_metadata.json` are required. Analysis jobs remain visible in the tab
+until completion and do not interrupt training.
 - Agent workflow notes: `AGENTS.md`
 
 ---
