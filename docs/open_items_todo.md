@@ -7,13 +7,7 @@ the completed summary below so completed work is not presented as pending.
 
 ## Priority 1: Runtime And GUI Performance
 
-- **Finish GUI resource-settings schema coverage.** The wizard now exposes
-  `self_play`, `reward_annealing`, `curriculum`, and arena `sensing_radius`/
-  `attack_falloff` (2026-07-17 — see Completed Foundations), but the newer
-  arena `resources` section (`initial_energy`, `max_energy`, `food_count`,
-  `food_energy`, `food_radius`, `food_respawn_steps`) and `sim.collision_radius`
-  still have no wizard fields; a resource-tuned arena still requires
-  hand-edited YAML.
+- All tracked Priority 1 items are complete (see Completed Foundations).
 
 ## Priority 2: Evaluation And Operations
 
@@ -55,6 +49,10 @@ the completed summary below so completed work is not presented as pending.
   recovery:
   orphaned running jobs are marked interrupted, and recent jobs (with results)
   survive restarts and render in the Analysis tab.
+- (2026-07-19) Completed arena wizard schema coverage: the `resources` group
+  (all eight `ResourceRules` fields) plus `sim.collision_radius` and
+  `sim.speed_size_exponent` are now authorable from the New Experiment wizard,
+  so a resource-tuned arena no longer requires hand-edited YAML.
 - Walker v2 observations, terrain curricula, reward rebalance, SAC/TD3
   baselines, and CPU throughput presets.
 - N-agent arena evaluation/tournament/replay support, tournament-Elo morphology

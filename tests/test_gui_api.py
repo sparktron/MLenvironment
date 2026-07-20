@@ -187,6 +187,55 @@ def test_schema_arena_battle_rules_includes_sensing_and_falloff(client):
     assert battle_rules["attack_falloff"]["choices"] == ["linear", "binary"]
 
 
+def test_schema_arena_exposes_resources_and_sim_collision(client):
+    """Every ResourceRules field plus sim.collision_radius must be authorable
+    from the wizard, so a resource-tuned arena no longer needs hand-edited YAML.
+    """
+    from rl_framework.envs.organisms.arena_parallel import ResourceRules
+
+    c, _, _ = client
+    env = c.get("/api/schema").get_json()["organism_arena_parallel"]["environment"]
+
+    resources = env["resources"]
+    # Schema covers exactly the env's supported resource keys — no drift.
+    assert set(resources) == set(ResourceRules.__annotations__)
+    assert resources["food_count"]["type"] == "int"
+    assert resources["food_energy"]["type"] == "float"
+    # Defaults must round-trip the validator, which enforces initial <= max.
+    assert resources["initial_energy"]["value"] <= resources["max_energy"]["value"]
+
+    sim = env["sim"]
+    assert sim["collision_radius"]["type"] == "float"
+    assert sim["speed_size_exponent"]["type"] == "float"
+
+
+def test_schema_arena_resource_defaults_validate(client):
+    """The wizard's resource/sim defaults must pass validate_experiment_config."""
+    from rl_framework.utils.config import validate_experiment_config
+
+    c, _, _ = client
+    env = c.get("/api/schema").get_json()["organism_arena_parallel"]["environment"]
+
+    def _values(group):
+        return {key: spec["value"] for key, spec in group.items()}
+
+    cfg = {
+        "experiment_name": "arena_defaults",
+        "seed": 0,
+        "output": {"base_dir": "outputs"},
+        "environment": {
+            "type": "organism_arena_parallel",
+            "resources": _values(env["resources"]),
+            "sim": {
+                "collision_radius": env["sim"]["collision_radius"]["value"],
+                "speed_size_exponent": env["sim"]["speed_size_exponent"]["value"],
+            },
+        },
+        "training": {"total_timesteps": 1000, "num_envs": 1},
+    }
+    validate_experiment_config(cfg)  # must not raise
+
+
 def test_schema_no_longer_exposes_ignored_walker_geometry(client):
     c, _, _ = client
     resp = c.get("/api/schema")
