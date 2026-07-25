@@ -158,7 +158,7 @@ python -m rl_framework.cli.main gui --port 8080   # custom port
 
 | Feature | Description |
 |---|---|
-| **4-Step Experiment Wizard** | Choose environment → Configure parameters → Set training hyperparameters → Review & launch |
+| **4-Step Experiment Wizard** | Choose environment → Configure parameters → Set training hyperparameters → Review & launch; blank names and invalid configs are rejected before launch |
 | **Visual Parameter Editor** | All fields with descriptions, type hints, and min/max ranges — no YAML editing |
 | **Template Loading** | Start from any existing config (robot_walk_basic, organisms_fight_arena, etc.) |
 | **Real-Time Dashboard** | Live training metrics: reward, loss, entropy, learning rate, timesteps — updates every 2 seconds |

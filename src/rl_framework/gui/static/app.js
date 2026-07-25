@@ -418,7 +418,7 @@
     // above), which is the right point to drop template state that may not
     // apply to the new environment.
     if (!currentConfig || typeof currentConfig !== "object") currentConfig = {};
-    currentConfig.experiment_name = $("#cfg-experiment-name").value || "experiment";
+    currentConfig.experiment_name = $("#cfg-experiment-name").value.trim();
     currentConfig.seed = _seed;
     currentConfig.environment = { type: selectedEnv, seed: _seed };
     currentConfig.training = {};
@@ -497,9 +497,17 @@
   // ------------------------------------------------------------------
   $("#launch-btn").addEventListener("click", async function () {
     assembleConfig();
+    if (!currentConfig.experiment_name) {
+      toast("Experiment name must not be empty", "error");
+      return;
+    }
     // Optionally save as template
     if ($("#save-config-check").checked) {
-      await api("POST", "/api/configs", currentConfig);
+      var saveResult = await api("POST", "/api/configs", currentConfig);
+      if (saveResult.error) {
+        toast(saveResult.error, "error");
+        return;
+      }
     }
     var result = await api("POST", "/api/train/start", currentConfig);
     if (result.error) {

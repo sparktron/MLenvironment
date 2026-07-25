@@ -142,7 +142,7 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
 
 def _validate_experiment_name(name: Any) -> None:
     """Reject experiment names that could escape the output directory."""
-    if not isinstance(name, str) or not name:
+    if not isinstance(name, str) or not name.strip():
         raise ValueError("experiment_name must be a non-empty string")
     if ".." in name or name.startswith("/") or name.startswith("\\"):
         raise ValueError(

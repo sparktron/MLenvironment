@@ -279,6 +279,14 @@ def test_train_start_invalid_config_returns_400_not_500(client):
     assert "error" in resp.get_json()
 
 
+def test_train_start_rejects_whitespace_only_name(client):
+    c, _, _ = client
+    resp = c.post("/api/train/start", json=_minimal_cfg("   "))
+
+    assert resp.status_code == 400
+    assert "experiment_name" in resp.get_json()["error"]
+
+
 def test_train_start_invalid_seed_type_returns_400(client):
     """seed must be int; sending a string triggers TypeError -> 400."""
     c, _, _ = client

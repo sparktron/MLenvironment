@@ -59,6 +59,7 @@ def test_validate_experiment_config_rejects_non_int_seed() -> None:
         "sub/dir",
         "back\\slash",
         "",
+        "   ",
     ],
 )
 def test_validate_experiment_config_rejects_unsafe_experiment_name(

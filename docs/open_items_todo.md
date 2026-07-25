@@ -31,6 +31,9 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-25) End-to-end GUI validation now rejects whitespace-only
+  experiment names before saving or launching, and a failed template save
+  prevents the training request instead of being ignored.
 - (2026-07-25) Runtime smoke validation now covers parallel GUI frame capture:
   headless workers advertise SB3-compatible render metadata while only worker
   0 renders. Evaluation checkpoint loading also honors `training.device`,
