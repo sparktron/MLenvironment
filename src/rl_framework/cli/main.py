@@ -4,6 +4,7 @@ import argparse
 import json as _json
 import time
 from pathlib import Path
+from typing import cast
 
 
 def _parse_args() -> argparse.Namespace:
@@ -250,7 +251,7 @@ def _render_replay(
     from gymnasium.wrappers import RecordVideo
     from pettingzoo.utils.env import ParallelEnv
     from stable_baselines3 import PPO
-    from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+    from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, VecNormalize
 
     from rl_framework.envs.registry import make_env
     from rl_framework.utils.checkpoint import find_vecnormalize_path_for_model
@@ -291,9 +292,9 @@ def _render_replay(
             observations, _ = env.reset(seed=cfg["seed"])
             while env.agents:
                 actions = {}
-                for agent, obs in observations.items():
+                for agent, agent_obs in observations.items():
                     actor = actors[agent]
-                    action, _ = actor.predict(obs, deterministic=True)
+                    action, _ = actor.predict(agent_obs, deterministic=True)
                     actions[agent] = np.asarray(action, dtype=np.float32)
                 observations, _, _, _, _ = env.step(actions)
                 frame = env.render()
@@ -314,10 +315,10 @@ def _render_replay(
 
     if not isinstance(env, gym.Env):
         raise ValueError(f"Unsupported env type for replay: {type(env).__name__}")
-    wrapped = RecordVideo(
+    wrapped: gym.Env = RecordVideo(
         env, video_folder=str(out_dir), episode_trigger=lambda idx: idx == 0
     )
-    vec_env = DummyVecEnv([lambda: wrapped])
+    vec_env: VecEnv = DummyVecEnv([lambda: wrapped])
     vn_path = find_vecnormalize_path_for_model(model_path)
     if vn_path is not None:
         vec_env = VecNormalize.load(str(vn_path), vec_env)
@@ -326,12 +327,13 @@ def _render_replay(
     model = PPO.load(model_path)
     try:
         vec_env.seed(cfg["seed"])
-        obs = vec_env.reset()
+        vec_obs = cast(np.ndarray | dict[str, np.ndarray], vec_env.reset())
         done = False
         frame_count = 0
         while not done:
-            action, _ = model.predict(obs, deterministic=True)
-            obs, _, dones, _ = vec_env.step(action)
+            action, _ = model.predict(vec_obs, deterministic=True)
+            next_obs, _, dones, _ = vec_env.step(action)
+            vec_obs = cast(np.ndarray | dict[str, np.ndarray], next_obs)
             done = bool(dones[0])
             frame_count += 1
         # RecordVideo writes an mp4; find it for the result dict.
@@ -435,22 +437,22 @@ def main() -> None:
         return
 
     if args.command == "registry":
-        result = _run_registry_command(args)
+        registry_result = _run_registry_command(args)
         if args.json:
-            print(_json.dumps(result))
+            print(_json.dumps(registry_result))
         if args.json_out:
             out_path = Path(args.json_out)
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(_json.dumps(result), encoding="utf-8")
+            out_path.write_text(_json.dumps(registry_result), encoding="utf-8")
         return
 
     if args.command == "quality-study":
         from rl_framework.training.quality_study import run_quality_study
 
-        seeds = [int(seed) for seed in args.seeds.split(",") if seed.strip()]
-        result = run_quality_study(
+        quality_seeds = [int(seed) for seed in args.seeds.split(",") if seed.strip()]
+        study_result = run_quality_study(
             args.study,
-            seeds=seeds or [0, 1, 2],
+            seeds=quality_seeds or [0, 1, 2],
             config_dir=args.config_dir,
             output_dir=args.study_output_dir,
             step_budget=args.study_step_budget,
@@ -460,13 +462,13 @@ def main() -> None:
             dry_run=args.dry_run,
         )
         if args.json:
-            print(_json.dumps(result))
+            print(_json.dumps(study_result))
         elif not args.json_out:
-            print(_json.dumps(result, indent=2))
+            print(_json.dumps(study_result, indent=2))
         if args.json_out:
             out_path = Path(args.json_out)
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(_json.dumps(result), encoding="utf-8")
+            out_path.write_text(_json.dumps(study_result), encoding="utf-8")
         return
 
     from rl_framework.utils.config import (
@@ -585,8 +587,12 @@ def main() -> None:
     elif args.command == "multi-seed":
         from rl_framework.training.multi_seed_runner import run_multi_seed
 
-        seeds = [int(s) for s in args.seeds.split(",")] if args.seeds else None
-        agg = run_multi_seed(cfg_dict, seeds=seeds, max_workers=args.max_workers)
+        multi_seed_values = (
+            [int(seed) for seed in args.seeds.split(",")] if args.seeds else None
+        )
+        agg = run_multi_seed(
+            cfg_dict, seeds=multi_seed_values, max_workers=args.max_workers
+        )
         result = agg
         if not args.json:
             print(

@@ -96,7 +96,7 @@ class FrameCaptureCallback(BaseCallback):
             if env is None:
                 return
 
-            frame = None
+            frame: np.ndarray | None = None
 
             try:
                 result = env.env_method("render", indices=[0])
@@ -120,7 +120,7 @@ class FrameCaptureCallback(BaseCallback):
 
             # Ensure frame is uint8 RGB
             if frame.dtype != np.uint8:
-                frame = np.uint8(np.clip(frame, 0, 255))
+                frame = np.clip(frame, 0, 255).astype(np.uint8)
 
             if frame.shape[2] == 4:  # RGBA, drop alpha
                 frame = frame[:, :, :3]

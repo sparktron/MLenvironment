@@ -246,7 +246,7 @@ class SelfPlayEnvWrapper(BaseParallelWrapper):
     def __init__(self, env: Any, sampler: LeagueSampler) -> None:
         super().__init__(env)
         self._sampler = sampler
-        self._frozen_policy: PPO | None = None
+        self._frozen_policy: FrozenPolicy | None = None
         # Every non-live slot is driven by the frozen opponent (one sampled
         # past-self fills all of them). For the 2-agent arena this is just
         # agent_1; for N-agent free-for-alls it is agents 1..N-1.

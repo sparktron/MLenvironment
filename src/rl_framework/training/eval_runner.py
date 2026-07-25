@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 import supersuit as ss
 from stable_baselines3 import PPO, SAC, TD3
+from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from rl_framework.envs.registry import make_env
@@ -61,9 +62,16 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
 
     try:
         algorithm = str(cfg.get("training", {}).get("algorithm", "PPO")).upper()
-        model_cls = {"PPO": PPO, "SAC": SAC, "TD3": TD3}[algorithm]
         device = str(cfg.get("training", {}).get("device", "cpu"))
-        model = model_cls.load(model_path, device=device)
+        model: BaseAlgorithm
+        if algorithm == "PPO":
+            model = PPO.load(model_path, device=device)
+        elif algorithm == "SAC":
+            model = SAC.load(model_path, device=device)
+        elif algorithm == "TD3":
+            model = TD3.load(model_path, device=device)
+        else:
+            raise ValueError(f"Unsupported training.algorithm: {algorithm!r}")
         episodes = cfg.get("evaluation", {}).get("episodes", 5)
         returns = []
         per_agent_returns: dict[int, list[float]] = {i: [] for i in range(num_agents)}

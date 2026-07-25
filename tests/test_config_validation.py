@@ -29,6 +29,13 @@ def test_validate_experiment_config_accepts_minimal_valid_config() -> None:
     validate_experiment_config(_base_cfg())
 
 
+def test_load_config_rejects_non_mapping_yaml(tmp_path) -> None:
+    (tmp_path / "list_config.yaml").write_text("- not\n- a\n- mapping\n")
+
+    with pytest.raises(TypeError, match="must be a mapping"):
+        load_config("list_config", tmp_path)
+
+
 def test_validate_experiment_config_rejects_missing_required_key() -> None:
     cfg = _base_cfg()
     del cfg["training"]["total_timesteps"]

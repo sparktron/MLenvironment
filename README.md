@@ -848,6 +848,7 @@ MLenvironment/
 pytest                                    # Run all tests
 pytest tests/test_env_api.py -v          # Specific test
 ruff check src/ tests/                    # Lint & format check
+mypy src --ignore-missing-imports         # Static type check
 python scripts/check_repo_policy.py       # Lockfile + tracked artifact policy checks
 ```
 

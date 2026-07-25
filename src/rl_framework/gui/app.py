@@ -673,7 +673,7 @@ def _arena_extra_schema() -> dict[str, Any]:
 
 
 def _training_schema(env_type: str) -> dict[str, Any]:
-    schema = {
+    schema: dict[str, dict[str, Any]] = {
         "policy": {
             "value": "MlpPolicy",
             "type": "choice",

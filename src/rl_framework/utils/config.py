@@ -12,7 +12,10 @@ def load_config(config_name: str, config_dir: str | Path) -> DictConfig:
     path = Path(config_dir) / f"{config_name}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
-    return OmegaConf.load(path)
+    cfg = OmegaConf.load(path)
+    if not isinstance(cfg, DictConfig):
+        raise TypeError(f"Experiment config must be a mapping: {path}")
+    return cfg
 
 
 def to_container(cfg: DictConfig) -> dict[str, Any]:

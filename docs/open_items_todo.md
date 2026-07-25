@@ -31,6 +31,10 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-25) The complete `src/` tree passes
+  `mypy src --ignore-missing-imports`. Gymnasium, PettingZoo, SB3 vector-env,
+  heterogeneous result-dict, callback, CLI, and config-loading boundaries now
+  carry explicit types or runtime narrowing guards.
 - (2026-07-25) End-to-end GUI validation now rejects whitespace-only
   experiment names before saving or launching, and a failed template save
   prevents the training request instead of being ignored.

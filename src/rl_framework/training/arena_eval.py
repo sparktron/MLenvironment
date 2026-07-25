@@ -34,15 +34,15 @@ def run_n_agent_eval(
     balancing should rotate the paths before invoking this primitive.
     """
     env_cfg = cfg["environment"]
-    env = make_env(env_cfg["type"], env_cfg)
+    env: Any = make_env(env_cfg["type"], env_cfg)
     agents = list(env.possible_agents)
     if len(policy_paths) != len(agents):
         env.close()
         raise ValueError(f"Expected {len(agents)} policy paths, got {len(policy_paths)}")
     policies = [load_frozen_policy(path, env.action_space(agents[0])) for path in policy_paths]
     wins = dict.fromkeys(agents, 0)
-    returns = {agent: [] for agent in agents}
-    placements = {agent: [] for agent in agents}
+    returns: dict[str, list[float]] = {agent: [] for agent in agents}
+    placements: dict[str, list[float]] = {agent: [] for agent in agents}
     draws = timeouts = 0
     try:
         for episode in range(n_episodes):
@@ -182,7 +182,7 @@ def run_arena_eval(
     run). Draws (simultaneous knockouts) count toward neither side's win rate.
     """
     env_cfg = cfg["environment"]
-    env = make_env(env_cfg["type"], env_cfg)
+    env: Any = make_env(env_cfg["type"], env_cfg)
     if list(env.possible_agents) != list(_AGENTS):
         env.close()
         raise ValueError(

@@ -15,6 +15,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import (
     DummyVecEnv,
     SubprocVecEnv,
+    VecEnv,
     VecCheckNan,
     VecNormalize,
 )
@@ -89,7 +90,7 @@ def _build_best_model_eval_env(
     env_cfg: dict[str, Any], normalize_observations: bool
 ):
     """Build a fresh walker eval env whose running stats are synced by SB3."""
-    eval_env = DummyVecEnv([_build_single_env(env_cfg)])
+    eval_env: VecEnv = DummyVecEnv([_build_single_env(env_cfg)])
     if normalize_observations:
         eval_env = VecNormalize(eval_env, training=False, norm_reward=False)
     return eval_env
@@ -119,13 +120,11 @@ class _AdvertisedRenderModeWrapper(gym.Wrapper):
     underlying environments retain ``render_mode=None`` and do no rendering.
     """
 
+    render_mode: str = ""
+
     def __init__(self, env: gym.Env, render_mode: str) -> None:
         super().__init__(env)
-        self._advertised_render_mode = render_mode
-
-    @property
-    def render_mode(self) -> str:
-        return self._advertised_render_mode
+        self.render_mode = render_mode
 
 
 class _ArenaVecEnvAdapter(VecEnvWrapper):

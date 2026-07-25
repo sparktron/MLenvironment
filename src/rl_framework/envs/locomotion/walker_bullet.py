@@ -463,7 +463,10 @@ class WalkerBulletEnv(gym.Env):
         # Reset action latency buffer: pre-fill with zero actions so the first
         # _action_latency_steps steps apply no-op while the buffer warms up.
         self._action_buffer.clear()
-        noop = np.zeros(self.action_space.shape, dtype=np.float32)
+        action_shape = self.action_space.shape
+        if action_shape is None:
+            raise RuntimeError("Walker action space must have a fixed shape")
+        noop = np.zeros(action_shape, dtype=np.float32)
         for _ in range(self._action_latency_steps):
             self._action_buffer.append(noop)
 

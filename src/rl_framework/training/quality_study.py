@@ -12,7 +12,7 @@ import os
 import time
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
@@ -204,7 +204,7 @@ def _train_run(
         if path.is_file():
             return previous
 
-    callbacks = (
+    callbacks: list[BaseCallback] | None = (
         [StopOnWallClock(wall_clock_seconds)] if wall_clock_seconds is not None else None
     )
     record: dict[str, Any] = {"status": "running", "config": cfg}
@@ -264,7 +264,9 @@ def _aggregate_walker_results(
         }
         for variant, values in by_variant.items()
     ]
-    rankings.sort(key=lambda row: row["behavior_score_mean"], reverse=True)
+    rankings.sort(
+        key=lambda row: cast(float, row["behavior_score_mean"]), reverse=True
+    )
     return {"rankings": rankings, "recommended_variant": rankings[0]["variant"] if rankings else None}
 
 
@@ -426,7 +428,7 @@ def _arena_ranking(tournaments: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for variant, values in by_variant.items()
     ]
-    rows.sort(key=lambda row: row["elo_mean"], reverse=True)
+    rows.sort(key=lambda row: cast(float, row["elo_mean"]), reverse=True)
     return rows
 
 

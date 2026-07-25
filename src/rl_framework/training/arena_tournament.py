@@ -16,7 +16,7 @@ import json
 import math
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from rl_framework.training.arena_eval import run_arena_eval, run_n_agent_eval
 
@@ -65,7 +65,11 @@ def resolve_competitors(
             expanded.append(str(item))
     # Drop duplicates, preserve first-seen order.
     seen: set[str] = set()
-    unique_paths = [p for p in expanded if not (p in seen or seen.add(p))]
+    unique_paths: list[str] = []
+    for path in expanded:
+        if path not in seen:
+            seen.add(path)
+            unique_paths.append(path)
     labels = _unique_labels(unique_paths) if unique_paths else []
     competitors = list(zip(labels, unique_paths))
     if include_random:
@@ -218,7 +222,7 @@ def run_tournament(
                 "win_rate": (agg["wins"] / total_games) if total_games else 0.0,
             }
         )
-    standings.sort(key=lambda s: s["elo"], reverse=True)
+    standings.sort(key=lambda s: cast(float, s["elo"]), reverse=True)
     for rank, s in enumerate(standings, start=1):
         s["rank"] = rank
 
@@ -286,7 +290,7 @@ def run_n_agent_tournament(
         record["losses"] = max(record["games"] - record["wins"] - record["draws"], 0)
         standings.append({"competitor": name, "elo": round(ratings[name], 1), **record,
                           "win_rate": record["wins"] / max(record["games"], 1)})
-    standings.sort(key=lambda item: item["elo"], reverse=True)
+    standings.sort(key=lambda item: cast(float, item["elo"]), reverse=True)
     for rank, item in enumerate(standings, 1):
         item["rank"] = rank
     output = {"competitors": [{"label": n, "path": paths[n]} for n in names], "ratings": {n: round(ratings[n], 1) for n in names}, "standings": standings, "matches": matches, "n_episodes": n_episodes, "n_agents": slots, "swap_roles": "slot_rotation"}

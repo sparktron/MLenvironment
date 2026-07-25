@@ -217,7 +217,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
             agent: self.state[agent]["pos"].copy() for agent in self.agents
         }
         observations = {agent: self._obs(agent) for agent in self.agents}
-        infos = {agent: {} for agent in self.agents}
+        infos: dict[str, dict[str, Any]] = {agent: {} for agent in self.agents}
         return observations, infos
 
     def _is_alive(self, agent: str) -> bool:
@@ -276,6 +276,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
         nearest, dist = self._nearest_opponent(agent)
         visible = nearest is not None and dist <= self.rules.sensing_radius
         if visible:
+            assert nearest is not None
             other = self.state[nearest]
             rel = other["pos"] - me["pos"]
             rel_x = float(rel[0]) / diameter
@@ -530,7 +531,9 @@ class OrganismArenaParallelEnv(ParallelEnv):
 
         # All five dicts must have identical keys (active_agents) per PettingZoo Parallel API.
         observations = {agent: self._obs(agent) for agent in active_agents}
-        infos = {agent: {"step": self.step_count} for agent in active_agents}
+        infos: dict[str, dict[str, Any]] = {
+            agent: {"step": self.step_count} for agent in active_agents
+        }
         if episode_outcome is not None:
             for agent in active_agents:
                 infos[agent]["episode_outcome"] = episode_outcome

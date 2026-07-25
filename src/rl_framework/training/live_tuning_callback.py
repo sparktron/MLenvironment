@@ -122,7 +122,7 @@ class LiveTuningCallback(BaseCallback):
         if self._publish_status is None:
             return
         try:
-            status = {
+            status: dict[str, Any] = {
                 "timesteps": self.num_timesteps,
                 "applied_count": len(self._applied),
             }
