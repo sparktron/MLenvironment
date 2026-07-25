@@ -15,11 +15,21 @@ the completed summary below so completed work is not presented as pending.
 
 ## Priority 3: Learning Quality And Features
 
-- All tracked Priority 3 implementation items are complete. Promotion-scale
-  training remains an explicit release operation: run `quality-study` and
-  change shipped defaults only when its readiness gate is true. The checked-in
-  preliminary study record is summarized in
+- The 2026-07-25 promotion-scale walker and arena matrices completed, but no
+  candidate earned behavioral promotion. The report readiness fields are true
+  because the seed and budget gates were satisfied; every walker diagnostic
+  remained `untrained_equivalent`, and arena matches timed out almost
+  universally. Detailed evidence is in
   [`learning_quality_studies.md`](learning_quality_studies.md).
+- Walker next step: make PPO rollout size and optimizer-update count comparable
+  across the single-env and 24-env candidates, rerun a focused three-seed
+  learning study, and require 800-step forward locomotion rather than reward
+  alone. Keep PPO/SAC/TD3 comparisons deferred until this clears.
+- Arena next step: test combat-feasibility candidates (attack
+  range/falloff/cost), an approach signal, and elimination-gated dense-reward
+  annealing at a short budget. Do not start a longer arena run until attack
+  hits and damage are nonzero and timeout rate falls materially below the
+  current 99.7–100%.
 
 ## Retained Limitations
 
@@ -31,6 +41,12 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-25) Completed promotion-scale learning validation: 15 walker runs
+  at 300k steps and 18 arena runs at 30k steps, all with three seeds. Rendered
+  walker rollouts confirmed partial stepping without launch/slide exploits but
+  persistent falls. Arena probes showed that policies never closed to attack
+  range and that baseline linear-falloff combat cannot produce a food-free KO
+  within the energy budget, establishing the next mechanics/shaping work.
 - (2026-07-25) The complete `src/` tree passes
   `mypy src --ignore-missing-imports`. Gymnasium, PettingZoo, SB3 vector-env,
   heterogeneous result-dict, callback, CLI, and config-loading boundaries now

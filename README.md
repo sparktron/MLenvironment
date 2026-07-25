@@ -448,6 +448,14 @@ budgets are 750k walker steps, 30k arena steps, and 500k algorithm steps plus a
 [`docs/learning_quality_studies.md`](docs/learning_quality_studies.md) for the
 matrix, metrics, readiness gates, and preliminary findings.
 
+The 2026-07-25 promotion-scale run did **not** promote a preset. At 300k steps
+and three seeds, every walker transfer evaluation remained
+`untrained_equivalent`; `rebalanced_flat` showed partial forward stepping but
+fell far sooner than the 800-step zero-action baseline. At 30k arena steps and
+three seeds, common/resource-native tournaments timed out universally and the
+depth-native timeout rate was 99.7%, with essentially no learned attack damage.
+PPO/SAC/TD3 comparisons remain deferred until walker behavior improves.
+
 ---
 
 ## ⚙️ Configuration
@@ -1007,6 +1015,11 @@ The active development plan lives in [`docs/open_items_todo.md`](docs/open_items
 - Priority 0 correctness fixes are currently cleared for the arena self-play validation path; new confirmed bugs should be added here first.
 - Learning-quality decisions are made through the resumable `quality-study`
   matrices; candidate defaults remain gated on promotion-scale evidence.
+- The 2026-07-25 promotion run cleared the evidence-budget gates but no
+  behavioral promotion gate. Walker work now targets rollout/update-frequency
+  comparability and balance; arena work targets feasible combat economics,
+  approach incentives, and outcome-gated dense-reward annealing before any
+  longer training.
 - Throughput and operations: multi-run GUI orchestration beyond the current
   single-run policy.
 - Feature additions should be proposed only after the study reports identify a
