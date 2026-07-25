@@ -728,7 +728,10 @@ The two runtime controls are opt-in. `torch_num_threads` constrains the PPO
 update process; `worker_start_method` is passed to `SubprocVecEnv` and only
 matters when `num_envs > 1`. Use `spawn` when process isolation is more
 important than startup time, and benchmark before making either setting a
-long-run default.
+long-run default. Evaluation reloads checkpoints on the configured
+`training.device` (CPU by default) instead of independently auto-selecting a
+device. If the optional `evaluation` section is omitted, evaluation uses five
+episodes.
 
 See [local training presets](docs/training_presets.md) for ready-to-run smoke,
 overnight, high-throughput, arena self-play, and multi-seed commands.
@@ -761,7 +764,8 @@ otherwise-compatible boundary no longer emits SB3's missing-render-mode warning.
 Arena damage-reward annealing updates environments at rollout boundaries rather
 than every step, avoiding unnecessary cross-process calls during parallel runs.
 GUI live frame capture configures RGB rendering only on rollout worker 0 and
-throttles capture by wall-clock time, so the remaining workers stay headless.
+throttles capture by wall-clock time. Other workers remain internally headless
+while advertising the uniform render metadata required by SB3 vector envs.
 For N-agent matches, the live policy's training episode ends immediately on its
 own knockout instead of collecting inert spectator transitions.
 

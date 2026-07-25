@@ -60,6 +60,24 @@ def test_non_gui_training_preserves_configured_render_mode() -> None:
     assert _worker_env_config(env_cfg, rank=1, render_env_index=None) == env_cfg
 
 
+def test_headless_worker_advertises_selected_render_mode() -> None:
+    import gymnasium as gym
+
+    from rl_framework.training.sb3_runner import _advertise_selected_render_mode
+
+    env = gym.Env()
+    env.render_mode = None
+    wrapped = _advertise_selected_render_mode(
+        env,
+        {"render_mode": "rgb_array"},
+        rank=1,
+        render_env_index=0,
+    )
+
+    assert env.render_mode is None
+    assert wrapped.render_mode == "rgb_array"
+
+
 def test_runtime_controls_apply_torch_threads_and_worker_start_method(monkeypatch) -> None:
     from rl_framework.training import sb3_runner
 

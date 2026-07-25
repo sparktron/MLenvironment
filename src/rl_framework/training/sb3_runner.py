@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import gymnasium as gym
 import numpy as np
 import supersuit as ss
 from stable_baselines3 import PPO, SAC, TD3
@@ -107,6 +108,24 @@ class StopOnEvent(BaseCallback):
 
     def _on_step(self) -> bool:
         return not self._stop_event.is_set()
+
+
+class _AdvertisedRenderModeWrapper(gym.Wrapper):
+    """Expose vector-compatible render metadata without enabling rendering.
+
+    SB3 requires every worker in a ``VecEnv`` to report the same
+    ``render_mode``. GUI capture only enables RGB rendering in worker 0, so
+    headless workers use this wrapper to advertise the shared mode while their
+    underlying environments retain ``render_mode=None`` and do no rendering.
+    """
+
+    def __init__(self, env: gym.Env, render_mode: str) -> None:
+        super().__init__(env)
+        self._advertised_render_mode = render_mode
+
+    @property
+    def render_mode(self) -> str:
+        return self._advertised_render_mode
 
 
 class _ArenaVecEnvAdapter(VecEnvWrapper):
@@ -292,6 +311,9 @@ def _build_single_env(
     def _make():
         rank_cfg = _worker_env_config(env_cfg, rank, render_env_index)
         env = make_env(rank_cfg["type"], rank_cfg)
+        env = _advertise_selected_render_mode(
+            env, env_cfg, rank, render_env_index
+        )
         filename = (
             str(monitor_dir / f"monitor_env{rank}.csv")
             if monitor_dir is not None
@@ -336,6 +358,9 @@ def _build_arena_selfplay_env(
             seed=base_seed + 1000 * rank,
         )
         env = SingleAgentArenaEnv(SelfPlayEnvWrapper(par_env, sampler))
+        env = _advertise_selected_render_mode(
+            env, env_cfg, rank, render_env_index
+        )
         filename = (
             str(monitor_dir / f"monitor_env{rank}.csv")
             if monitor_dir is not None
@@ -362,6 +387,23 @@ def _worker_env_config(
     if render_env_index is not None and rank != render_env_index:
         rank_cfg.pop("render_mode", None)
     return rank_cfg
+
+
+def _advertise_selected_render_mode(
+    env: gym.Env,
+    env_cfg: dict[str, Any],
+    rank: int,
+    render_env_index: int | None,
+) -> gym.Env:
+    """Keep VecEnv render metadata uniform while non-selected workers stay headless."""
+    configured_mode = env_cfg.get("render_mode")
+    if (
+        render_env_index is not None
+        and rank != render_env_index
+        and isinstance(configured_mode, str)
+    ):
+        return _AdvertisedRenderModeWrapper(env, configured_mode)
+    return env
 
 
 def _make_lr_schedule(start: float, end: float | None):

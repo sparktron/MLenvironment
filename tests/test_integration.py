@@ -80,6 +80,30 @@ def test_walker_train_produces_model_and_vecnorm(tmp_path: Path) -> None:
     assert vecnorm_path.exists(), f"vecnormalize.pkl not found alongside {zip_path}"
 
 
+def test_gui_parallel_frame_capture_trains_and_captures(tmp_path: Path) -> None:
+    """GUI capture keeps worker 1 headless while satisfying SB3's requirement
+    that all vector workers advertise identical render-mode metadata."""
+    from rl_framework.gui.training_manager import TrainingManager, _RunState
+
+    cfg = _walker_cfg(tmp_path)
+    cfg["experiment_name"] = "integ_gui_capture"
+    cfg["output"]["run_id"] = "gui_capture"
+    cfg["training"]["num_envs"] = 2
+    cfg["training"]["worker_start_method"] = "spawn"
+
+    manager = TrainingManager()
+    state = _RunState(run_id="gui_capture", cfg=cfg, status="running")
+    manager._runs[state.run_id] = state
+    manager._train_worker(state)
+
+    assert state.status == "completed", state.error
+    assert Path(str(state.model_path) + ".zip").exists()
+    assert state.frame_capture_callback is not None
+    frames = state.frame_capture_callback.get_frames()
+    assert frames, "worker 0 produced no GUI capture frames"
+    assert frames[0]["timestep"] >= 50
+
+
 def test_walker_best_model_writes_matching_vecnorm_sidecar(tmp_path: Path) -> None:
     """Best-model eval must save a model-specific normalizer at the same point
     as the selected checkpoint, so replay and resume never pair it with later

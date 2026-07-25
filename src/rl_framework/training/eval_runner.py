@@ -62,8 +62,9 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
     try:
         algorithm = str(cfg.get("training", {}).get("algorithm", "PPO")).upper()
         model_cls = {"PPO": PPO, "SAC": SAC, "TD3": TD3}[algorithm]
-        model = model_cls.load(model_path)
-        episodes = cfg["evaluation"].get("episodes", 5)
+        device = str(cfg.get("training", {}).get("device", "cpu"))
+        model = model_cls.load(model_path, device=device)
+        episodes = cfg.get("evaluation", {}).get("episodes", 5)
         returns = []
         per_agent_returns: dict[int, list[float]] = {i: [] for i in range(num_agents)}
         terminated_episodes = 0

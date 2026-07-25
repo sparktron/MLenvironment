@@ -25,14 +25,23 @@ def test_was_truncated_false_for_missing_or_false_flags() -> None:
 def test_arena_evaluate_counts_max_step_timeout_as_truncated(
     tmp_path: Path, monkeypatch
 ) -> None:
+    loaded: dict[str, str] = {}
+    predict_calls = 0
+
     class _ZeroPolicy:
         def predict(self, obs, deterministic=True):
+            nonlocal predict_calls
+            predict_calls += 1
             obs_array = np.asarray(obs)
             if obs_array.ndim >= 2:
                 return np.zeros((obs_array.shape[0], 3), dtype=np.float32), None
             return np.zeros(3, dtype=np.float32), None
 
-    monkeypatch.setattr(eval_runner.PPO, "load", lambda _path: _ZeroPolicy())
+    def _load(_path, *, device):
+        loaded["device"] = device
+        return _ZeroPolicy()
+
+    monkeypatch.setattr(eval_runner.PPO, "load", _load)
     cfg = {
         "experiment_name": "arena_eval_timeout",
         "seed": 0,
@@ -46,10 +55,11 @@ def test_arena_evaluate_counts_max_step_timeout_as_truncated(
                 "cooldown_steps": 0,
             },
         },
-        "evaluation": {"episodes": 1},
     }
 
     metrics = eval_runner.evaluate(cfg, "unused.zip")
 
     assert metrics["truncated_rate"] == 1.0
     assert metrics["terminated_rate"] == 0.0
+    assert loaded["device"] == "cpu"
+    assert predict_calls == 10  # five default episodes x two steps

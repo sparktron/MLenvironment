@@ -1,6 +1,6 @@
 # Development Roadmap
 
-Last updated: 2026-07-20
+Last updated: 2026-07-25
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
@@ -31,6 +31,12 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-25) Runtime smoke validation now covers parallel GUI frame capture:
+  headless workers advertise SB3-compatible render metadata while only worker
+  0 renders. Evaluation checkpoint loading also honors `training.device`,
+  avoiding accidental GPU selection for CPU-configured MLP policies, and
+  configs without an optional `evaluation` section use the five-episode
+  default instead of failing.
 - (2026-07-19) Added resumable Priority 3 learning-quality studies. Walker
   studies compare reward and terrain curricula across seeds using zero-action,
   deterministic/stochastic, transfer, launch-height, and push-recovery
@@ -65,7 +71,9 @@ the completed summary below so completed work is not presented as pending.
 - (2026-07-20) GUI frame capture renders environment 0 only (`env_method`,
   not the tiling `VecEnv.render()`) with a wall-clock capture throttle, and
   only worker 0 retains `render_mode: rgb_array`; other rollout workers and
-  the best-model evaluation env stay headless. GUI
+  the best-model evaluation env stay headless. Headless rollout workers
+  advertise uniform render metadata to satisfy SB3's vector-env contract
+  without enabling their underlying renderers. GUI
   wizard schema gained `self_play`/`reward_annealing`/`curriculum` groups and
   arena `sensing_radius`/`attack_falloff` fields (resource settings remain
   open — see Priority 1), and `create_config` rejects an empty/whitespace
