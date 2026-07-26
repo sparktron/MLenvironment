@@ -137,9 +137,21 @@ continuation candidates:
 - combined step progress and stance-slip.
 
 A zero-weight continuation control is included to separate structural shaping
-from simply training longer. The 24-worker 3k smoke completed for all four
-variants with finite reward, gait telemetry, and checkpoint diagnostics. The
-resumable 50k rejection screen is the next active run.
+from simply training longer. The 24-worker 3k smoke and seed-22 50k rejection
+screen completed for all four variants:
+
+| Variant | Steps | Falls | Displacement | Alt. / 100 | Progress / alt. | Slip |
+|---|---:|---:|---:|---:|---:|---:|
+| combined | 751 | 10% | 1.86 m | 20.00 | 0.0057 m | 0.156 m/s |
+| stance slip | 741 | 10% | 1.80 m | 19.68 | 0.0059 m | 0.149 m/s |
+| control | 721 | 20% | 1.79 m | 20.92 | 0.0060 m | 0.169 m/s |
+| alternating progress | 660 | 30% | 1.72 m | 20.05 | 0.0064 m | 0.162 m/s |
+
+Every variant passed the one-seed rejection gate, although combined's lead
+over control is too small for selection. Five rendered combined rollouts all
+survived 800 steps; the strongest moved 2.11 m with an upright, small
+alternating-foot shuffle and no launch, prone, sliding, or same-foot tapping
+exploit. All four variants therefore advance to seeds 21–23 × 150k.
 
 Execution order:
 

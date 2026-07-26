@@ -33,10 +33,12 @@ the completed summary below so completed work is not presented as pending.
   [`walker gait-coordination plan`](plans/2026-07-26-walker-gait-coordination.md)
   is complete: contact/strike/slip telemetry established three-seed baselines,
   zero-default structural rewards and gait gates are tested, and all four
-  candidates passed the 24-worker pipeline smoke. Run the seed-22 50k
-  rejection screen, then advance surviving candidates to seeds 21–23 × 150k.
-  Keep PPO/SAC/TD3 comparisons deferred until the final 3 m transfer gate
-  clears.
+  candidates passed the 24-worker pipeline smoke and seed-22 50k rejection
+  screen. Combined led at 1.86 m with 10% falls, but control was close at
+  1.79 m with 20% falls. Rendered combined rollouts showed a legitimate small
+  alternating shuffle. Run all four variants at seeds 21–23 × 150k before
+  selecting anything. Keep PPO/SAC/TD3 comparisons deferred until the final
+  3 m transfer gate clears.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.
@@ -56,7 +58,8 @@ the completed summary below so completed work is not presented as pending.
   alternating strike, stance slip, same-foot sequences, and action deltas.
   Diagnostics and TensorBoard propagate the metrics. Zero-default alternating
   progress and stance-slip reward terms were calibrated from seeds 21–23 and
-  completed a four-variant 24-worker smoke without changing checkpoint shapes.
+  completed a four-variant 24-worker smoke plus a 50k rejection screen without
+  changing checkpoint shapes.
 - (2026-07-26) Added a seed-matched velocity-reward continuation study. It
   resumes balance checkpoints, compares two tighter velocity sigmas plus a
   higher forward-weight candidate, and rejects aggregate-only successes by

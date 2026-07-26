@@ -191,8 +191,14 @@ most 22% flight, and no mean same-foot sequence longer than 5, in addition to
 the existing survival, fall, displacement, and peak-height gate. Every seed
 must pass; one-seed screens cannot promote a candidate.
 
-The 3k-step, 24-worker seed-22 smoke completed for all four variants. It is
-pipeline validation only; the 50k seed-22 rejection screen begins Phase 3.
+The 3k-step, 24-worker smoke and seed-22 50k rejection screen completed for
+all four variants. Combined ranked first at 751 stochastic steps, 10% falls,
+and 1.86 m displacement; slip-only reached 741 steps, 10%, and 1.80 m; the
+control reached 721 steps, 20%, and 1.79 m. Alternating-progress-only was
+weakest but still cleared the rejection gate at 660 steps, 30%, and 1.72 m.
+Five combined renders all survived 800 steps and showed an upright alternating
+shuffle without a visible exploit. The differences are too small for
+one-seed selection, so all variants advance to the three-seed 150k matrix.
 
 ## Preliminary Run — 2026-07-19
 

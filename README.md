@@ -525,14 +525,16 @@ candidate was promoted.
 The gait-coordination iteration is defined in the
 [gait-coordination plan](docs/plans/2026-07-26-walker-gait-coordination.md).
 Phase 1 telemetry and zero-default structural rewards are implemented. The
-resumable rejection screen continues the sigma-0.10 seed-22 checkpoint:
+seed-22 50k rejection screen preserved balance in all four variants. Combined
+ranked first at 751 steps, 10% falls, and 1.86 m displacement, narrowly ahead
+of slip-only and the zero-weight control. The evidence-scale matrix is:
 
 ```bash
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
-  --study walker-gait --seeds 22 \
-  --study-step-budget 50000 \
+  --study walker-gait --seeds 21,22,23 \
+  --study-step-budget 150000 \
   --study-source-dir outputs/quality_studies_walker_velocity_150k_20260726/models/quality_walker_velocity_sigma_010 \
-  --study-output-dir outputs/quality_studies_walker_gait_50k_20260726
+  --study-output-dir outputs/quality_studies_walker_gait_150k_20260726
 ```
 
 The matrix includes a zero-weight continuation control, alternating-touchdown
