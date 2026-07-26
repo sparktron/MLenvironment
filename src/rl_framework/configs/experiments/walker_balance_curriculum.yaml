@@ -1,0 +1,96 @@
+experiment_name: walker_balance_curriculum
+seed: 42
+
+environment:
+  type: walker_bullet
+  seed: 42
+  observation:
+    version: v2
+    coordinate_free: true
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    action_scale: 0.25
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  terrain:
+    preset: flat
+  reward:
+    alive_bonus: 1.0
+    forward_velocity_weight: 0.5
+    target_velocity: 0.0
+    velocity_sigma: 0.25
+    orientation_penalty_weight: 1.0
+    torque_penalty_weight: 0.02
+    fall_penalty: 25.0
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 750000
+  num_envs: 24
+  n_steps: 128
+  batch_size: 256
+  n_epochs: 10
+  learning_rate: 0.0003
+  checkpoint_every: 50000
+  normalize_observations: true
+  device: cpu
+
+evaluation:
+  episodes: 20
+
+output:
+  base_dir: outputs
+
+# Level 0 learns to balance with a quarter-range action space. Advancement is
+# gated on behavior rather than reward so standing cannot be traded for a
+# short velocity burst. Level 1 introduces slow forward motion; level 2 opens
+# the full action range only after the policy both survives and moves.
+curriculum:
+  enabled: true
+  warmup_steps: 25000
+  max_level: 2
+  level_up_conditions:
+    0:
+      rollout/ep_len_mean:
+        min: 700
+      walker/fall_rate:
+        max: 0.10
+    1:
+      rollout/ep_len_mean:
+        min: 600
+      walker/forward_displacement_mean:
+        min: 1.0
+      walker/fall_rate:
+        max: 0.30
+  level_params:
+    1:
+      sim.action_scale: 0.50
+      reward.alive_bonus: 0.75
+      reward.forward_velocity_weight: 1.0
+      reward.target_velocity: 0.20
+      reward.orientation_penalty_weight: 0.8
+    2:
+      sim.action_scale: 1.0
+      reward.alive_bonus: 0.50
+      reward.forward_velocity_weight: 2.0
+      reward.target_velocity: 0.50
+      reward.orientation_penalty_weight: 0.5

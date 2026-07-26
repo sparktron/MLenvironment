@@ -50,6 +50,10 @@ class WalkerBulletEnv(gym.Env):
             # Default: 240 Hz physics, 4× repeat → 60 Hz control.
             self._sim_timestep = float(sim_cfg.get("timestep", 1.0 / 240.0))
             self._frame_skip = int(sim_cfg.get("frame_skip", 4))
+            # Curriculum-controlled multiplier applied after clipping the
+            # policy action. Early balance stages use a smaller range so
+            # exploration cannot immediately throw the body to the ground.
+            self._action_scale = float(sim_cfg.get("action_scale", 1.0))
             # How many sim steps to run with the PD holding the rest pose
             # immediately after reset, so the robot is at equilibrium before
             # the first agent observation.
@@ -123,6 +127,10 @@ class WalkerBulletEnv(gym.Env):
             # Pre-allocated obs buffer; _get_obs() writes in-place and returns
             # a copy so VecEnv cannot mutate the buffer through the returned array.
             self._obs_buf = np.zeros(self._obs_size, dtype=np.float32)
+            self._episode_start_x = 0.0
+            self._episode_abs_tilt = 0.0
+            self._episode_action_l2 = 0.0
+            self._episode_reward_components: dict[str, float] = {}
         except Exception:
             p.disconnect(self._connection)
             raise
@@ -517,6 +525,15 @@ class WalkerBulletEnv(gym.Env):
             for _ in range(self._settle_steps):
                 p.stepSimulation(physicsClientId=self._connection)
 
+        settled_pos, _ = p.getBasePositionAndOrientation(
+            self.robot_id, physicsClientId=self._connection
+        )
+        self._episode_start_x = float(settled_pos[0])
+        self._episode_abs_tilt = 0.0
+        self._episode_action_l2 = 0.0
+        self._episode_reward_components = {
+            name: 0.0 for name in ("alive", "velocity", "orientation", "action", "fall")
+        }
         obs = self._get_obs()
         return obs, {}
 
@@ -526,6 +543,7 @@ class WalkerBulletEnv(gym.Env):
         if self._action_latency_steps > 0:
             self._action_buffer.append(action)
             action = self._action_buffer.popleft()
+        applied_action = action * self._action_scale
         # Frame-skip: hold the same command across `frame_skip` physics ticks
         # so the policy operates at ~60 Hz while physics runs at ~240 Hz.
         push_applied = False
@@ -542,7 +560,7 @@ class WalkerBulletEnv(gym.Env):
             )
             push_applied = True
         self.dynamics.apply_action(
-            self.robot_id, action, physicsClientId=self._connection
+            self.robot_id, applied_action, physicsClientId=self._connection
         )
         for _ in range(max(1, self._frame_skip)):
             p.stepSimulation(physicsClientId=self._connection)
@@ -574,34 +592,100 @@ class WalkerBulletEnv(gym.Env):
         obs = self._get_obs(pos=pos, quat=quat, lin_vel=lin_vel, ang_vel=ang_vel)
         roll, pitch, _ = p.getEulerFromQuaternion(quat)
 
-        # Torso (base, linkIndexA=-1) touching the floor = the robot has fallen.
+        # Torso (base, linkIndexA=-1) touching any supporting world surface =
+        # the robot has fallen. Checking only plane_id let policies lie prone
+        # on raised uneven/obstacle bodies without terminating.
         # Divergence counts as an immediate fall so a corrupted physics state
         # never lingers until max_steps truncation.
-        torso_contact = diverged or bool(
-            p.getContactPoints(
+        support_body_ids = {self.plane_id, *self._terrain_body_ids}
+        torso_surface_contacts = [
+            contact
+            for contact in p.getContactPoints(
                 bodyA=self.robot_id,
-                bodyB=self.plane_id,
                 linkIndexA=-1,
                 physicsClientId=self._connection,
             )
+            if contact[2] in support_body_ids
+        ]
+        torso_contact = diverged or bool(torso_surface_contacts)
+        torso_contact_body = (
+            int(torso_surface_contacts[0][2]) if torso_surface_contacts else None
         )
         terminated, truncated = self.termination.check(
             pos[2], self.step_count, torso_contact
         )
-        reward = self.reward_fn.compute(
-            lin_vel_x=lin_vel[0],
-            pitch_roll_penalty=abs(roll) + abs(pitch),
-            action=action,
-            alive=not terminated,
-            fell=terminated,
+        reward_inputs = {
+            "lin_vel_x": lin_vel[0],
+            "pitch_roll_penalty": abs(roll) + abs(pitch),
+            "action": applied_action,
+            "alive": not terminated,
+            "fell": terminated,
+        }
+        reward_components = self.reward_fn.components(**reward_inputs)
+        reward = self.reward_fn.compute(**reward_inputs)
+        abs_tilt = float(abs(roll) + abs(pitch))
+        action_l2 = float(applied_action @ applied_action)
+        self._episode_abs_tilt += abs_tilt
+        self._episode_action_l2 += action_l2
+        for name, value in reward_components.items():
+            self._episode_reward_components[name] += value
+
+        termination_reason: str | None = None
+        if diverged:
+            termination_reason = "physics_divergence"
+        elif torso_contact:
+            termination_reason = "torso_contact"
+        elif pos[2] < self.termination.min_height:
+            termination_reason = "min_height"
+        elif pos[2] > self.termination.max_height:
+            termination_reason = "max_height"
+        elif truncated:
+            termination_reason = "time_limit"
+        right_foot_contact = bool(
+            p.getContactPoints(
+                bodyA=self.robot_id,
+                linkIndexA=2,
+                physicsClientId=self._connection,
+            )
+        )
+        left_foot_contact = bool(
+            p.getContactPoints(
+                bodyA=self.robot_id,
+                linkIndexA=5,
+                physicsClientId=self._connection,
+            )
         )
         info = {
             "x_position": pos[0],
             "z_position": pos[2],
             "lin_vel_x": lin_vel[0],
+            "roll": roll,
+            "pitch": pitch,
+            "abs_tilt": abs_tilt,
+            "action_l2": action_l2,
+            "action_scale": self._action_scale,
+            "reward_components": reward_components,
             "torso_contact": torso_contact,
+            "torso_contact_body": torso_contact_body,
+            "right_foot_contact": right_foot_contact,
+            "left_foot_contact": left_foot_contact,
+            "termination_reason": termination_reason,
             "push_applied": push_applied,
         }
+        if terminated or truncated:
+            steps = max(self.step_count, 1)
+            info["walker_episode"] = {
+                "episode_length": float(self.step_count),
+                "forward_displacement": float(pos[0] - self._episode_start_x),
+                "fall": float(terminated),
+                "mean_abs_tilt": self._episode_abs_tilt / steps,
+                "mean_action_l2": self._episode_action_l2 / steps,
+                "action_scale": self._action_scale,
+                **{
+                    f"reward_{name}_mean": total / steps
+                    for name, total in self._episode_reward_components.items()
+                },
+            }
         return obs, reward, terminated, truncated, info
 
     def render(self):
@@ -710,6 +794,8 @@ class WalkerBulletEnv(gym.Env):
                     self._frame_skip = int(cast_val)
                 elif attr == "settle_steps":
                     self._settle_steps = int(cast_val)
+                elif attr == "action_scale":
+                    self._action_scale = float(cast_val)
 
     def close(self) -> None:
         if p.isConnected(self._connection):

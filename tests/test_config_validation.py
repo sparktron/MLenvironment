@@ -103,6 +103,29 @@ def test_validate_experiment_config_rejects_invalid_annealing_gate() -> None:
         validate_experiment_config(cfg)
 
 
+@pytest.mark.parametrize("value", [0, -0.1, 1.1, True, "0.5"])
+def test_validate_walker_rejects_invalid_action_scale(value) -> None:
+    cfg = _base_cfg()
+    cfg["environment"]["sim"] = {"action_scale": value}
+
+    with pytest.raises(ValueError, match="action_scale"):
+        validate_experiment_config(cfg)
+
+
+def test_validate_curriculum_rejects_invalid_behavior_condition() -> None:
+    cfg = _base_cfg()
+    cfg["curriculum"] = {
+        "enabled": True,
+        "level_params": {1: {"sim.action_scale": 0.5}},
+        "level_up_conditions": {
+            0: {"walker/fall_rate": {"min": 0.5, "max": 0.1}}
+        },
+    }
+
+    with pytest.raises(ValueError, match="min must not exceed max"):
+        validate_experiment_config(cfg)
+
+
 def test_validate_experiment_config_rejects_non_positive_learning_rate() -> None:
     cfg = _base_cfg()
     cfg["training"]["learning_rate"] = 0
@@ -262,7 +285,15 @@ def test_robot_push_recovery_config_uses_current_atlas_body() -> None:
     assert cfg["environment"]["terrain"]["preset"] == "push_recovery"
 
 
-@pytest.mark.parametrize("name", ["walker_curriculum_flat", "walker_curriculum_uneven", "walker_curriculum_obstacles"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "walker_balance_curriculum",
+        "walker_curriculum_flat",
+        "walker_curriculum_uneven",
+        "walker_curriculum_obstacles",
+    ],
+)
 def test_walker_curriculum_presets_validate(name: str) -> None:
     cfg = to_container(load_config(name, "src/rl_framework/configs/experiments"))
     validate_experiment_config(cfg)

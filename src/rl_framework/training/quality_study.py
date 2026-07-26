@@ -29,9 +29,52 @@ from rl_framework.utils.config_merge import set_nested
 
 
 WALKER_VARIANTS: dict[str, tuple[str, dict[str, Any]]] = {
-    "rebalanced_flat": ("walker_ppo_baseline", {}),
-    "curriculum_flat": ("walker_curriculum_flat", {}),
-    "curriculum_uneven": ("walker_curriculum_uneven", {}),
+    "balance_first": ("walker_balance_curriculum", {}),
+    "balance_first_conservative": (
+        "walker_balance_curriculum",
+        {
+            "environment.sim.action_scale": 0.15,
+            "environment.reward.orientation_penalty_weight": 1.5,
+            "environment.reward.fall_penalty": 40.0,
+            "curriculum.level_params": {
+                1: {
+                    "sim.action_scale": 0.35,
+                    "reward.alive_bonus": 0.75,
+                    "reward.forward_velocity_weight": 1.0,
+                    "reward.target_velocity": 0.15,
+                    "reward.orientation_penalty_weight": 1.0,
+                },
+                2: {
+                    "sim.action_scale": 0.70,
+                    "reward.alive_bonus": 0.50,
+                    "reward.forward_velocity_weight": 2.0,
+                    "reward.target_velocity": 0.40,
+                    "reward.orientation_penalty_weight": 0.7,
+                },
+            },
+        },
+    ),
+    "balance_first_velocity_ramp": (
+        "walker_balance_curriculum",
+        {
+            "curriculum.level_params": {
+                1: {
+                    "sim.action_scale": 0.60,
+                    "reward.alive_bonus": 0.75,
+                    "reward.forward_velocity_weight": 1.5,
+                    "reward.target_velocity": 0.30,
+                    "reward.orientation_penalty_weight": 0.8,
+                },
+                2: {
+                    "sim.action_scale": 1.0,
+                    "reward.alive_bonus": 0.50,
+                    "reward.forward_velocity_weight": 2.5,
+                    "reward.target_velocity": 0.70,
+                    "reward.orientation_penalty_weight": 0.5,
+                },
+            },
+        },
+    ),
 }
 
 WALKER_STUDY_TRAINING = {

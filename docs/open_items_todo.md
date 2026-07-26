@@ -21,12 +21,12 @@ the completed summary below so completed work is not presented as pending.
   remained `untrained_equivalent`, and arena matches timed out almost
   universally. Detailed evidence is in
   [`learning_quality_studies.md`](learning_quality_studies.md).
-- The focused walker matrix has now completed at three seeds × 300k with
-  equalized PPO rollout/update settings. `curriculum_flat` ranked first, but
-  its flat deterministic average was only 177.6 steps and 0.59 m with a 73.3%
-  fall rate; no candidate cleared any behavioral gate. Inspect the best
-  checkpoints and revise locomotion learning/reward design before another
-  promotion-scale run. Keep PPO/SAC/TD3 comparisons deferred until this clears.
+- The balance-first walker iteration now learns deterministic 800-step
+  standing at 100k steps, but not locomotion. The conservative variant improved
+  stochastic survival to 405 steps while still falling 85% of the time and
+  moving backward. Refine stochastic balance/exploration until a short run
+  reaches 400 steps, 1.5 m displacement, and below 30% falls; only then repeat
+  three seeds × 300k. Keep PPO/SAC/TD3 comparisons deferred until this clears.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.
@@ -41,6 +41,13 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-26) Implemented and screened the balance-first walker iteration.
+  Rendering found and the environment closed a raised-terrain torso-contact
+  loophole. Walker telemetry now decomposes rewards and logs terminal behavior;
+  curricula support conjunctive min/max metric gates and live action scaling.
+  The explicit 28 kg preset plus three study ablations completed a one-seed
+  100k screen and learned stable deterministic standing, but no candidate met
+  the short-run locomotion threshold.
 - (2026-07-26) Completed the focused walker promotion study: nine 300k-step
   trainings plus 20-episode deterministic/stochastic diagnostics. The
   equalized 24×128 rollout schedule removed the prior comparison confound, but

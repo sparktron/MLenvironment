@@ -28,6 +28,12 @@ class CurriculumCallback(BaseCallback):
               0: 100.0   # threshold to leave level 0
               1: 150.0
               2: 200.0
+            # Optional conjunctive behavior gates. When present for a level,
+            # these replace the single metric/threshold check.
+            level_up_conditions:
+              0:
+                rollout/ep_len_mean: {min: 700}
+                walker/fall_rate: {max: 0.1}
             max_level: 3
             level_params:
               1:
@@ -74,6 +80,17 @@ class CurriculumCallback(BaseCallback):
         self._level_params: dict[int, dict[str, Any]] = {
             int(k): v for k, v in curriculum_cfg.get("level_params", {}).items()
         }
+        self._level_up_conditions: dict[int, dict[str, dict[str, float]]] = {
+            int(level): {
+                str(metric): {
+                    str(bound): float(value) for bound, value in bounds.items()
+                }
+                for metric, bounds in conditions.items()
+            }
+            for level, conditions in curriculum_cfg.get(
+                "level_up_conditions", {}
+            ).items()
+        }
 
     # ------------------------------------------------------------------
     def _on_step(self) -> bool:
@@ -89,24 +106,39 @@ class CurriculumCallback(BaseCallback):
         if self.num_timesteps < self._warmup_steps:
             return
 
-        # Resolve the configured metric (ep_rew_mean for the walker via the
-        # model's ep_info_buffer, arena/agent_0_win_rate via the logger — see
-        # rollout_metrics for why the logger cannot serve rollout/* keys here).
-        # None while no data exists yet.
-        metric_value = rollout_metric(self.model, self.logger, self._metric)
-        if metric_value is None:
-            return
+        conditions = self._level_up_conditions.get(self._level)
+        if conditions:
+            observed: dict[str, float] = {}
+            for metric, bounds in conditions.items():
+                value = rollout_metric(self.model, self.logger, metric)
+                if value is None:
+                    return
+                if "min" in bounds and value < bounds["min"]:
+                    return
+                if "max" in bounds and value > bounds["max"]:
+                    return
+                observed[metric] = value
+            detail = ", ".join(
+                f"{metric}={value:.3f}" for metric, value in observed.items()
+            )
+        else:
+            # Resolve the configured metric (ep_rew_mean for the walker via
+            # the model's ep_info_buffer, arena metrics via the logger).
+            metric_value = rollout_metric(self.model, self.logger, self._metric)
+            if metric_value is None:
+                return
+            threshold = self._per_level_thresholds.get(
+                self._level, self._default_threshold
+            )
+            if metric_value < threshold:
+                return
+            detail = f"{self._metric}={metric_value:.3f}"
 
-        threshold = self._per_level_thresholds.get(self._level, self._default_threshold)
-        if metric_value >= threshold:
-            self._level += 1
-            self._cur_cfg["level"] = self._level
-            self._apply_level_params(self._level)
-            if self.verbose >= 1:
-                print(
-                    f"[CurriculumCallback] Level up -> {self._level}  "
-                    f"({self._metric}={metric_value:.3f})"
-                )
+        self._level += 1
+        self._cur_cfg["level"] = self._level
+        self._apply_level_params(self._level)
+        if self.verbose >= 1:
+            print(f"[CurriculumCallback] Level up -> {self._level}  ({detail})")
 
     # ------------------------------------------------------------------
     def _apply_level_params(self, level: int) -> None:

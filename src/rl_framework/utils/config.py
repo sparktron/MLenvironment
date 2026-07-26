@@ -225,6 +225,17 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
     env_type = env_cfg.get("type", "")
 
     if env_type == "walker_bullet":
+        sim = env_cfg.get("sim", {})
+        action_scale = sim.get("action_scale", 1.0)
+        if (
+            isinstance(action_scale, bool)
+            or not isinstance(action_scale, (int, float))
+            or not 0 < action_scale <= 1
+        ):
+            raise ValueError(
+                "environment.sim.action_scale must be a number in (0, 1], "
+                f"got {action_scale!r}"
+            )
         observation = env_cfg.get("observation", {})
         version = observation.get("version", "v1")
         if version not in {"v1", "v2"}:
@@ -341,3 +352,55 @@ def _validate_curriculum(cfg: dict[str, Any]) -> None:
                 "curriculum.enabled is true but curriculum.level_params is empty. "
                 "Define at least one level override or set curriculum.enabled: false."
             )
+        for level, overrides in level_params.items():
+            if not isinstance(overrides, dict):
+                raise TypeError(
+                    f"curriculum.level_params.{level} must be a mapping"
+                )
+            action_scale = overrides.get("sim.action_scale")
+            if action_scale is not None and (
+                isinstance(action_scale, bool)
+                or not isinstance(action_scale, (int, float))
+                or not 0 < action_scale <= 1
+            ):
+                raise ValueError(
+                    f"curriculum.level_params.{level}.sim.action_scale must be "
+                    f"a number in (0, 1], got {action_scale!r}"
+                )
+
+        conditions = curriculum.get("level_up_conditions", {})
+        if not isinstance(conditions, dict):
+            raise TypeError("curriculum.level_up_conditions must be a mapping")
+        for level, metrics in conditions.items():
+            if not isinstance(metrics, dict) or not metrics:
+                raise ValueError(
+                    f"curriculum.level_up_conditions.{level} must be a "
+                    "non-empty metric mapping"
+                )
+            for metric, bounds in metrics.items():
+                if not isinstance(bounds, dict) or not bounds:
+                    raise ValueError(
+                        f"curriculum.level_up_conditions.{level}.{metric} must "
+                        "define min and/or max"
+                    )
+                unknown = set(bounds) - {"min", "max"}
+                if unknown:
+                    raise ValueError(
+                        f"curriculum.level_up_conditions.{level}.{metric} has "
+                        f"unknown bounds {sorted(unknown)}"
+                    )
+                for bound, value in bounds.items():
+                    if isinstance(value, bool) or not isinstance(value, (int, float)):
+                        raise TypeError(
+                            f"curriculum.level_up_conditions.{level}.{metric}."
+                            f"{bound} must be numeric"
+                        )
+                if (
+                    "min" in bounds
+                    and "max" in bounds
+                    and bounds["min"] > bounds["max"]
+                ):
+                    raise ValueError(
+                        f"curriculum.level_up_conditions.{level}.{metric} min "
+                        "must not exceed max"
+                    )

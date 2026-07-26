@@ -292,6 +292,53 @@ class ArenaMetricsCallback(BaseCallback):
         self._outcomes = 0
 
 
+class WalkerMetricsCallback(BaseCallback):
+    """Log terminal walker behavior and reward decomposition per rollout."""
+
+    _LOG_NAMES = {
+        "episode_length": "episode_length_mean",
+        "forward_displacement": "forward_displacement_mean",
+        "fall": "fall_rate",
+        "mean_abs_tilt": "abs_tilt_mean",
+        "mean_action_l2": "action_l2_mean",
+        "action_scale": "action_scale",
+        "reward_alive_mean": "reward_alive_mean",
+        "reward_velocity_mean": "reward_velocity_mean",
+        "reward_orientation_mean": "reward_orientation_mean",
+        "reward_action_mean": "reward_action_mean",
+        "reward_fall_mean": "reward_fall_mean",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(verbose=0)
+        self._values: dict[str, list[float]] = {
+            metric: [] for metric in self._LOG_NAMES
+        }
+
+    def _on_step(self) -> bool:
+        dones = np.asarray(self.locals.get("dones", []), dtype=bool).reshape(-1)
+        infos = self.locals.get("infos", [])
+        for done, info in zip(dones, infos):
+            if not done:
+                continue
+            summary = info.get("walker_episode")
+            if not isinstance(summary, dict):
+                continue
+            for metric in self._LOG_NAMES:
+                value = summary.get(metric)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    self._values[metric].append(float(value))
+        return True
+
+    def _on_rollout_end(self) -> None:
+        for metric, values in self._values.items():
+            if values:
+                self.logger.record(
+                    f"walker/{self._LOG_NAMES[metric]}", float(np.mean(values))
+                )
+                values.clear()
+
+
 def _build_single_env(
     env_cfg: dict[str, Any],
     monitor_dir: Path | None = None,
@@ -699,6 +746,10 @@ def train(
         # (Recorded before CurriculumCallback so a win-rate gate can read them.)
         if env_cfg["type"] == "organism_arena_parallel":
             callbacks.append(ArenaMetricsCallback())
+        elif env_cfg["type"] == "walker_bullet":
+            # Record behavior/reward terms before CurriculumCallback evaluates
+            # multi-metric level-up conditions from this rollout.
+            callbacks.append(WalkerMetricsCallback())
 
         # Dense-to-sparse reward annealing for the arena: ramp the per-hit reward
         # down so the terminal win/loss signal eventually dominates.

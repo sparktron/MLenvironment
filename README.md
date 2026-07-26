@@ -456,12 +456,12 @@ three seeds, common/resource-native tournaments timed out universally and the
 depth-native timeout rate was 99.7%, with essentially no learned attack damage.
 PPO/SAC/TD3 comparisons remain deferred until walker behavior improves.
 
-The follow-up matrix now compares only `rebalanced_flat`, `curriculum_flat`,
-and `curriculum_uneven`, all with `num_envs: 24`, `n_steps: 128`, and
-`batch_size: 256`. Reports distinguish `evidence_ready` from
-`promotion_ready`: promotion additionally requires robust transfer behavior
-(at least 760 steps, 3 m displacement, at most 10% falls, and peak torso height
-below 1 m). Arena depth candidates now test feasible combat
+The current walker matrix compares `balance_first`,
+`balance_first_conservative`, and `balance_first_velocity_ramp`, all with
+`num_envs: 24`, `n_steps: 128`, and `batch_size: 256`. Reports distinguish
+`evidence_ready` from `promotion_ready`: promotion additionally requires robust
+transfer behavior (at least 760 steps, 3 m displacement, at most 10% falls, and
+peak torso height below 1 m). Arena depth candidates test feasible combat
 (`attack_range: 0.4`, `attack_cost: 0.02`) with and without distance-progress
 shaping; their gate requires nonzero hits/damage and timeout below 90%.
 
@@ -471,6 +471,15 @@ cleared the locomotion gate and no preset was promoted. On flat terrain,
 `curriculum_flat` averaged 177.6 deterministic steps, 0.59 m displacement, and
 a 73.3% fall rate across seeds. The equalized rollout schedule removed the
 earlier comparison confound without producing robust walking.
+
+The subsequent balance-first implementation uses the documented 28 kg torso,
+starts with a restricted action range, and gates faster motion on episode
+length, displacement, and fall rate rather than reward. A one-seed 100k screen
+learned deterministic standing for all 800 steps, but not locomotion: the base
+policy moved only 0.10 m and its stochastic policy averaged 275 steps with a
+100% fall rate over 20 episodes. The conservative variant improved stochastic
+survival to 405 steps and an 85% fall rate, still below the short-run scaling
+gate. PPO/SAC/TD3 comparisons remain deferred.
 
 ---
 
@@ -493,20 +502,30 @@ environment:
   # --- Locomotion-specific (type: walker_bullet) ---
   sim:
     gravity: -9.81                   # Gravitational acceleration (m/s^2)
-    mass: 3.0                        # Robot base mass (kg)
+    mass: 28.0                       # Atlas-class torso mass (kg)
     friction: 0.9                    # Ground lateral friction coefficient
-    max_force: 35.0                  # Maximum applied force (N)
+    max_force: 35.0                  # Global scale for per-joint torque limits
+    timestep: 0.004166667            # 240 Hz physics
+    frame_skip: 4                    # 60 Hz policy control
+    settle_steps: 30                 # Rest-pose physics ticks after reset
+    action_scale: 1.0                # Multiplier on clipped policy actions
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
 
   reward:
     alive_bonus: 0.25                # Small uprightness incentive; locomotion dominates
     forward_velocity_weight: 2.0     # Weight on velocity-tracking reward
     target_velocity: 1.0             # Desired forward velocity (m/s)
+    velocity_sigma: 0.5              # Width of target-velocity Gaussian
     orientation_penalty_weight: 1.0  # Weight on roll+pitch penalty
     torque_penalty_weight: 0.01      # Weight on action magnitude penalty
+    fall_penalty: 10.0               # One-time terminal fall penalty
 
   termination:
-    min_height: 0.12                 # Episode ends if z < this (metres)
-    max_tilt_radians: 0.8            # Episode ends if |roll| or |pitch| > this
+    min_height: 0.18                 # Low-height contact fallback (metres)
+    max_height: 1.5                  # Reject self-launch behavior
     max_steps: 800                   # Episode truncates after this many steps
 
   reset_randomization:
@@ -606,6 +625,10 @@ multi_seed:
 curriculum:
   enabled: false                     # Set true to activate
   level_up_threshold: 150.0          # Mean reward to advance a level
+  level_up_conditions:               # Optional conjunctive behavior gate
+    0:
+      rollout/ep_len_mean: {min: 700}
+      walker/fall_rate: {max: 0.1}
   max_level: 3                       # Maximum curriculum level
   level: 0                           # Starting level (usually 0)
   level_params:                      # Overrides applied at each level
@@ -638,6 +661,7 @@ reward_annealing:
 |---|---|---|
 | **robot_walk_basic** | `walker_bullet` | Bipedal locomotion with domain randomization. Sweeps velocity & torque penalty. ✅ Good for getting started |
 | **robot_push_recovery** | `walker_bullet` | Lateral push-recovery curriculum plus aggressive mass/friction randomization. |
+| **walker_balance_curriculum** | `walker_bullet` | Balance-first, behavior-gated action/velocity curriculum using explicit Atlas-class physics. |
 | **walker_curriculum_flat** | `walker_bullet` | Flat-ground speed curriculum. |
 | **walker_curriculum_uneven** | `walker_bullet` | Uneven-terrain speed curriculum. |
 | **walker_curriculum_obstacles** | `walker_bullet` | Low-obstacle speed curriculum. |
@@ -701,7 +725,8 @@ domain_randomization:
 
 ### 📚 Curriculum Learning
 
-Automatically increases difficulty as the agent improves. SB3 callback monitors `rollout/ep_rew_mean` and advances levels when threshold is exceeded.
+Automatically increases difficulty as the agent improves. A curriculum can
+use the legacy single metric threshold or conjunctive behavior conditions.
 
 ```yaml
 curriculum:
@@ -712,6 +737,15 @@ curriculum:
     0: 100.0    # threshold to leave level 0
     1: 150.0
     2: 200.0
+  # Optional replacement for the single-metric threshold at a level.
+  level_up_conditions:
+    0:
+      rollout/ep_len_mean: {min: 700}
+      walker/fall_rate: {max: 0.1}
+    1:
+      rollout/ep_len_mean: {min: 600}
+      walker/forward_displacement_mean: {min: 1.0}
+      walker/fall_rate: {max: 0.3}
   max_level: 3
   level_params:
     1:
@@ -722,7 +756,10 @@ curriculum:
       reward.target_velocity: 2.0
 ```
 
-Level parameters use dotted-key notation to override any value in the environment config at runtime. Per-level thresholds let you set different advancement bars at each difficulty stage.
+Level parameters use dotted-key notation to override environment values at
+runtime. `sim.action_scale` can safely expand the policy's applied action range
+as balance improves. All configured conditions for a level must pass before it
+advances.
 
 ### 🖥️ Training Device
 

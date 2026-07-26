@@ -61,6 +61,74 @@ def test_walker_terrain_presets_build_static_geometry(
         env.close()
 
 
+def test_walker_torso_contact_with_raised_terrain_is_a_fall() -> None:
+    env = make_env(
+        "walker_bullet",
+        {
+            "type": "walker_bullet",
+            "seed": 1,
+            "sim": {"gravity": 0.0, "frame_skip": 1, "settle_steps": 0},
+            "terrain": {"preset": "uneven", "height": 0.025},
+            "termination": {"min_height": 0.0, "max_steps": 100},
+        },
+    )
+    try:
+        env.reset(seed=1)
+        p.resetBasePositionAndOrientation(
+            env.robot_id,
+            [0.8, 0.0, 0.11],
+            p.getQuaternionFromEuler([np.pi / 2, 0.0, 0.0]),
+            physicsClientId=env._connection,
+        )
+        p.resetBaseVelocity(
+            env.robot_id,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            physicsClientId=env._connection,
+        )
+        p.performCollisionDetection(physicsClientId=env._connection)
+
+        _, _, terminated, _, info = env.step(
+            np.zeros(env.action_space.shape, dtype=np.float32)
+        )
+
+        assert terminated is True
+        assert info["torso_contact"] is True
+        assert info["torso_contact_body"] in env._terrain_body_ids
+        assert info["termination_reason"] == "torso_contact"
+    finally:
+        env.close()
+
+
+def test_walker_action_scale_limits_applied_action_and_is_reported() -> None:
+    env = make_env(
+        "walker_bullet",
+        {
+            "type": "walker_bullet",
+            "seed": 1,
+            "sim": {"action_scale": 0.25},
+        },
+    )
+    applied = {}
+    try:
+        env.reset(seed=1)
+
+        def _capture_action(robot_id, action, physicsClientId):
+            applied["action"] = action.copy()
+
+        env.dynamics.apply_action = _capture_action
+        _, reward, _, _, info = env.step(
+            np.ones(env.action_space.shape, dtype=np.float32)
+        )
+
+        np.testing.assert_allclose(applied["action"], 0.25)
+        assert info["action_scale"] == 0.25
+        assert info["action_l2"] == pytest.approx(10 * 0.25**2)
+        assert sum(info["reward_components"].values()) == pytest.approx(reward)
+    finally:
+        env.close()
+
+
 def test_walker_push_recovery_publishes_push_event() -> None:
     env = make_env(
         "walker_bullet",
@@ -139,12 +207,14 @@ def test_walker_update_live_params_tolerates_null_sections() -> None:
                 "termination.max_steps": 500,
                 "domain_randomization.sensor_noise_std": 0.05,
                 "sim.gravity": -10.0,
+                "sim.action_scale": 0.3,
             }
         )
         assert env.reward_fn.alive_bonus == 2.0
         assert env.termination.max_steps == 500
         assert env.cfg["domain_randomization"]["sensor_noise_std"] == 0.05
         assert env.cfg["sim"]["gravity"] == -10.0
+        assert env._action_scale == 0.3
     finally:
         env.close()
 

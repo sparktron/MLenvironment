@@ -41,14 +41,43 @@ class WalkerReward:
         alive: bool,
         fell: bool = False,
     ) -> float:
-        reward = 0.0
-        if alive:
-            reward += self.alive_bonus
+        return float(
+            sum(
+                self.components(
+                    lin_vel_x=lin_vel_x,
+                    pitch_roll_penalty=pitch_roll_penalty,
+                    action=action,
+                    alive=alive,
+                    fell=fell,
+                ).values()
+            )
+        )
+
+    def components(
+        self,
+        lin_vel_x: float,
+        pitch_roll_penalty: float,
+        action: np.ndarray,
+        alive: bool,
+        fell: bool = False,
+    ) -> dict[str, float]:
+        """Return individually attributable reward terms.
+
+        Keeping the decomposition in the reward object prevents diagnostics
+        from reimplementing—and eventually drifting from—the actual reward.
+        The terms sum exactly to :meth:`compute`.
+        """
+        alive_reward = self.alive_bonus if alive else 0.0
         # Gaussian velocity reward: 1.0 at v=target, decays smoothly outside.
         diff = (lin_vel_x - self.target_velocity) / max(self.velocity_sigma, 1e-6)
-        reward += self.forward_velocity_weight * math.exp(-0.5 * diff * diff)
-        reward -= self.orientation_penalty_weight * pitch_roll_penalty
-        reward -= self.torque_penalty_weight * float(action @ action)
-        if fell:
-            reward -= self.fall_penalty
-        return float(reward)
+        velocity_reward = self.forward_velocity_weight * math.exp(-0.5 * diff * diff)
+        orientation_penalty = -self.orientation_penalty_weight * pitch_roll_penalty
+        action_penalty = -self.torque_penalty_weight * float(action @ action)
+        fall_penalty = -self.fall_penalty if fell else 0.0
+        return {
+            "alive": float(alive_reward),
+            "velocity": float(velocity_reward),
+            "orientation": float(orientation_penalty),
+            "action": float(action_penalty),
+            "fall": float(fall_penalty),
+        }

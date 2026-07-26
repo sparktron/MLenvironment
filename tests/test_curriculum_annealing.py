@@ -9,6 +9,7 @@ import pytest
 
 from rl_framework.training.curriculum_callback import CurriculumCallback
 from rl_framework.training.reward_annealing_callback import RewardAnnealingCallback
+from rl_framework.training.sb3_runner import WalkerMetricsCallback
 
 
 class _FakeVecEnv:
@@ -163,6 +164,87 @@ def test_curriculum_gates_on_configured_metric() -> None:
     # Overrides must be pushed to the live env via env_method.
     assert env.calls and env.calls[-1][0] == "update_live_params"
     assert env.calls[-1][1][0] == {"battle_rules.cooldown_steps": 4}
+
+
+def test_curriculum_requires_all_level_up_conditions() -> None:
+    env = _FakeVecEnv()
+    cur_cfg = {
+        "enabled": True,
+        "max_level": 1,
+        "level_up_conditions": {
+            0: {
+                "rollout/ep_len_mean": {"min": 700},
+                "walker/fall_rate": {"max": 0.1},
+            }
+        },
+        "level_params": {1: {"sim.action_scale": 0.5}},
+    }
+    cb = CurriculumCallback(cur_cfg, env_cfg={}, verbose=0)
+    logger = _StubLogger({"walker/fall_rate": 0.2})
+    _attach(
+        cb,
+        env=env,
+        logger=logger,
+        ep_info_buffer=[{"r": 100.0, "l": 750}],
+    )
+
+    cb._on_rollout_end()
+    assert cb.current_level == 0
+    assert not env.calls
+
+    logger.name_to_value["walker/fall_rate"] = 0.05
+    cb._on_rollout_end()
+    assert cb.current_level == 1
+    assert env.calls[-1][1][0] == {"sim.action_scale": 0.5}
+
+
+def test_walker_metrics_callback_logs_terminal_episode_summaries() -> None:
+    cb = WalkerMetricsCallback()
+    logger = _StubLogger()
+    _attach(cb, logger=logger)
+    cb.locals = {
+        "dones": [True, True],
+        "infos": [
+            {
+                "walker_episode": {
+                    "episode_length": 800.0,
+                    "forward_displacement": 1.0,
+                    "fall": 0.0,
+                    "mean_abs_tilt": 0.1,
+                    "mean_action_l2": 0.2,
+                    "action_scale": 0.25,
+                    "reward_alive_mean": 1.0,
+                    "reward_velocity_mean": 0.5,
+                    "reward_orientation_mean": -0.1,
+                    "reward_action_mean": -0.01,
+                    "reward_fall_mean": 0.0,
+                }
+            },
+            {
+                "walker_episode": {
+                    "episode_length": 400.0,
+                    "forward_displacement": 0.0,
+                    "fall": 1.0,
+                    "mean_abs_tilt": 0.3,
+                    "mean_action_l2": 0.4,
+                    "action_scale": 0.25,
+                    "reward_alive_mean": 0.8,
+                    "reward_velocity_mean": 0.2,
+                    "reward_orientation_mean": -0.3,
+                    "reward_action_mean": -0.02,
+                    "reward_fall_mean": -0.0625,
+                }
+            },
+        ],
+    }
+
+    cb._on_step()
+    cb._on_rollout_end()
+
+    assert logger.records["walker/episode_length_mean"] == 600.0
+    assert logger.records["walker/forward_displacement_mean"] == 0.5
+    assert logger.records["walker/fall_rate"] == 0.5
+    assert logger.records["walker/action_scale"] == 0.25
 
 
 def test_curriculum_default_metric_is_ep_rew_mean() -> None:

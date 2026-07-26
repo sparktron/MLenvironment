@@ -215,6 +215,13 @@ def get_schema():
                         "min": 1,
                         "max": 16,
                     },
+                    "action_scale": {
+                        "value": 1.0,
+                        "type": "float",
+                        "desc": "Multiplier on clipped policy actions; curricula can ramp this from a safer initial range",
+                        "min": 0.01,
+                        "max": 1.0,
+                    },
                     "settle_steps": {
                         "value": 30,
                         "type": "int",

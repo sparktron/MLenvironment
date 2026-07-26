@@ -145,6 +145,7 @@ def test_schema_returns_both_envs(client):
     assert "training" in data["walker_bullet"]
     assert data["walker_bullet"]["training"]["device"]["value"] == "cpu"
     assert data["walker_bullet"]["training"]["check_nans"]["value"] is False
+    assert data["walker_bullet"]["environment"]["sim"]["action_scale"]["value"] == 1.0
 
 
 def test_schema_allows_parallel_self_play_arena_training(client):

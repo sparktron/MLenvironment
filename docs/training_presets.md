@@ -16,6 +16,7 @@ benefits from it.
 
 | Terrain | Config | Notes |
 |---|---|---|
+| Balance first | `walker_balance_curriculum` | Explicit 28 kg torso physics; starts at 25% action range and unlocks slow then faster motion only after conjunctive survival/displacement gates. |
 | Flat | `walker_curriculum_flat` | Starts at 0.4 m/s and raises the speed target. |
 | Uneven | `walker_curriculum_uneven` | Deterministic low-height blocks begin beyond the spawn area. |
 | Obstacles | `walker_curriculum_obstacles` | Three static 10 cm obstacles along the walking path. |
@@ -36,10 +37,11 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-stud
   --study all --seeds 0,1,2
 ```
 
-The focused walker matrix compares `rebalanced_flat`, `curriculum_flat`, and
-`curriculum_uneven` with a common 24×128 rollout schedule plus zero-action,
-deterministic, stochastic, transfer, launch-height, and push-recovery
-diagnostics. The arena matrix first runs resource tournaments, then evaluates
+The current walker matrix compares `balance_first`,
+`balance_first_conservative`, and `balance_first_velocity_ramp` with a common
+24×128 rollout schedule plus zero-action, deterministic, stochastic, transfer,
+launch-height, and push-recovery diagnostics. The arena matrix first runs
+resource tournaments, then evaluates
 feasible combat (`attack_range: 0.4`, `attack_cost: 0.02`) with and without
 approach shaping; native-regime measurements are kept separate from
 common-baseline tournaments. The algorithm matrix compares PPO, SAC, and TD3

@@ -94,7 +94,12 @@ def _rollouts(
                 push_steps.append(episode_length)
             done = bool(dones[0])
             if done:
-                final_fell = bool(info.get("torso_contact", False))
+                reason = info.get("termination_reason")
+                final_fell = (
+                    reason != "time_limit"
+                    if isinstance(reason, str)
+                    else bool(info.get("torso_contact", False))
+                )
         rows.append(
             {
                 "episode_length": float(episode_length),
@@ -137,7 +142,7 @@ def _verdict(
     if (
         best[0]["episode_length_mean"] >= 0.95 * max_steps
         and best[0]["peak_z_mean"] < 1.0
-        and best[0]["forward_displacement_mean"] > 0.0
+        and best[0]["forward_displacement_mean"] >= 1.0
     ):
         return f"learned_walking_{best[1]}"
     return f"partial_learning_{best[1]}"

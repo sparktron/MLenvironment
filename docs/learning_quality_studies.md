@@ -9,7 +9,7 @@ resuming with different seeds or budgets.
 
 | Study | Candidates | Evidence |
 |---|---|---|
-| Walker | rebalanced flat, flat curriculum, uneven curriculum; all use 24 envs × 128 steps and batch size 256 | zero-action baseline, deterministic and stochastic rollouts, cross-terrain transfer, fall rate, displacement, peak height, and push recovery |
+| Walker | balance first, conservative balance first, faster velocity ramp; all use explicit 28 kg torso physics, 24 envs × 128 steps, and batch size 256 | zero-action baseline, deterministic and stochastic rollouts, cross-terrain transfer, fall rate, displacement, peak height, and push recovery |
 | Arena resources | baseline, scarce/high-cost, abundant/low-cost, large/slow | per-seed common-arena round robins plus native-regime tournaments recording attacks, contacts, damage, food pickups, and depleted-energy steps |
 | Arena combat | baseline, feasible combat, feasible combat plus approach shaping | starts only after resource measurement; uses common-arena Elo and separate native-regime behavior metrics |
 | Algorithms | PPO, SAC, TD3 | equal-step and equal-wall-clock training, followed by zero-action, deterministic, and stochastic evaluation |
@@ -47,6 +47,49 @@ only the latter authorizes changing a shipped preset.
 The algorithm comparison requires at least three seeds, 300k equal-step
 training, and 300 seconds per equal-wall-clock run. It remains deferred until
 the walker behavioral gate passes.
+
+## Balance-First Implementation And Screen — 2026-07-26
+
+Rendering the strongest focused-study checkpoints exposed two distinct
+behaviors:
+
+- `curriculum_flat/seed_0` made small unstable steps and then pitched over.
+- The longest `curriculum_uneven/seed_0` rollout spent much of its nominal
+  604-step survival window prone on a raised terrain tile. Torso contact had
+  only been checked against the ground plane, so contact with generated
+  terrain did not terminate the episode.
+
+Torso contact now covers the plane and every generated terrain body. The
+walker also publishes per-step reward components, tilt, contacts, applied
+action magnitude, action scale, and termination reason. Terminal summaries
+are logged under `walker/*`, including episode length, displacement, fall rate,
+tilt/action means, and each reward component.
+
+The new `walker_balance_curriculum` preset specifies the complete 28 kg
+Atlas-class physics block and begins with `sim.action_scale: 0.25`,
+`target_velocity: 0`, and stronger balance/fall terms. Curriculum advancement
+uses conjunctive behavior gates:
+
+- level 0 → 1: at least 700 mean steps and at most 10% falls;
+- level 1 → 2: at least 600 mean steps, 1 m displacement, and at most 30%
+  falls.
+
+A one-seed 100k screen compared the base preset, a conservative 15% initial
+action range, and a faster velocity-ramp variant. No policy advanced out of
+the balance stage, so the base and velocity-ramp checkpoints are intentionally
+identical at this budget. Direct 20-episode flat evaluation produced:
+
+| Candidate | Mode | Episode steps | Displacement | Fall rate |
+|---|---|---:|---:|---:|
+| `balance_first` | deterministic | 800.0 | 0.10 m | 0% |
+| `balance_first` | stochastic | 275.1 | -0.02 m | 100% |
+| `balance_first_conservative` | deterministic | 800.0 | -0.03 m | 0% |
+| `balance_first_conservative` | stochastic | 405.4 | -0.18 m | 85% |
+
+Videos confirm stationary upright balance rather than walking, sliding, or
+launching. The short-run scaling target (400 steps, 1.5 m displacement, below
+30% falls) was not met, so another three-seed promotion run and PPO/SAC/TD3
+comparisons remain deferred.
 
 ## Preliminary Run — 2026-07-19
 

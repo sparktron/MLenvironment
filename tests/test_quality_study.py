@@ -82,11 +82,17 @@ def test_walker_quality_study_persists_results_and_is_resumable(
     )
     assert first["completed"] is True
     assert len(train_calls) == len(quality_study.WALKER_VARIANTS)
+    assert {
+        cfg["experiment_name"].removeprefix("quality_walker_")
+        for cfg in train_calls
+    } == set(quality_study.WALKER_VARIANTS)
     for cfg in train_calls:
         assert {
             key: cfg["training"][key]
             for key in quality_study.WALKER_STUDY_TRAINING
         } == quality_study.WALKER_STUDY_TRAINING
+        assert cfg["environment"]["sim"]["mass"] == 28.0
+        assert 0 < cfg["environment"]["sim"]["action_scale"] <= 1.0
     assert first["results"]["walker"]["promotion_ready"] is False
     assert first["results"]["walker"]["evidence_ready"] is False
     assert (tmp_path / "report.json").is_file()
@@ -126,6 +132,27 @@ def test_walker_verdict_detects_reward_hack() -> None:
     stochastic = {**deterministic, "return_mean": 5.0}
 
     assert _verdict(baseline, deterministic, stochastic, 800) == "reward_hack_high_peak_z"
+
+
+def test_walker_verdict_does_not_call_standing_drift_walking() -> None:
+    baseline = {"episode_length_mean": 100.0}
+    deterministic = {
+        "episode_length_mean": 800.0,
+        "return_mean": 100.0,
+        "peak_z_mean": 0.7,
+        "forward_displacement_mean": 0.1,
+    }
+    stochastic = {
+        "episode_length_mean": 400.0,
+        "return_mean": 50.0,
+        "peak_z_mean": 0.7,
+        "forward_displacement_mean": 0.5,
+    }
+
+    assert (
+        _verdict(baseline, deterministic, stochastic, 800)
+        == "partial_learning_deterministic"
+    )
 
 
 def test_arena_measurements_aggregate_resource_signals() -> None:
