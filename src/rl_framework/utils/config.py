@@ -277,6 +277,8 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
             "torque_penalty_weight",
             "gait_step_progress_weight",
             "gait_step_progress_clip",
+            "swing_touchdown_progress_weight",
+            "swing_touchdown_progress_clip",
             "stance_slip_penalty_weight",
         ):
             if key in reward:
@@ -292,6 +294,13 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
                 "environment.gait.touchdown_debounce_steps",
                 min_value=1,
             )
+        for key in ("min_swing_duration", "min_foot_clearance"):
+            if key in gait:
+                value = gait[key]
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                    raise ValueError(
+                        f"environment.gait.{key} must be a non-negative number, got {value!r}"
+                    )
         terrain = env_cfg.get("terrain", {})
         preset = terrain.get("preset", "flat")
         valid_presets = {"flat", "uneven", "obstacles", "push_recovery"}

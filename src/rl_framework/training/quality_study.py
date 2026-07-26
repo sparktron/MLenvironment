@@ -154,6 +154,19 @@ WALKER_VELOCITY_RAMP_GATE: dict[str, Any] = {
     **WALKER_GAIT_GATE,
     "min_displacement_improvement": 0.25,
 }
+WALKER_SWING_TOUCHDOWN_VARIANTS: dict[str, dict[str, Any]] = {
+    "control": {},
+    "swing_qualified_progress": {
+        "environment.gait.min_swing_duration": 0.05,
+        "environment.gait.min_foot_clearance": 0.0005,
+        "environment.reward.swing_touchdown_progress_weight": 40.0,
+        "environment.reward.swing_touchdown_progress_clip": 0.03,
+    },
+}
+WALKER_SWING_TOUCHDOWN_GATE: dict[str, Any] = {
+    **WALKER_GAIT_GATE,
+    "min_displacement_improvement": 0.25,
+}
 
 ARENA_RESOURCE_VARIANTS: dict[str, dict[str, Any]] = {
     "baseline": {},
@@ -834,8 +847,12 @@ def _run_walker_gait_study(
 
 def _aggregate_walker_velocity_ramp_results(
     results: dict[str, dict[str, Any]],
+    *,
+    candidate_variant: str = "ramp_to_025",
+    paired_gate: dict[str, Any] = WALKER_VELOCITY_RAMP_GATE,
+    gate_label: str = "velocity_ramp_gate",
 ) -> dict[str, Any]:
-    """Apply frozen gait gates and compare the ramp to its paired control."""
+    """Apply frozen gait gates and compare a paired candidate to control."""
     by_variant: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     for run_key, result in results.items():
         variant, seed_label = run_key.split("/", 1)
@@ -867,28 +884,28 @@ def _aggregate_walker_velocity_ramp_results(
         }
 
     control = rows.get("control")
-    candidate = rows.get("ramp_to_025")
+    candidate = rows.get(candidate_variant)
     if control is not None and candidate is not None:
         improvement = (
             candidate["forward_displacement_mean"] - control["forward_displacement_mean"]
         )
         candidate["displacement_improvement_over_control"] = improvement
         candidate["material_displacement_improvement"] = bool(
-            improvement >= WALKER_VELOCITY_RAMP_GATE["min_displacement_improvement"]
+            improvement >= paired_gate["min_displacement_improvement"]
         )
         candidate["gate_passed"] = bool(
             candidate["frozen_gate_passed"]
             and candidate["material_displacement_improvement"]
         )
     for variant, row in rows.items():
-        if variant != "ramp_to_025":
+        if variant != candidate_variant:
             row["gate_passed"] = False
     rankings = sorted(rows.values(), key=lambda row: row["forward_displacement_mean"], reverse=True)
     return {
         "rankings": rankings,
-        "promoted_variant": "ramp_to_025" if candidate and candidate["gate_passed"] else None,
+        "promoted_variant": candidate_variant if candidate and candidate["gate_passed"] else None,
         "frozen_behavioral_and_gait_gate": WALKER_GAIT_GATE,
-        "velocity_ramp_gate": WALKER_VELOCITY_RAMP_GATE,
+        gate_label: paired_gate,
         "runs": results,
     }
 
@@ -969,6 +986,78 @@ def _run_walker_velocity_ramp_study(
     aggregate["promotion_ready"] = bool(
         aggregate["evidence_ready"] and aggregate["promoted_variant"] is not None
     )
+    return aggregate
+
+
+def _run_walker_swing_touchdown_study(
+    *,
+    seeds: list[int],
+    step_budget: int,
+    eval_episodes: int,
+    config_dir: Path,
+    source_dir: Path,
+    output_dir: Path,
+    state: dict[str, Any],
+    state_path: Path,
+) -> dict[str, Any]:
+    """Screen calibrated sustained-swing progress against a paired control."""
+    diagnostics: dict[str, dict[str, Any]] = {}
+    base = _load_cfg("walker_low_velocity_candidate", config_dir)
+    _apply_overrides(
+        base,
+        {
+            "environment.reward.velocity_sigma": 0.10,
+            "environment.reward.gait_step_progress_weight": 0.0,
+            "environment.reward.stance_slip_penalty_weight": 0.5,
+        },
+    )
+    for variant, overrides in WALKER_SWING_TOUCHDOWN_VARIANTS.items():
+        variant_cfg = deepcopy(base)
+        _apply_overrides(variant_cfg, overrides)
+        for seed in seeds:
+            key = f"{variant}/seed_{seed}"
+            source_model = source_dir / f"seed_{seed}" / "checkpoints" / "final_model.zip"
+            if not source_model.is_file():
+                raise FileNotFoundError(
+                    f"Walker swing-touchdown source checkpoint not found: {source_model}"
+                )
+            cfg = _prepare_cfg(
+                variant_cfg,
+                experiment_name=f"quality_walker_swing_touchdown_{variant}",
+                seed=seed,
+                step_budget=step_budget,
+                output_dir=output_dir,
+            )
+            run = _train_run(
+                f"walker_swing_touchdown/{key}",
+                cfg,
+                state,
+                state_path,
+                resume_from=source_model,
+            )
+            if run.get("status") != "completed":
+                continue
+            if "diagnostics" not in run:
+                run["diagnostics"] = evaluate_walker_checkpoint(
+                    cfg, run["model_path"], episodes=eval_episodes
+                )
+                _atomic_json_write(state_path, state)
+            diagnostics[key] = run["diagnostics"]
+
+    aggregate = _aggregate_walker_velocity_ramp_results(
+        diagnostics,
+        candidate_variant="swing_qualified_progress",
+        paired_gate=WALKER_SWING_TOUCHDOWN_GATE,
+        gate_label="swing_touchdown_gate",
+    )
+    aggregate["screening_ready"] = (
+        step_budget >= 50_000
+        and len(seeds) >= 1
+        and len(aggregate["rankings"]) == len(WALKER_SWING_TOUCHDOWN_VARIANTS)
+        and all(row["seeds_completed"] == len(seeds) for row in aggregate["rankings"])
+    )
+    aggregate["evidence_ready"] = False
+    aggregate["promotion_ready"] = False
     return aggregate
 
 
@@ -1389,6 +1478,7 @@ def run_quality_study(
         "walker-velocity",
         "walker-gait",
         "walker-velocity-ramp",
+        "walker-swing-touchdown",
         "arena",
         "algorithms",
     }
@@ -1405,7 +1495,7 @@ def run_quality_study(
     identity = _study_identity(
         studies, seeds, step_budget, wall_clock_seconds, eval_episodes
     )
-    if {"walker-velocity", "walker-gait", "walker-velocity-ramp"} & set(studies):
+    if {"walker-velocity", "walker-gait", "walker-velocity-ramp", "walker-swing-touchdown"} & set(studies):
         identity["source_dir"] = str(Path(source_dir))
     plan = {
         "identity": identity,
@@ -1424,6 +1514,11 @@ def run_quality_study(
             "walker_velocity_ramp": (
                 len(WALKER_VELOCITY_RAMP_VARIANTS) * len(seeds)
                 if "walker-velocity-ramp" in studies
+                else 0
+            ),
+            "walker_swing_touchdown": (
+                len(WALKER_SWING_TOUCHDOWN_VARIANTS) * len(seeds)
+                if "walker-swing-touchdown" in studies
                 else 0
             ),
             "arena": (
@@ -1479,6 +1574,17 @@ def run_quality_study(
         )
     if "walker-velocity-ramp" in studies:
         state["results"]["walker_velocity_ramp"] = _run_walker_velocity_ramp_study(
+            seeds=seeds,
+            step_budget=step_budget or 50_000,
+            eval_episodes=eval_episodes,
+            config_dir=config_path,
+            source_dir=Path(source_dir),
+            output_dir=output,
+            state=state,
+            state_path=state_path,
+        )
+    if "walker-swing-touchdown" in studies:
+        state["results"]["walker_swing_touchdown"] = _run_walker_swing_touchdown_study(
             seeds=seeds,
             step_budget=step_budget or 50_000,
             eval_episodes=eval_episodes,

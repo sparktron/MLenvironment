@@ -122,3 +122,26 @@ def test_gait_tracker_reports_stride_swing_clearance_and_cadence() -> None:
     assert metrics["gait_stride_length"] == pytest.approx(0.3)
     assert metrics["gait_qualified_touchdowns"] == 2.0
     assert metrics["gait_cadence_steps_per_min"] == pytest.approx(200.0)
+
+
+def test_sustained_swing_progress_requires_duration_and_clearance() -> None:
+    tracker = WalkerGaitTracker(
+        control_timestep=0.1,
+        min_swing_duration=0.2,
+        min_foot_clearance=0.05,
+    )
+    tracker.reset(initial_contacts=(True, True), action_size=2)
+
+    _update(tracker, step=1, contacts=(False, True), x=0.0, foot_positions=((0.0, 0.02), (0.0, 0.0)))
+    _update(tracker, step=2, contacts=(False, True), x=0.0, foot_positions=((0.1, 0.08), (0.0, 0.0)))
+    first = _update(tracker, step=3, contacts=(True, True), x=0.1, foot_positions=((0.2, 0.02), (0.0, 0.0)))
+    _update(tracker, step=4, contacts=(True, False), x=0.1, foot_positions=((0.2, 0.0), (0.0, 0.02)))
+    _update(tracker, step=5, contacts=(True, False), x=0.1, foot_positions=((0.2, 0.0), (0.1, 0.08)))
+    second = _update(tracker, step=6, contacts=(True, True), x=0.3, foot_positions=((0.2, 0.0), (0.2, 0.02)))
+
+    assert first.sustained_swing_touchdown is True
+    assert first.sustained_swing_progress == 0.0
+    assert second.valid_alternating_touchdown is True
+    assert second.sustained_swing_touchdown is True
+    assert second.sustained_swing_progress == pytest.approx(0.2)
+    assert tracker.episode_metrics()["gait_sustained_swing_touchdowns"] == 2.0

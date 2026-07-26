@@ -37,6 +37,7 @@ def test_reward_components_sum_to_computed_reward() -> None:
         "action",
         "fall",
         "gait_step_progress",
+        "swing_touchdown_progress",
         "stance_slip",
     }
     assert sum(components.values()) == reward.compute(**kwargs)
@@ -88,3 +89,20 @@ def test_gait_progress_is_positive_bounded_and_slip_is_penalized() -> None:
     assert components["gait_step_progress"] == pytest.approx(0.2)
     assert components["stance_slip"] == pytest.approx(-0.3)
     assert backwards["gait_step_progress"] == 0.0
+
+
+def test_swing_touchdown_progress_reward_is_opt_in_and_bounded() -> None:
+    reward = WalkerReward(
+        swing_touchdown_progress_weight=40.0,
+        swing_touchdown_progress_clip=0.03,
+    )
+
+    components = reward.components(
+        lin_vel_x=0.0,
+        pitch_roll_penalty=0.0,
+        action=np.zeros(10, dtype=np.float32),
+        alive=True,
+        sustained_swing_progress=0.10,
+    )
+
+    assert components["swing_touchdown_progress"] == pytest.approx(1.2)

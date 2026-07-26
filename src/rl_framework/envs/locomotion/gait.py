@@ -14,6 +14,10 @@ class GaitStep:
     valid_alternating_touchdown: bool
     alternating_step_progress: float
     stance_slip_speed: float
+    touchdown_swing_duration: float | None
+    touchdown_swing_clearance: float | None
+    sustained_swing_touchdown: bool
+    sustained_swing_progress: float
 
 
 @dataclass
@@ -22,6 +26,8 @@ class WalkerGaitTracker:
 
     touchdown_debounce_steps: int = 3
     control_timestep: float = 1.0 / 60.0
+    min_swing_duration: float = 0.0
+    min_foot_clearance: float = 0.0
     _previous_contacts: tuple[bool, bool] = (False, False)
     _last_touchdown_steps: list[int] = field(default_factory=lambda: [-10_000, -10_000])
     _last_touchdown_side: int | None = None
@@ -46,6 +52,7 @@ class WalkerGaitTracker:
     _swing_clearances: list[float] = field(default_factory=list)
     _stride_lengths: list[float] = field(default_factory=list)
     _qualified_touchdowns: int = 0
+    _sustained_swing_touchdowns: int = 0
     _steps: int = 0
 
     def __post_init__(self) -> None:
@@ -53,6 +60,10 @@ class WalkerGaitTracker:
             raise ValueError("touchdown_debounce_steps must be at least 1")
         if self.control_timestep <= 0:
             raise ValueError("control_timestep must be positive")
+        if self.min_swing_duration < 0:
+            raise ValueError("min_swing_duration must be non-negative")
+        if self.min_foot_clearance < 0:
+            raise ValueError("min_foot_clearance must be non-negative")
 
     def reset(
         self,
@@ -82,6 +93,7 @@ class WalkerGaitTracker:
         self._swing_clearances = []
         self._stride_lengths = []
         self._qualified_touchdowns = 0
+        self._sustained_swing_touchdowns = 0
         self._steps = 0
 
     def update(
@@ -125,6 +137,7 @@ class WalkerGaitTracker:
         self._previous_action = action.copy()
 
         accepted_touchdowns: list[int] = []
+        swing_events: dict[int, tuple[float, float]] = {}
         for side, (contact, previous_contact) in enumerate(
             zip(contacts, self._previous_contacts)
         ):
@@ -150,12 +163,13 @@ class WalkerGaitTracker:
                 swing_start = self._swing_start_steps[side]
                 if swing_start is not None:
                     self._qualified_touchdowns += 1
-                    self._swing_durations.append(
-                        (step - swing_start) * self.control_timestep
+                    duration = (step - swing_start) * self.control_timestep
+                    clearance = max(
+                        self._swing_peak_z[side] - self._swing_start_z[side], 0.0
                     )
-                    self._swing_clearances.append(
-                        max(self._swing_peak_z[side] - self._swing_start_z[side], 0.0)
-                    )
+                    self._swing_durations.append(duration)
+                    self._swing_clearances.append(clearance)
+                    swing_events[side] = (duration, clearance)
                     previous_x = self._last_stride_touchdown_x[side]
                     if previous_x is not None:
                         self._stride_lengths.append(abs(float(foot_x) - previous_x))
@@ -165,10 +179,22 @@ class WalkerGaitTracker:
 
         alternating = False
         progress = 0.0
+        touchdown_swing_duration: float | None = None
+        touchdown_swing_clearance: float | None = None
+        sustained_swing_touchdown = False
         # A simultaneous two-foot landing is real contact telemetry, but it is
         # not evidence of an ordered right/left gait event.
         if len(accepted_touchdowns) == 1:
             side = accepted_touchdowns[0]
+            swing_event = swing_events.get(side)
+            if swing_event is not None:
+                touchdown_swing_duration, touchdown_swing_clearance = swing_event
+                sustained_swing_touchdown = bool(
+                    touchdown_swing_duration >= self.min_swing_duration
+                    and touchdown_swing_clearance >= self.min_foot_clearance
+                )
+                if sustained_swing_touchdown:
+                    self._sustained_swing_touchdowns += 1
             if self._last_touchdown_side is None:
                 self._same_foot_sequence = 1
             elif side == self._last_touchdown_side:
@@ -197,6 +223,12 @@ class WalkerGaitTracker:
             valid_alternating_touchdown=alternating,
             alternating_step_progress=progress if alternating else 0.0,
             stance_slip_speed=stance_slip_speed,
+            touchdown_swing_duration=touchdown_swing_duration,
+            touchdown_swing_clearance=touchdown_swing_clearance,
+            sustained_swing_touchdown=sustained_swing_touchdown,
+            sustained_swing_progress=(
+                progress if alternating and sustained_swing_touchdown else 0.0
+            ),
         )
 
     def episode_metrics(self) -> dict[str, float]:
@@ -240,4 +272,5 @@ class WalkerGaitTracker:
                 60.0 * self._qualified_touchdowns / (steps * self.control_timestep)
             ),
             "gait_qualified_touchdowns": float(self._qualified_touchdowns),
+            "gait_sustained_swing_touchdowns": float(self._sustained_swing_touchdowns),
         }

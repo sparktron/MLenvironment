@@ -351,6 +351,29 @@ duration (41.5 ms), and clearance (0.66 mm) were not above control (10.94 mm,
 **Decision:** Reject the ramp. Do not run seeds 21--23 × 150k, 300k, or
 transfer testing; do not add the conditional swing-gated touchdown reward.
 
+## 2026-07-26 — Sustained-Swing Touchdown Progress Screen
+
+**Question:** Does rewarding forward progress only at an alternating touchdown
+after a sufficiently long, clear airborne swing turn the compact shuffle into
+longer forward stepping?
+
+**Calibration and change:** Collected 3,155 individual stochastic touchdown
+events from the seed-21 fixed-target control. The event-level p75 thresholds
+were 50 ms duration and 0.492 mm clearance; the candidate used 50 ms and 0.5
+mm. It retained target velocity 0.15 m/s, stance-slip weight 0.5, physics,
+optimizer, and all gates. The new bounded progress term fired only when both
+thresholds and ordered touchdown alternation were satisfied.
+
+**Observed result:** At 50k continuation steps, stochastic displacement was
+0.260 m versus 0.104 m for the paired control (+0.157 m). The candidate had
+736 steps, 25% falls, 0.159 m/s stance slip, 17.01 alternating touchdowns per
+100 steps, and 0.00093 m progress per alternating touchdown. It missed the
+frozen +0.25 m paired improvement, 1 m displacement, and 0.003 m progress
+floors.
+
+**Decision:** Reject. Do not run seeds 21--23, 300k, transfer, or algorithm
+comparisons. Artifacts: `outputs/quality_studies_walker_swing_touchdown_20260726`.
+
 ## How To Append A Future Entry
 
 Do not rewrite an old failure to make a later result look inevitable. Add a

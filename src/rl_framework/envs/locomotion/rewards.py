@@ -36,6 +36,8 @@ class WalkerReward:
     # retain bit-for-bit reward semantics.
     gait_step_progress_weight: float = 0.0
     gait_step_progress_clip: float = 0.25
+    swing_touchdown_progress_weight: float = 0.0
+    swing_touchdown_progress_clip: float = 0.25
     stance_slip_penalty_weight: float = 0.0
 
     def compute(
@@ -46,6 +48,7 @@ class WalkerReward:
         alive: bool,
         fell: bool = False,
         gait_step_progress: float = 0.0,
+        sustained_swing_progress: float = 0.0,
         stance_slip_speed: float = 0.0,
     ) -> float:
         return float(
@@ -57,6 +60,7 @@ class WalkerReward:
                     alive=alive,
                     fell=fell,
                     gait_step_progress=gait_step_progress,
+                    sustained_swing_progress=sustained_swing_progress,
                     stance_slip_speed=stance_slip_speed,
                 ).values()
             )
@@ -70,6 +74,7 @@ class WalkerReward:
         alive: bool,
         fell: bool = False,
         gait_step_progress: float = 0.0,
+        sustained_swing_progress: float = 0.0,
         stance_slip_speed: float = 0.0,
     ) -> dict[str, float]:
         """Return individually attributable reward terms.
@@ -90,6 +95,13 @@ class WalkerReward:
             max(self.gait_step_progress_clip, 0.0),
         )
         gait_step_progress_reward = self.gait_step_progress_weight * clipped_progress
+        clipped_sustained_swing_progress = min(
+            max(float(sustained_swing_progress), 0.0),
+            max(self.swing_touchdown_progress_clip, 0.0),
+        )
+        swing_touchdown_progress_reward = (
+            self.swing_touchdown_progress_weight * clipped_sustained_swing_progress
+        )
         stance_slip_penalty = -self.stance_slip_penalty_weight * max(
             float(stance_slip_speed), 0.0
         )
@@ -100,5 +112,6 @@ class WalkerReward:
             "action": float(action_penalty),
             "fall": float(fall_penalty),
             "gait_step_progress": float(gait_step_progress_reward),
+            "swing_touchdown_progress": float(swing_touchdown_progress_reward),
             "stance_slip": float(stance_slip_penalty),
         }

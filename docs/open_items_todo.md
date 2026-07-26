@@ -51,6 +51,14 @@ must record both successful changes and failed hypotheses there.
   measures stride length, swing duration, clearance, and cadence to determine
   whether any gain is longer stepping rather than contact chatter. Keep
   PPO/SAC/TD3 comparisons deferred until the final 3 m transfer gate clears.
+- (2026-07-26) The seed-21 50k sustained-swing touchdown screen is rejected.
+  Calibration used 3,155 individual stochastic touchdown events from the
+  fixed-target control (p75: 50 ms airborne duration, 0.5 mm clearance), then
+  retained the 0.15 m/s target, 0.5 slip weight, and every frozen gate. The
+  qualified-progress candidate reached 0.260 m versus 0.104 m control
+  (+0.157 m), below the required +0.25 m; it also missed the 1 m displacement
+  and 0.003 m alternating-touchdown-progress floors. Do not advance to seeds
+  21--23, 300k, transfer, or algorithm comparisons.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.

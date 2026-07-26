@@ -574,6 +574,16 @@ compared fixed 0.15 m/s with a 0.15--0.25 m/s target ramp. The ramp reached
 gates. Qualified-swing telemetry found no longer stride or swing, so the ramp
 was rejected without a three-seed or transfer stage.
 
+The follow-up seed-21 50k sustained-swing touchdown screen calibrated its
+thresholds from 3,155 individual stochastic touchdown events—not episode
+means—on the fixed-target control: 50 ms airborne duration and 0.5 mm clearance
+(the respective p75 values). It kept the 0.15 m/s target, 0.5 slip weight, and
+all frozen gates, rewarding bounded alternating-touchdown progress only when
+both thresholds were met. The candidate improved stochastic displacement from
+0.104 m to 0.260 m (+0.157 m), but missed the required +0.25 m, the existing
+1 m displacement floor, and the 0.003 m progress-per-alternating-touchdown
+floor. It is rejected; no multi-seed, 300k, or transfer stage was run.
+
 ---
 
 ## ⚙️ Configuration

@@ -31,6 +31,7 @@ _GAIT_EPISODE_METRICS = (
     "gait_foot_clearance",
     "gait_cadence_steps_per_min",
     "gait_qualified_touchdowns",
+    "gait_sustained_swing_touchdowns",
 )
 _REWARD_EPISODE_METRICS = (
     "reward_alive_mean",
@@ -39,6 +40,7 @@ _REWARD_EPISODE_METRICS = (
     "reward_action_mean",
     "reward_fall_mean",
     "reward_gait_step_progress_mean",
+    "reward_swing_touchdown_progress_mean",
     "reward_stance_slip_mean",
 )
 
@@ -245,6 +247,64 @@ def evaluate_walker_checkpoint(
         "deterministic": deterministic,
         "stochastic": stochastic,
         "verdict": _verdict(baseline, deterministic, stochastic, max_steps),
+    }
+
+
+def collect_walker_swing_event_telemetry(
+    cfg: dict[str, Any],
+    model_path: str | Path,
+    *,
+    episodes: int = 20,
+) -> dict[str, Any]:
+    """Summarize individual completed-swing events from stochastic rollouts.
+
+    Quantiles are computed across events, not from episode means, so a short
+    contact-chatter episode cannot receive the same influence as a sustained
+    sequence of real airborne swings.
+    """
+    if cfg.get("environment", {}).get("type") != "walker_bullet":
+        raise ValueError("walker diagnostics require environment.type=walker_bullet")
+    path = model_zip_path(model_path)
+    model = _model_class(cfg).load(str(path), device="cpu")
+    vec_env = _evaluation_env(cfg, path)
+    durations: list[float] = []
+    clearances: list[float] = []
+    try:
+        seed = int(cfg.get("seed", 0))
+        for episode in range(episodes):
+            vec_env.seed(seed + episode)
+            obs = vec_env.reset()
+            done = False
+            while not done:
+                action, _ = model.predict(obs, deterministic=False)
+                obs, _, dones, infos = vec_env.step(action)
+                event = infos[0].get("swing_touchdown_event")
+                if isinstance(event, dict):
+                    duration = event.get("duration")
+                    clearance = event.get("clearance")
+                    if isinstance(duration, (int, float)) and isinstance(clearance, (int, float)):
+                        durations.append(float(duration))
+                        clearances.append(float(clearance))
+                done = bool(dones[0])
+    finally:
+        vec_env.close()
+
+    def quantiles(values: list[float]) -> dict[str, float]:
+        data = np.asarray(values, dtype=np.float64)
+        if not len(data):
+            return {"p50": 0.0, "p75": 0.0, "p90": 0.0, "max": 0.0}
+        return {
+            "p50": float(np.quantile(data, 0.50)),
+            "p75": float(np.quantile(data, 0.75)),
+            "p90": float(np.quantile(data, 0.90)),
+            "max": float(np.max(data)),
+        }
+
+    return {
+        "episodes": episodes,
+        "event_count": len(durations),
+        "duration_seconds": quantiles(durations),
+        "clearance_meters": quantiles(clearances),
     }
 
 

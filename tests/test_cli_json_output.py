@@ -311,10 +311,11 @@ def test_quality_study_cli_dry_run_json(monkeypatch, capsys, tmp_path):
     payload = json.loads(capsys.readouterr().out)
     assert payload["planned_runs"] == {
         "walker": 0,
-            "walker_velocity": 0,
-            "walker_gait": 0,
-            "walker_velocity_ramp": 0,
-            "arena": 0,
+        "walker_velocity": 0,
+        "walker_gait": 0,
+        "walker_velocity_ramp": 0,
+        "walker_swing_touchdown": 0,
+        "arena": 0,
         "algorithms": 18,
     }
     assert list(tmp_path.iterdir()) == []

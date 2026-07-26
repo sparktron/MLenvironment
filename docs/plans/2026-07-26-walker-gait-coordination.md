@@ -217,6 +217,23 @@ three-seed rerun.
 
 Status: **not entered; Phase 3 produced no surviving candidate**.
 
+## Phase 3c: Sustained-Swing Touchdown Rejection Screen
+
+Status: **rejected at seed 21, 50k**.
+
+Calibration used 3,155 individual stochastic completed-swing events from the
+fixed-target control. Its p75 values were 50 ms airborne duration and 0.492 mm
+clearance, so the candidate used 50 ms and 0.5 mm thresholds, retained target
+velocity 0.15 m/s and stance-slip weight 0.5, and rewarded bounded alternating
+touchdown progress only when both thresholds were met. All behavior and gait
+gates plus a +0.25 m paired stochastic-displacement improvement remained frozen.
+
+The candidate reached 736 stochastic steps, 25% falls, 0.260 m displacement,
+0.159 m/s stance slip, 17.01 alternating touchdowns per 100 steps, and 0.00093
+m progress per alternating touchdown. It improved over the 0.104 m control by
+only +0.157 m, and missed the pre-existing 1 m displacement and 0.003 m
+progress floors. It is rejected; do not run seeds 21--23, 300k, or transfer.
+
 ## Phase 3b: Velocity-Ramp Rejection Screen
 
 Status: **rejected at seed 21, 50k**.

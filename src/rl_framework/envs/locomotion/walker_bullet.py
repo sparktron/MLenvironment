@@ -120,6 +120,8 @@ class WalkerBulletEnv(gym.Env):
                 touchdown_debounce_steps=int(gait_cfg.get("touchdown_debounce_steps", 3)),
                 control_timestep=float(sim_cfg.get("timestep", 1.0 / 240.0))
                 * int(sim_cfg.get("frame_skip", 4)),
+                min_swing_duration=float(gait_cfg.get("min_swing_duration", 0.0)),
+                min_foot_clearance=float(gait_cfg.get("min_foot_clearance", 0.0)),
             )
 
             self.step_count = 0
@@ -598,6 +600,7 @@ class WalkerBulletEnv(gym.Env):
                 "action",
                 "fall",
                 "gait_step_progress",
+                "swing_touchdown_progress",
                 "stance_slip",
             )
         }
@@ -711,6 +714,7 @@ class WalkerBulletEnv(gym.Env):
             "alive": not terminated,
             "fell": terminated,
             "gait_step_progress": gait_step.alternating_step_progress,
+            "sustained_swing_progress": gait_step.sustained_swing_progress,
             "stance_slip_speed": gait_step.stance_slip_speed,
         }
         reward_components = self.reward_fn.components(**reward_inputs)
@@ -752,7 +756,17 @@ class WalkerBulletEnv(gym.Env):
             "left_foot_touchdown": gait_step.left_touchdown,
             "valid_alternating_touchdown": gait_step.valid_alternating_touchdown,
             "gait_step_progress": gait_step.alternating_step_progress,
+            "sustained_swing_progress": gait_step.sustained_swing_progress,
             "stance_slip_speed": gait_step.stance_slip_speed,
+            "swing_touchdown_event": (
+                {
+                    "duration": gait_step.touchdown_swing_duration,
+                    "clearance": gait_step.touchdown_swing_clearance,
+                    "sustained": gait_step.sustained_swing_touchdown,
+                }
+                if gait_step.touchdown_swing_duration is not None
+                else None
+            ),
             "termination_reason": termination_reason,
             "push_applied": push_applied,
         }
