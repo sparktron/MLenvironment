@@ -184,8 +184,9 @@ WALKER_GAIT_GATE: dict[str, Any] = {
 }
 WALKER_VELOCITY_RAMP_VARIANTS: dict[str, dict[str, Any]] = {
     "control": {},
-    "ramp_to_025": {"target_velocity_end": 0.25},
+    "ramp_to_100": {"target_velocity_end": 1.0},
 }
+WALKER_VELOCITY_RAMP_STEPS = 3_000_000
 WALKER_VELOCITY_RAMP_GATE: dict[str, Any] = {
     **WALKER_GAIT_GATE,
     "min_displacement_improvement": 0.25,
@@ -885,7 +886,7 @@ def _run_walker_gait_study(
 def _aggregate_walker_velocity_ramp_results(
     results: dict[str, dict[str, Any]],
     *,
-    candidate_variant: str = "ramp_to_025",
+    candidate_variant: str = "ramp_to_100",
     paired_gate: dict[str, Any] = WALKER_VELOCITY_RAMP_GATE,
     gate_label: str = "velocity_ramp_gate",
 ) -> dict[str, Any]:
@@ -1004,7 +1005,9 @@ def _run_walker_velocity_ramp_study(
             callbacks = (
                 [
                     VelocityTargetRampCallback(
-                        start=0.15, end=target_end, ramp_steps=step_budget
+                        start=0.15,
+                        end=target_end,
+                        ramp_steps=WALKER_VELOCITY_RAMP_STEPS,
                     )
                 ]
                 if target_end > 0.15
@@ -1031,13 +1034,15 @@ def _run_walker_velocity_ramp_study(
 
     aggregate = _aggregate_walker_velocity_ramp_results(diagnostics)
     aggregate["screening_ready"] = (
-        step_budget >= 50_000
+        step_budget >= WALKER_VELOCITY_RAMP_STEPS
         and len(seeds) >= 1
         and len(aggregate["rankings"]) == len(WALKER_VELOCITY_RAMP_VARIANTS)
         and all(row["seeds_completed"] == len(seeds) for row in aggregate["rankings"])
     )
     aggregate["evidence_ready"] = (
-        step_budget >= 150_000 and len(seeds) >= 3 and aggregate["screening_ready"]
+        step_budget >= WALKER_VELOCITY_RAMP_STEPS
+        and len(seeds) >= 3
+        and aggregate["screening_ready"]
     )
     aggregate["promotion_ready"] = bool(
         aggregate["evidence_ready"] and aggregate["promoted_variant"] is not None

@@ -26,6 +26,7 @@ from rl_framework.training.curriculum_callback import CurriculumCallback
 from rl_framework.training.evaluation_workers import resolve_evaluation_workers
 from rl_framework.training.reward_annealing_callback import RewardAnnealingCallback
 from rl_framework.training.self_play_callback import SelfPlayCallback
+from rl_framework.training.velocity_target_ramp_callback import VelocityTargetRampCallback
 from rl_framework.training.self_play_env_wrapper import (
     LeagueSampler,
     SelfPlayEnvWrapper,
@@ -754,6 +755,18 @@ def train(
             name_prefix=f"{algorithm_name.lower()}_model",
         )
         callbacks: list[BaseCallback] = [checkpoint_cb]
+
+        velocity_ramp_cfg = train_cfg.get("velocity_target_ramp")
+        if velocity_ramp_cfg is not None:
+            if env_cfg.get("type") != "walker_bullet":
+                raise ValueError("training.velocity_target_ramp requires walker_bullet")
+            callbacks.append(
+                VelocityTargetRampCallback(
+                    start=float(velocity_ramp_cfg["start"]),
+                    end=float(velocity_ramp_cfg["end"]),
+                    ramp_steps=int(velocity_ramp_cfg["ramp_steps"]),
+                )
+            )
 
         best_model_cfg = cfg.get("evaluation", {}).get("best_model", {})
         if best_model_cfg.get("enabled", False):

@@ -88,11 +88,33 @@ must record both successful changes and failed hypotheses there.
   so the 50k rejection screens cost ~8 s and a three-seed 150k matrix ~75 s,
   while 10M steps costs 28 min. Re-baseline at 5–10M steps per seed before
   running further variant comparisons; deltas at 150k are seed noise. Remaining
-  candidate levers, in order: alive-bonus/fall-penalty economics (standing earns
-  1.075/step against 1.75/step for perfect locomotion, so one extra fall per two
-  episodes erases the whole benefit of walking), target velocity below the
-  dynamically natural band (Froude ≈0.05 at 0.15 m/s), and exploration clamped to
-  ~0.05 rad by `log_std_init: -1.5` with `ent_coef: 0`.
+  candidate levers, in order: alive-bonus/fall-penalty economics and target
+  velocity have now been rebalanced in `walker_low_velocity_candidate`
+  (`alive_bonus: 0.125`, `fall_penalty: 2.0`, and a 0.15→1.0 m/s ramp over 3M
+  continuation steps). The staged candidate now also reopens exploration with
+  `log_std_init: -1.0`, `ent_coef: 1e-3`, a 0.5 action scale, and `gamma:
+  0.995`; evaluate the combined schedule before further reward changes.
+- (2026-07-26) The seed-21 3M economics/natural-velocity screen completed.
+  The 0.15→1.0 m/s ramp improved stochastic displacement from 1.97 m to
+  7.70 m, but failed the frozen gait gate: fall rate was 40% (maximum 30%) and
+  stance slip was 0.317 m/s (maximum 0.18 m/s). Do not promote the ramp; the
+  speed increase needs a mechanism that controls slip and falls.
+- (2026-07-26) Re-baseline before any further A/B work: run the single
+  `walker_low_velocity_candidate` configuration for 10M steps each on seeds
+  21, 22, and 23. Its native training path includes the 0.15→1.0 m/s
+  three-million-step ramp; do not introduce another variant until it walks
+  reliably across all three seeds.
+- (2026-07-27) The three 10M runs completed. At the final 1.0 m/s target,
+  deterministic displacement was 9.02–11.26 m and peak height remained below
+  0.71 m, confirming real forward locomotion rather than a launch. But stance
+  slip was 0.41–0.57 m/s (far above the 0.18 m/s gate) and seed 23's stochastic
+  fall rate was 60%. Do not add a faster target. First evaluate slip/recovery
+  mechanisms with a fixed baseline, one-seed 1M screens, then three-seed 3M
+  confirmation only if every screen meets the existing fall/slip limits.
+- (2026-07-27) Corrected the walker observation documentation: coordinate-free
+  v2 has 35 values including two foot contacts, not the old position-based
+  layout. Previous applied action is now available as an opt-in 10-D v2
+  extension (45 values total); enable it only for a new training lineage.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.

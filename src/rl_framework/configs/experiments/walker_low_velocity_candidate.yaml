@@ -15,7 +15,7 @@ environment:
     timestep: 0.004166667
     frame_skip: 4
     settle_steps: 30
-    action_scale: 0.25
+    action_scale: 0.5
     control:
       mode: pd
       position_gain: 0.1
@@ -23,13 +23,13 @@ environment:
   terrain:
     preset: flat
   reward:
-    alive_bonus: 0.75
+    alive_bonus: 0.125
     forward_velocity_weight: 1.0
     target_velocity: 0.15
     velocity_sigma: 0.25
     orientation_penalty_weight: 1.0
     torque_penalty_weight: 0.02
-    fall_penalty: 40.0
+    fall_penalty: 2.0
   termination:
     min_height: 0.18
     max_height: 1.5
@@ -44,16 +44,21 @@ environment:
 training:
   algorithm: PPO
   policy: MlpPolicy
-  # Continue for 200k after the 100k stochastic-balance checkpoint, producing
-  # a 300k-timestep staged policy.
-  total_timesteps: 200000
+  # Re-baseline this single configuration for 10M steps per seed. Resume from
+  # the stochastic-balance checkpoint and use the fixed-time natural-speed ramp.
+  total_timesteps: 10000000
   num_envs: 24
   n_steps: 128
   batch_size: 256
   n_epochs: 10
   learning_rate: 0.0003
-  log_std_init: -1.5
-  ent_coef: 0.0
+  gamma: 0.995
+  log_std_init: -1.0
+  ent_coef: 0.001
+  velocity_target_ramp:
+    start: 0.15
+    end: 1.0
+    ramp_steps: 3000000
   checkpoint_every: 50000
   normalize_observations: true
   device: cpu

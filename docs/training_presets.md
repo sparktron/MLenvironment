@@ -18,7 +18,7 @@ benefits from it.
 |---|---|---|
 | Balance first | `walker_balance_curriculum` | Explicit 28 kg torso physics; starts at 25% action range and unlocks slow then faster motion only after conjunctive survival/displacement gates. |
 | Stochastic balance candidate | `walker_stochastic_balance_candidate` | Winning 100k balance stage with `log_std_init: -1.5`, no entropy bonus, and a 15% action range. |
-| Low-velocity follow-up | `walker_low_velocity_candidate` | Fixed 200k continuation at a 0.15 m/s target and 25% action range, producing a 300k staged policy. |
+| Natural-velocity follow-up | `walker_low_velocity_candidate` | Rebalanced 200k continuation with a 0.125 survival bonus, 2.0 terminal fall cost, 50% action range, `gamma: 0.995`, and reopened PPO exploration (`log_std_init: -1.0`, `ent_coef: 1e-3`); the quality-study ramp advances its 0.15 m/s starting target toward 1.0 m/s over 3M continuation steps. |
 | Flat | `walker_curriculum_flat` | Starts at 0.4 m/s and raises the speed target. |
 | Uneven | `walker_curriculum_uneven` | Deterministic low-height blocks begin beyond the spawn area. |
 | Obstacles | `walker_curriculum_obstacles` | Three static 10 cm obstacles along the walking path. |

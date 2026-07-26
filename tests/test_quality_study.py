@@ -227,6 +227,12 @@ def test_walker_gait_study_resumes_seed_matched_continuations(
 
 
 def test_walker_velocity_ramp_requires_frozen_gates_and_control_improvement() -> None:
+    assert quality_study.WALKER_VELOCITY_RAMP_VARIANTS == {
+        "control": {},
+        "ramp_to_100": {"target_velocity_end": 1.0},
+    }
+    assert quality_study.WALKER_VELOCITY_RAMP_STEPS == 3_000_000
+
     control = _diagnostic_result()
     candidate = _diagnostic_result()
     control["stochastic"] = {**control["stochastic"], "forward_displacement_mean": 1.2}
@@ -236,14 +242,14 @@ def test_walker_velocity_ramp_requires_frozen_gates_and_control_improvement() ->
     }
 
     aggregate = quality_study._aggregate_walker_velocity_ramp_results(
-        {"control/seed_21": control, "ramp_to_025/seed_21": candidate}
+        {"control/seed_21": control, "ramp_to_100/seed_21": candidate}
     )
 
-    ramp = next(row for row in aggregate["rankings"] if row["variant"] == "ramp_to_025")
+    ramp = next(row for row in aggregate["rankings"] if row["variant"] == "ramp_to_100")
     assert ramp["frozen_gate_passed"] is True
     assert ramp["displacement_improvement_over_control"] == pytest.approx(0.3)
     assert ramp["gate_passed"] is True
-    assert aggregate["promoted_variant"] == "ramp_to_025"
+    assert aggregate["promoted_variant"] == "ramp_to_100"
 
 
 def test_wall_clock_callback_stops_after_budget(monkeypatch) -> None:

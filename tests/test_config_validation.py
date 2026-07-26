@@ -320,6 +320,27 @@ def test_robot_push_recovery_config_uses_current_atlas_body() -> None:
     assert cfg["environment"]["terrain"]["preset"] == "push_recovery"
 
 
+def test_walker_low_velocity_candidate_uses_rebalanced_reward_economics() -> None:
+    cfg = to_container(
+        load_config("walker_low_velocity_candidate", "src/rl_framework/configs/experiments")
+    )
+
+    validate_experiment_config(cfg)
+    reward = cfg["environment"]["reward"]
+    assert reward["alive_bonus"] == 0.125
+    assert reward["fall_penalty"] == 2.0
+    assert cfg["environment"]["sim"]["action_scale"] == 0.5
+    training = cfg["training"]
+    assert training["gamma"] == 0.995
+    assert training["log_std_init"] == -1.0
+    assert training["ent_coef"] == 0.001
+    assert training["velocity_target_ramp"] == {
+        "start": 0.15,
+        "end": 1.0,
+        "ramp_steps": 3_000_000,
+    }
+
+
 @pytest.mark.parametrize(
     "name",
     [

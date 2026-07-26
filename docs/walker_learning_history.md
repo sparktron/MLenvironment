@@ -487,6 +487,51 @@ method is sound; it has been spent adjudicating noise.
 **Decision:** re-baseline at 5–10M steps per seed before running further
 variant comparisons. This is a measurement, not yet a successful change.
 
+## 2026-07-27 — Three-Seed 10M Natural-Velocity Re-Baseline
+
+**Question:** does the combined rebalanced, reopened-exploration configuration
+learn stable walking at the dynamically natural 1.0 m/s target?
+
+**Protocol:** seeds 21–23 each resumed their matched `velocity_sigma_010`
+checkpoint for 10M continuation steps. The fixed configuration used 0.5 action
+scale, `gamma: 0.995`, `log_std_init: -1.0`, `ent_coef: 1e-3`, low survival/fall
+economics, and a 0.15→1.0 m/s ramp over 3M steps. Final models were evaluated
+for 20 deterministic and 20 stochastic episodes at 1.0 m/s.
+
+**Observed result:** deterministic displacement was 9.78, 11.26, and 9.02 m
+for seeds 21–23; peak torso height never exceeded 0.71 m. Stochastic
+displacement was 9.86, 10.37, and 5.67 m, respectively. The mechanism is not
+yet robust: stochastic fall rates were 30%, 25%, and 60%, while stance slip was
+0.48, 0.57, and 0.41 m/s. Stride length increased to 5.7–9.0 cm but remains
+below the 10 cm gate.
+
+**Decision:** retain the natural-speed direction but do not promote it. Next,
+isolate slip/recovery mechanisms with a fixed baseline: (1) measure per-foot
+slip, touchdown speed, and fall lead-up from renders/telemetry; (2) screen only
+one conservative slip-control intervention at a time for 1M on seed 21; (3)
+advance only candidates meeting ≤30% falls and ≤0.18 m/s slip to seeds 21–23 ×
+3M; and (4) require all existing gait floors before transfer testing. Artifacts:
+`outputs/walker_low_velocity_candidate/seed_{21,22,23}/scale_evaluation_1ms.json`.
+
+## 2026-07-26 — Reward Economics And Natural-Velocity Ramp
+
+**Question:** can reducing survival/fall distortion and ramping from 0.15 to
+1.0 m/s over 3M continuation steps produce useful walking?
+
+**Source and change:** seed 21 resumed the 150k `velocity_sigma_010`
+checkpoint. Both arms used `alive_bonus: 0.125`, `fall_penalty: 2.0`, and slip
+weight 0.5; the control retained 0.15 m/s, while the candidate used the fixed
+three-million-step `VelocityTargetRampCallback`.
+
+**Observed result:** across 20 stochastic episodes, the control achieved 800
+mean steps, no falls, 1.97 m displacement, and 0.056 m/s stance slip. The ramp
+achieved 7.70 m displacement, but only 594 mean steps, a 40% fall rate, and
+0.317 m/s stance slip. Peak height remained safe at 0.689 m.
+
+**Decision:** reject the candidate despite its +5.73 m displacement gain: it
+fails the frozen 30% fall and 0.18 m/s slip limits. Artifacts:
+`outputs/quality_studies_walker_velocity_ramp_3m_20260726`.
+
 ## How To Append A Future Entry
 
 Do not rewrite an old failure to make a later result look inevitable. Add a

@@ -40,7 +40,7 @@ python scripts/check_repo_policy.py                    # custom — enforces no 
 - Recent overhaul: env uses **PD position control** by default. The `sim.control` block in YAML is **nested** (`mode`, `position_gain`, `velocity_gain`); the wizard previously flattened it to `control: null`, which the env tolerates by falling back to defaults — but a hand-written YAML should keep the nested form.
 - Physics is **240 Hz** with **frame_skip=4** → 60 Hz control. `timestep`, `frame_skip`, `settle_steps` are all in the `sim` block.
 - Termination is **contact-based** (torso touches ground) plus `min_height` and `max_height` fallbacks. **Tilt does not end episodes.** `max_height: 1.5 m` is a deliberate backstop against PD-jackhammer self-launching exploits — don't loosen it without thinking.
-- Obs shape is **35**: `pos(3)+quat(4)+lin_vel(3)+ang_vel(3)+joint_pos(10)+joint_vel(10)+mass_scale(1)+friction_scale(1)`. The last two surface domain-randomization to the policy.
+- Coordinate-free v2 obs shape is **35**: `z(1)+quat(4)+lin_vel(3)+ang_vel(3)+joint_pos(10)+joint_vel(10)+mass_scale(1)+friction_scale(1)+foot_contacts(2)`. Contacts expose the contact state used by contact-driven rewards. Set `observation.include_previous_action: true` to append the 10-D normalized action actually applied to PD control (shape **45**); this is checkpoint-incompatible.
 - Action shape is **10**: `[rHip, rKnee, rAnkle, lHip, lKnee, lAnkle, rShoulder, rElbow, lShoulder, lElbow]`. `action[i]=0` maps to the joint's rest pose (NOT joint midpoint).
 - Robot is Atlas-DRC-class: 28 kg torso, 65.9 kg total, hip/knee 190/220 N·m, ankle 100, shoulder 90, elbow 100 N·m.
 

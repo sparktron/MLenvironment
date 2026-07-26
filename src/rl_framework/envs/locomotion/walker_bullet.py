@@ -81,14 +81,19 @@ class WalkerBulletEnv(gym.Env):
             obs_cfg = get_section(cfg, "observation")
             self._observation_version = str(obs_cfg.get("version", "v1"))
             self._coordinate_free = bool(obs_cfg.get("coordinate_free", False))
+            self._include_previous_action = bool(obs_cfg.get("include_previous_action", False))
             if self._observation_version == "v1" and self._coordinate_free:
                 raise ValueError("observation.coordinate_free requires observation.version: v2")
+            if self._observation_version == "v1" and self._include_previous_action:
+                raise ValueError("observation.include_previous_action requires observation.version: v2")
             # v1: pos(3)+quat(4)+lin_vel(3)+ang_vel(3)+joints(20)+DR(2) = 35
             # v2 adds binary right/left foot contacts. Coordinate-free v2
             # drops global x/y position, keeping height as the useful local cue.
             self._obs_size = 35 + (2 if self._observation_version == "v2" else 0)
             if self._coordinate_free:
                 self._obs_size -= 2
+            if self._include_previous_action:
+                self._obs_size += 10
             # joints: rHip rKnee rAnkle lHip lKnee lAnkle rShoulder rElbow lShoulder lElbow
             # The DR scales make randomization observable to the policy; without
             # them, random mass/friction look like pure noise from the agent's
@@ -99,6 +104,7 @@ class WalkerBulletEnv(gym.Env):
             self.action_space = spaces.Box(
                 low=-1.0, high=1.0, shape=(10,), dtype=np.float32
             )
+            self._previous_action = np.zeros(self.action_space.shape, dtype=np.float32)
 
             # Domain randomisation: sensor noise
             rand_cfg = get_section(cfg, "domain_randomization")
@@ -432,6 +438,8 @@ class WalkerBulletEnv(gym.Env):
             values.extend(
                 float(contact) for contact in foot_contacts
             )
+        if self._include_previous_action:
+            values.extend(self._previous_action)
         self._obs_buf[:] = values
         if self._sensor_noise_std > 0.0:
             obs = self._obs_buf + self._rng.normal(
@@ -610,6 +618,7 @@ class WalkerBulletEnv(gym.Env):
             initial_contacts=foot_contacts,
             action_size=action_size,
         )
+        self._previous_action.fill(0.0)
         obs = self._get_obs(foot_contacts=foot_contacts)
         return obs, {}
 
@@ -676,6 +685,7 @@ class WalkerBulletEnv(gym.Env):
             foot_positions=foot_positions,
             applied_action=applied_action,
         )
+        self._previous_action = action.copy()
         obs = self._get_obs(
             pos=pos,
             quat=quat,

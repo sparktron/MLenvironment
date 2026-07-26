@@ -574,6 +574,24 @@ compared fixed 0.15 m/s with a 0.15--0.25 m/s target ramp. The ramp reached
 gates. Qualified-swing telemetry found no longer stride or swing, so the ramp
 was rejected without a three-seed or transfer stage.
 
+The next velocity-ramp design resets its economics: the staged candidate uses
+an `alive_bonus` of 0.125 and a 2.0 terminal fall penalty, then linearly ramps
+the target from 0.15 to 1.0 m/s across 3,000,000 continuation steps. Ramp
+screening and evidence gates require that full schedule, so shorter runs do
+not evaluate a nearly unchanged quasi-static target.
+
+The seed-21 3M screen completed both the fixed-target control and the full
+ramp. The ramp increased stochastic displacement from 1.97 m to 7.70 m, but
+failed the frozen gate with a 40% fall rate and 0.317 m/s stance slip (limits:
+30% and 0.18 m/s). It is not promoted.
+
+The subsequent 10M-per-seed re-baseline confirmed that the ramp learns genuine
+high-speed forward progress, not a launch: deterministic displacement was
+9.02–11.26 m at the final 1.0 m/s target, with peak height below 0.71 m. It is
+not yet reliable walking: stance slip was 0.41–0.57 m/s, and seed 23 fell in
+60% of stochastic rollouts. The next evaluation phase isolates slip/recovery
+mechanisms before adding more speed or reward variants.
+
 The follow-up seed-21 50k sustained-swing touchdown screen calibrated its
 thresholds from 3,155 individual stochastic touchdown events—not episode
 means—on the fixed-target control: 50 ms airborne duration and 0.5 mm clearance
@@ -787,7 +805,7 @@ reward_annealing:
 | **robot_push_recovery** | `walker_bullet` | Lateral push-recovery curriculum plus aggressive mass/friction randomization. |
 | **walker_balance_curriculum** | `walker_bullet` | Balance-first, behavior-gated action/velocity curriculum using explicit Atlas-class physics. |
 | **walker_stochastic_balance_candidate** | `walker_bullet` | Winning 100k stochastic-balance stage: low initial policy variance and 15% action range. |
-| **walker_low_velocity_candidate** | `walker_bullet` | Fixed 200k, 0.15 m/s continuation for a stochastic-balance checkpoint; together the stages total 300k. |
+| **walker_low_velocity_candidate** | `walker_bullet` | Single 10M-step, three-seed natural-velocity re-baseline: low survival/fall economics, reopened exploration, a 0.5 action scale, `gamma: 0.995`, and a built-in 0.15→1.0 m/s ramp over 3M steps. |
 | **walker_curriculum_flat** | `walker_bullet` | Flat-ground speed curriculum. |
 | **walker_curriculum_uneven** | `walker_bullet` | Uneven-terrain speed curriculum. |
 | **walker_curriculum_obstacles** | `walker_bullet` | Low-obstacle speed curriculum. |
@@ -802,7 +820,7 @@ Rigid-body bipedal walker in PyBullet. Goal: maintain upright posture while trac
 
 | Property | Value |
 |---|---|
-| **Observation** | v1 `Box(35,)`; v2 `Box(37,)` adds right/left foot contacts. Coordinate-free v2 is `Box(35,)` without global x/y. |
+| **Observation** | v1 `Box(35,)`; v2 `Box(37,)` adds right/left foot contacts. Coordinate-free v2 is `Box(35,)`: `z`, orientation/velocities, 20 joint values, domain-randomization scales, and two contacts. Set `include_previous_action: true` to append the 10-D applied PD action (`Box(45,)`); this is checkpoint-incompatible. |
 | **Action** | `Box(10,)` — normalized joint targets for hips, knees, ankles, shoulders, and elbows |
 | **Reward** | alive bonus + velocity tracking − orientation penalty − torque penalty |
 
