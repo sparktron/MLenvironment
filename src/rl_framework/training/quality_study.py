@@ -29,48 +29,55 @@ from rl_framework.utils.config_merge import set_nested
 
 
 WALKER_VARIANTS: dict[str, tuple[str, dict[str, Any]]] = {
-    "balance_first": ("walker_balance_curriculum", {}),
-    "balance_first_conservative": (
+    "balance_low_std": (
         "walker_balance_curriculum",
         {
+            "training.log_std_init": -1.0,
+            "curriculum.warmup_steps": 200_000,
+        },
+    ),
+    "balance_low_std_low_entropy": (
+        "walker_balance_curriculum",
+        {
+            "training.log_std_init": -1.0,
+            "training.ent_coef": 0.0,
+            "curriculum.warmup_steps": 200_000,
+        },
+    ),
+    "balance_low_std_conservative": (
+        "walker_balance_curriculum",
+        {
+            "training.log_std_init": -1.5,
+            "training.ent_coef": 0.0,
             "environment.sim.action_scale": 0.15,
             "environment.reward.orientation_penalty_weight": 1.5,
             "environment.reward.fall_penalty": 40.0,
+            "curriculum.warmup_steps": 200_000,
+        },
+    ),
+    "balance_low_std_slow_scale": (
+        "walker_balance_curriculum",
+        {
+            "training.log_std_init": -1.5,
+            "training.ent_coef": 0.0,
+            "environment.sim.action_scale": 0.10,
+            "environment.reward.orientation_penalty_weight": 1.5,
+            "environment.reward.fall_penalty": 40.0,
+            "curriculum.warmup_steps": 200_000,
             "curriculum.level_params": {
                 1: {
-                    "sim.action_scale": 0.35,
+                    "sim.action_scale": 0.25,
                     "reward.alive_bonus": 0.75,
                     "reward.forward_velocity_weight": 1.0,
                     "reward.target_velocity": 0.15,
                     "reward.orientation_penalty_weight": 1.0,
                 },
                 2: {
-                    "sim.action_scale": 0.70,
+                    "sim.action_scale": 0.50,
                     "reward.alive_bonus": 0.50,
                     "reward.forward_velocity_weight": 2.0,
                     "reward.target_velocity": 0.40,
                     "reward.orientation_penalty_weight": 0.7,
-                },
-            },
-        },
-    ),
-    "balance_first_velocity_ramp": (
-        "walker_balance_curriculum",
-        {
-            "curriculum.level_params": {
-                1: {
-                    "sim.action_scale": 0.60,
-                    "reward.alive_bonus": 0.75,
-                    "reward.forward_velocity_weight": 1.5,
-                    "reward.target_velocity": 0.30,
-                    "reward.orientation_penalty_weight": 0.8,
-                },
-                2: {
-                    "sim.action_scale": 1.0,
-                    "reward.alive_bonus": 0.50,
-                    "reward.forward_velocity_weight": 2.5,
-                    "reward.target_velocity": 0.70,
-                    "reward.orientation_penalty_weight": 0.5,
                 },
             },
         },
@@ -86,6 +93,14 @@ WALKER_BEHAVIOR_GATE = {
     "min_episode_length": 760.0,
     "min_forward_displacement": 3.0,
     "max_fall_rate": 0.10,
+    "max_peak_z": 1.0,
+}
+WALKER_BALANCE_GATE = {
+    "evaluation_mode": "stochastic",
+    "terrain": "flat",
+    "min_episode_length": 600.0,
+    "max_fall_rate": 0.30,
+    "max_abs_forward_displacement": 0.75,
     "max_peak_z": 1.0,
 }
 
@@ -322,17 +337,36 @@ def _walker_behavior_passed(result: dict[str, Any]) -> bool:
     return False
 
 
+def _walker_balance_passed(result: dict[str, Any]) -> bool:
+    """Return whether stochastic actions produce stable, non-exploitative balance."""
+    metrics = result[WALKER_BALANCE_GATE["evaluation_mode"]]
+    return bool(
+        metrics["episode_length_mean"]
+        >= WALKER_BALANCE_GATE["min_episode_length"]
+        and metrics["fall_rate"] <= WALKER_BALANCE_GATE["max_fall_rate"]
+        and abs(metrics["forward_displacement_mean"])
+        <= WALKER_BALANCE_GATE["max_abs_forward_displacement"]
+        and metrics["peak_z_mean"] < WALKER_BALANCE_GATE["max_peak_z"]
+    )
+
+
 def _aggregate_walker_results(
     results: dict[str, dict[str, dict[str, Any]]]
 ) -> dict[str, Any]:
     by_variant: dict[str, list[float]] = {}
     behavior_by_variant: dict[str, list[bool]] = {}
+    balance_by_variant: dict[str, list[bool]] = {}
     for run_key, terrain_results in results.items():
         variant = run_key.split("/", 1)[0]
         by_variant.setdefault(variant, []).append(_behavior_score(terrain_results))
         behavior_by_variant.setdefault(variant, []).extend(
             _walker_behavior_passed(result) for result in terrain_results.values()
         )
+        flat_result = terrain_results.get(WALKER_BALANCE_GATE["terrain"])
+        if flat_result is not None:
+            balance_by_variant.setdefault(variant, []).append(
+                _walker_balance_passed(flat_result)
+            )
     rankings = [
         {
             "variant": variant,
@@ -346,6 +380,13 @@ def _aggregate_walker_results(
             "behavioral_eval_pass_rate": float(
                 np.mean(behavior_by_variant.get(variant, [False]))
             ),
+            "balance_gate_passed": bool(
+                balance_by_variant.get(variant)
+                and all(balance_by_variant[variant])
+            ),
+            "balance_eval_pass_rate": float(
+                np.mean(balance_by_variant.get(variant, [False]))
+            ),
         }
         for variant, values in by_variant.items()
     ]
@@ -356,10 +397,16 @@ def _aggregate_walker_results(
         (row["variant"] for row in rankings if row["behavioral_gate_passed"]),
         None,
     )
+    balance_candidate = next(
+        (row["variant"] for row in rankings if row["balance_gate_passed"]),
+        None,
+    )
     return {
         "rankings": rankings,
         "recommended_variant": rankings[0]["variant"] if rankings else None,
+        "balance_candidate": balance_candidate,
         "promoted_variant": promoted,
+        "balance_gate": WALKER_BALANCE_GATE,
         "behavioral_gate": WALKER_BEHAVIOR_GATE,
     }
 
@@ -402,6 +449,15 @@ def _run_walker_study(
                 _atomic_json_write(state_path, state)
             diagnostics[key] = run["diagnostics"]
     aggregate = _aggregate_walker_results(diagnostics)
+    aggregate["screening_ready"] = (
+        len(seeds) >= 1
+        and step_budget >= 100_000
+        and len(aggregate["rankings"]) == len(WALKER_VARIANTS)
+        and all(row["seeds_completed"] == len(seeds) for row in aggregate["rankings"])
+    )
+    aggregate["balance_ready"] = bool(
+        aggregate["screening_ready"] and aggregate["balance_candidate"] is not None
+    )
     aggregate["evidence_ready"] = (
         len(seeds) >= 3
         and step_budget >= 300_000

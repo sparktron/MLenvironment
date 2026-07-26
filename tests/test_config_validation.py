@@ -133,6 +133,33 @@ def test_validate_experiment_config_rejects_non_positive_learning_rate() -> None
         validate_experiment_config(cfg)
 
 
+@pytest.mark.parametrize("value", [-21.0, 2.1, True, "low"])
+def test_validate_experiment_config_rejects_invalid_log_std_init(value) -> None:
+    cfg = _base_cfg()
+    cfg["training"]["log_std_init"] = value
+
+    with pytest.raises(ValueError, match="training.log_std_init"):
+        validate_experiment_config(cfg)
+
+
+def test_validate_experiment_config_rejects_log_std_init_for_sac() -> None:
+    cfg = _base_cfg()
+    cfg["training"]["algorithm"] = "SAC"
+    cfg["training"]["log_std_init"] = -1.0
+
+    with pytest.raises(ValueError, match="supported only for PPO"):
+        validate_experiment_config(cfg)
+
+
+@pytest.mark.parametrize("value", [-0.01, True, "zero"])
+def test_validate_experiment_config_rejects_invalid_entropy_coefficient(value) -> None:
+    cfg = _base_cfg()
+    cfg["training"]["ent_coef"] = value
+
+    with pytest.raises(ValueError, match="training.ent_coef"):
+        validate_experiment_config(cfg)
+
+
 def test_validate_experiment_config_rejects_batch_larger_than_rollout() -> None:
     cfg = _base_cfg()
     cfg["training"]["n_steps"] = 32
@@ -289,6 +316,8 @@ def test_robot_push_recovery_config_uses_current_atlas_body() -> None:
     "name",
     [
         "walker_balance_curriculum",
+        "walker_low_velocity_candidate",
+        "walker_stochastic_balance_candidate",
         "walker_curriculum_flat",
         "walker_curriculum_uneven",
         "walker_curriculum_obstacles",

@@ -456,12 +456,18 @@ three seeds, common/resource-native tournaments timed out universally and the
 depth-native timeout rate was 99.7%, with essentially no learned attack damage.
 PPO/SAC/TD3 comparisons remain deferred until walker behavior improves.
 
-The current walker matrix compares `balance_first`,
-`balance_first_conservative`, and `balance_first_velocity_ramp`, all with
-`num_envs: 24`, `n_steps: 128`, and `batch_size: 256`. Reports distinguish
-`evidence_ready` from `promotion_ready`: promotion additionally requires robust
-transfer behavior (at least 760 steps, 3 m displacement, at most 10% falls, and
-peak torso height below 1 m). Arena depth candidates test feasible combat
+The current walker matrix compares four exploration-noise candidates:
+`balance_low_std`, `balance_low_std_low_entropy`,
+`balance_low_std_conservative`, and `balance_low_std_slow_scale`, all with
+`num_envs: 24`, `n_steps: 128`, and `batch_size: 256`. A one-seed 100k screen
+selects a balance candidate only when stochastic flat-terrain evaluation
+averages at least 600 steps, falls at most 30% of the time, stays within
+0.75 m of its starting position, and keeps peak torso height below 1 m.
+Curriculum progression is frozen until 200k steps so this short screen measures
+balance only.
+Reports distinguish this `balance_ready` result from final `promotion_ready`;
+promotion still requires robust locomotion transfer (at least 760 steps, 3 m
+displacement, at most 10% falls, and peak torso height below 1 m). Arena depth candidates test feasible combat
 (`attack_range: 0.4`, `attack_cost: 0.02`) with and without distance-progress
 shaping; their gate requires nonzero hits/damage and timeout below 90%.
 
@@ -480,6 +486,16 @@ policy moved only 0.10 m and its stochastic policy averaged 275 steps with a
 100% fall rate over 20 episodes. The conservative variant improved stochastic
 survival to 405 steps and an 85% fall rate, still below the short-run scaling
 gate. PPO/SAC/TD3 comparisons remain deferred.
+
+The exploration-noise follow-up exposed PPO's initial action standard
+deviation and compared four level-0 variants. At 100k steps, the selected
+`balance_low_std_conservative` candidate averaged 800 stochastic steps with
+0% falls. Continuing it for 150k at a 0.15 m/s target produced 675 stochastic
+steps, 25% falls, and 1.12 m displacement. A subsequent independent
+three-seed staged replication (100k balance + 200k low velocity) averaged
+700 steps, an 18% fall rate, and 0.93 m displacement. Seed 22 reached 1.60 m
+with 5% falls, but the other seeds did not reproduce that locomotion, so the
+candidate remains unpromoted.
 
 ---
 
@@ -591,6 +607,8 @@ training:
   policy: MlpPolicy                  # SB3 policy class
   total_timesteps: 20000             # Total training steps
   learning_rate: 0.0003              # PPO learning rate
+  log_std_init: -1.0                 # PPO initial action log std (exp(-1) ≈ 0.37)
+  ent_coef: 0.0                      # PPO entropy bonus coefficient
   n_steps: 1024                      # Steps per rollout buffer
   batch_size: 256                    # Minibatch size
   checkpoint_every: 5000             # Save a checkpoint every N environment steps
@@ -662,6 +680,8 @@ reward_annealing:
 | **robot_walk_basic** | `walker_bullet` | Bipedal locomotion with domain randomization. Sweeps velocity & torque penalty. ✅ Good for getting started |
 | **robot_push_recovery** | `walker_bullet` | Lateral push-recovery curriculum plus aggressive mass/friction randomization. |
 | **walker_balance_curriculum** | `walker_bullet` | Balance-first, behavior-gated action/velocity curriculum using explicit Atlas-class physics. |
+| **walker_stochastic_balance_candidate** | `walker_bullet` | Winning 100k stochastic-balance stage: low initial policy variance and 15% action range. |
+| **walker_low_velocity_candidate** | `walker_bullet` | Fixed 200k, 0.15 m/s continuation for a stochastic-balance checkpoint; together the stages total 300k. |
 | **walker_curriculum_flat** | `walker_bullet` | Flat-ground speed curriculum. |
 | **walker_curriculum_uneven** | `walker_bullet` | Uneven-terrain speed curriculum. |
 | **walker_curriculum_obstacles** | `walker_bullet` | Low-obstacle speed curriculum. |

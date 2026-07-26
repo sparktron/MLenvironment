@@ -80,6 +80,27 @@ def test_walker_train_produces_model_and_vecnorm(tmp_path: Path) -> None:
     assert vecnorm_path.exists(), f"vecnormalize.pkl not found alongside {zip_path}"
 
 
+def test_walker_ppo_uses_configured_initial_log_std(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The exploration ablation must reach PPO's policy constructor."""
+    from rl_framework.training import sb3_runner
+
+    observed = {}
+
+    def _capture_policy(self, total_timesteps, callback=None, **kwargs):
+        observed["log_std"] = self.policy.log_std.detach().cpu().numpy().copy()
+        return self
+
+    monkeypatch.setattr(sb3_runner.PPO, "learn", _capture_policy)
+    cfg = _walker_cfg(tmp_path, timesteps=64, checkpoint_every=64)
+    cfg["training"]["log_std_init"] = -1.5
+
+    sb3_runner.train(cfg)
+
+    assert observed["log_std"].tolist() == [-1.5] * 10
+
+
 def test_gui_parallel_frame_capture_trains_and_captures(tmp_path: Path) -> None:
     """GUI capture keeps worker 1 headless while satisfying SB3's requirement
     that all vector workers advertise identical render-mode metadata."""

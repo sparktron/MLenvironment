@@ -91,6 +91,12 @@ def _parse_args() -> argparse.Namespace:
         help="Comma-separated seeds for multi-seed runs (e.g. 0,1,2,3,4)",
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Override the single-run global and environment seed.",
+    )
+    parser.add_argument(
         "--max-workers",
         type=int,
         default=None,
@@ -484,6 +490,9 @@ def main() -> None:
 
     cfg = load_config(args.config_name, args.config_dir)
     cfg_dict = to_container(cfg)
+    if args.seed is not None:
+        cfg_dict["seed"] = args.seed
+        cfg_dict.setdefault("environment", {})["seed"] = args.seed
     if args.device:
         cfg_dict.setdefault("training", {})["device"] = args.device
     if args.total_timesteps is not None:

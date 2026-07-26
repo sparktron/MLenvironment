@@ -46,6 +46,30 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
 
     if "learning_rate" in cfg["training"]:
         _ensure_positive_number(cfg["training"]["learning_rate"], "training.learning_rate")
+    if "log_std_init" in cfg["training"]:
+        if algorithm != "PPO":
+            raise ValueError("training.log_std_init is supported only for PPO")
+        log_std_init = cfg["training"]["log_std_init"]
+        if (
+            isinstance(log_std_init, bool)
+            or not isinstance(log_std_init, (int, float))
+            or not -20.0 <= log_std_init <= 2.0
+        ):
+            raise ValueError(
+                "training.log_std_init must be a number in [-20, 2], "
+                f"got {log_std_init!r}"
+            )
+    if algorithm == "PPO" and "ent_coef" in cfg["training"]:
+        ent_coef = cfg["training"]["ent_coef"]
+        if (
+            isinstance(ent_coef, bool)
+            or not isinstance(ent_coef, (int, float))
+            or ent_coef < 0
+        ):
+            raise ValueError(
+                "training.ent_coef must be a non-negative number, "
+                f"got {ent_coef!r}"
+            )
     if "n_steps" in cfg["training"]:
         _ensure_int(cfg["training"]["n_steps"], "training.n_steps", min_value=1)
     if "batch_size" in cfg["training"]:

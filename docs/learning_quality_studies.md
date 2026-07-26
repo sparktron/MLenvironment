@@ -91,6 +91,55 @@ launching. The short-run scaling target (400 steps, 1.5 m displacement, below
 30% falls) was not met, so another three-seed promotion run and PPO/SAC/TD3
 comparisons remain deferred.
 
+### Stochastic balance exploration screen
+
+The next one-seed 100k–150k screen isolates the policy exploration settings
+that deterministic evaluation bypasses:
+
+| Candidate | Initial log std | Entropy coefficient | Initial action scale | Later action scales |
+|---|---:|---:|---:|---|
+| `balance_low_std` | -1.0 | 0.005 | 0.25 | 0.50, 1.00 |
+| `balance_low_std_low_entropy` | -1.0 | 0.0 | 0.25 | 0.50, 1.00 |
+| `balance_low_std_conservative` | -1.5 | 0.0 | 0.15 | 0.50, 1.00 |
+| `balance_low_std_slow_scale` | -1.5 | 0.0 | 0.10 | 0.25, 0.50 |
+
+The screen uses stochastic flat-terrain evaluation only and requires at least
+600 mean episode steps, at most 30% falls, absolute displacement no greater
+than 0.75 m, and peak torso height below 1 m. Passing this balance gate selects
+a candidate for a separate low-velocity walking run; it does not satisfy the
+final locomotion promotion gate. All four candidates keep curriculum level 0
+frozen until 200k steps, so a 100k–150k screen cannot accidentally mix balance
+learning with the movement stage.
+
+The seed-13 100k screen selected `balance_low_std_conservative`:
+
+| Candidate | Stochastic steps | Fall rate | Displacement |
+|---|---:|---:|---:|
+| `balance_low_std` | 493.7 | 80% | +0.23 m |
+| `balance_low_std_low_entropy` | 594.6 | 60% | +0.07 m |
+| `balance_low_std_conservative` | 800.0 | 0% | -0.25 m |
+| `balance_low_std_slow_scale` | 800.0 | 0% | -0.19 m |
+
+A 150k low-velocity continuation of the selected checkpoint cleared the short
+walking gate over 20 episodes: 675.3 stochastic steps, 25% falls, 1.12 m
+forward displacement, and 0.682 m peak torso height. Video inspection showed a
+small alternating-foot shuffle rather than sliding or launching.
+
+The protocol was then replicated from scratch for seeds 21–23 using 100k
+balance steps followed by 200k fixed low-velocity steps:
+
+| Seed | Stochastic steps | Fall rate | Displacement |
+|---:|---:|---:|---:|
+| 21 | 615.3 | 30% | +0.76 m |
+| 22 | 778.8 | 5% | +1.60 m |
+| 23 | 706.4 | 20% | +0.44 m |
+| **Mean** | **700.2** | **18.3%** | **+0.93 m** |
+
+Balance and fall resistance now generalize across seeds, but forward
+locomotion does not. Only seed 22 crossed 1 m, so this is partial evidence and
+does not unlock the final 3 m locomotion promotion gate or algorithm
+comparison.
+
 ## Preliminary Run — 2026-07-19
 
 Three-seed preliminary studies validated the complete workflow at deliberately

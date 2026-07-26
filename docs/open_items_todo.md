@@ -21,12 +21,13 @@ the completed summary below so completed work is not presented as pending.
   remained `untrained_equivalent`, and arena matches timed out almost
   universally. Detailed evidence is in
   [`learning_quality_studies.md`](learning_quality_studies.md).
-- The balance-first walker iteration now learns deterministic 800-step
-  standing at 100k steps, but not locomotion. The conservative variant improved
-  stochastic survival to 405 steps while still falling 85% of the time and
-  moving backward. Refine stochastic balance/exploration until a short run
-  reaches 400 steps, 1.5 m displacement, and below 30% falls; only then repeat
-  three seeds × 300k. Keep PPO/SAC/TD3 comparisons deferred until this clears.
+- The stochastic-balance and low-velocity phases now pass their one-seed
+  screens. Independent staged seeds 21–23 (100k balance + 200k low velocity)
+  averaged 700 stochastic steps, 18.3% falls, and 0.93 m displacement. Only
+  seed 22 produced clear forward locomotion (1.60 m), so locomotion remains
+  seed-sensitive. Improve forward-progress consistency without sacrificing the
+  now-robust balance behavior, then repeat the staged three-seed gate. Keep
+  PPO/SAC/TD3 comparisons deferred until the final 3 m transfer gate clears.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.
@@ -41,6 +42,15 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-26) Completed the exploration-noise and staged low-velocity plan.
+  PPO exposes validated initial action variance; four 100k candidates isolated
+  variance, entropy, and action range; the winner advanced through a 150k
+  continuation and an independent three-seed 300k staged replication. Balance
+  generalized, while locomotion remained inconsistent across seeds.
+- (2026-07-26) Added the stochastic-balance exploration screen. PPO training
+  now accepts a validated `log_std_init`, the GUI exposes it, and walker
+  reports distinguish a one-seed balance gate from the final multi-seed
+  locomotion promotion gate.
 - (2026-07-26) Implemented and screened the balance-first walker iteration.
   Rendering found and the environment closed a raised-terrain torso-contact
   loophole. Walker telemetry now decomposes rewards and logs terminal behavior;

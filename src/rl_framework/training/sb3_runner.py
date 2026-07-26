@@ -671,6 +671,10 @@ def train(
                 "device": train_cfg.get("device", "auto"),
                 "verbose": 1,
             }
+            if algorithm_name == "PPO" and "log_std_init" in train_cfg:
+                common_kwargs["policy_kwargs"] = {
+                    "log_std_init": float(train_cfg["log_std_init"])
+                }
             if algorithm_name == "PPO":
                 model = PPO(
                     **common_kwargs,

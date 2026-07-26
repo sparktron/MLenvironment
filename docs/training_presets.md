@@ -17,6 +17,8 @@ benefits from it.
 | Terrain | Config | Notes |
 |---|---|---|
 | Balance first | `walker_balance_curriculum` | Explicit 28 kg torso physics; starts at 25% action range and unlocks slow then faster motion only after conjunctive survival/displacement gates. |
+| Stochastic balance candidate | `walker_stochastic_balance_candidate` | Winning 100k balance stage with `log_std_init: -1.5`, no entropy bonus, and a 15% action range. |
+| Low-velocity follow-up | `walker_low_velocity_candidate` | Fixed 200k continuation at a 0.15 m/s target and 25% action range, producing a 300k staged policy. |
 | Flat | `walker_curriculum_flat` | Starts at 0.4 m/s and raises the speed target. |
 | Uneven | `walker_curriculum_uneven` | Deterministic low-height blocks begin beyond the spawn area. |
 | Obstacles | `walker_curriculum_obstacles` | Three static 10 cm obstacles along the walking path. |
@@ -37,10 +39,12 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-stud
   --study all --seeds 0,1,2
 ```
 
-The current walker matrix compares `balance_first`,
-`balance_first_conservative`, and `balance_first_velocity_ramp` with a common
-24×128 rollout schedule plus zero-action, deterministic, stochastic, transfer,
-launch-height, and push-recovery diagnostics. The arena matrix first runs
+The current walker matrix compares `balance_low_std`,
+`balance_low_std_low_entropy`, `balance_low_std_conservative`, and
+`balance_low_std_slow_scale` with a common 24×128 rollout schedule plus
+zero-action, deterministic, stochastic, transfer, launch-height, and
+push-recovery diagnostics. Its short screen requires robust stochastic balance
+before a candidate can advance to low-velocity training. The arena matrix first runs
 resource tournaments, then evaluates
 feasible combat (`attack_range: 0.4`, `attack_cost: 0.02`) with and without
 approach shaping; native-regime measurements are kept separate from

@@ -60,6 +60,24 @@ def test_train_human_output_when_no_json(monkeypatch, capsys, _patched_config):
         json.loads(out.strip())
 
 
+def test_train_seed_override_updates_global_and_environment_seed(
+    monkeypatch, _patched_config
+):
+    import rl_framework.training.sb3_runner as runner
+
+    captured = {}
+
+    def _fake_train(cfg, resume_from=None):
+        captured.update(cfg)
+        return "/out/model.zip"
+
+    monkeypatch.setattr(runner, "train", _fake_train)
+    _run_cli(monkeypatch, ["train", "--config-name", "x", "--seed", "17"])
+
+    assert captured["seed"] == 17
+    assert captured["environment"]["seed"] == 17
+
+
 def test_json_out_writes_file(monkeypatch, tmp_path, _patched_config):
     import rl_framework.training.sb3_runner as runner
 

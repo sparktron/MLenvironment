@@ -780,6 +780,13 @@ def _training_schema(env_type: str) -> dict[str, Any]:
             "min": 0.0,
             "max": 0.1,
         },
+        "log_std_init": {
+            "value": 0.0,
+            "type": "float",
+            "desc": "PPO initial log action standard deviation",
+            "min": -20.0,
+            "max": 2.0,
+        },
         "vf_coef": {
             "value": 0.5,
             "type": "float",

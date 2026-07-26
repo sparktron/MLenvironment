@@ -38,7 +38,7 @@ def test_quality_study_dry_run_reports_full_plan(tmp_path: Path) -> None:
     )
 
     assert result["planned_runs"] == {
-        "walker": 9,
+        "walker": 12,
         "arena": 18,
         "algorithms": 18,
     }
@@ -93,6 +93,8 @@ def test_walker_quality_study_persists_results_and_is_resumable(
         } == quality_study.WALKER_STUDY_TRAINING
         assert cfg["environment"]["sim"]["mass"] == 28.0
         assert 0 < cfg["environment"]["sim"]["action_scale"] <= 1.0
+        assert cfg["training"]["log_std_init"] <= -1.0
+        assert cfg["curriculum"]["warmup_steps"] == 200_000
     assert first["results"]["walker"]["promotion_ready"] is False
     assert first["results"]["walker"]["evidence_ready"] is False
     assert (tmp_path / "report.json").is_file()
@@ -202,6 +204,53 @@ def test_walker_behavior_gate_requires_robust_transfer() -> None:
 
     assert aggregate["rankings"][0]["behavioral_gate_passed"] is True
     assert aggregate["promoted_variant"] == "candidate"
+
+
+def test_walker_balance_gate_requires_stochastic_stability_on_flat() -> None:
+    passing = _diagnostic_result()
+    passing["deterministic"] = {
+        **passing["deterministic"],
+        "episode_length_mean": 100.0,
+        "fall_rate": 1.0,
+    }
+    passing["stochastic"] = {
+        **passing["stochastic"],
+        "episode_length_mean": 650.0,
+        "forward_displacement_mean": 0.2,
+        "fall_rate": 0.2,
+        "peak_z_mean": 0.8,
+    }
+
+    aggregate = quality_study._aggregate_walker_results(
+        {"candidate/seed_0": {"flat": passing}}
+    )
+
+    assert aggregate["rankings"][0]["balance_gate_passed"] is True
+    assert aggregate["balance_candidate"] == "candidate"
+    assert aggregate["promoted_variant"] is None
+
+
+def test_walker_balance_gate_rejects_deterministic_only_balance() -> None:
+    failing = _diagnostic_result()
+    failing["deterministic"] = {
+        **failing["deterministic"],
+        "episode_length_mean": 800.0,
+        "forward_displacement_mean": 0.0,
+        "fall_rate": 0.0,
+    }
+    failing["stochastic"] = {
+        **failing["stochastic"],
+        "episode_length_mean": 500.0,
+        "forward_displacement_mean": 0.0,
+        "fall_rate": 0.5,
+    }
+
+    aggregate = quality_study._aggregate_walker_results(
+        {"candidate/seed_0": {"flat": failing}}
+    )
+
+    assert aggregate["rankings"][0]["balance_gate_passed"] is False
+    assert aggregate["balance_candidate"] is None
 
 
 def test_arena_behavior_gate_requires_hits_damage_and_fewer_timeouts() -> None:
