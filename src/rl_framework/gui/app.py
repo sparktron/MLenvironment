@@ -561,6 +561,15 @@ def get_schema():
                         "desc": "Uniform food or a contested central food patch",
                     },
                 },
+                "reward": {
+                    "approach_weight": {
+                        "value": 0.0,
+                        "type": "float",
+                        "desc": "Reward weight for bounded progress toward the nearest opponent",
+                        "min": 0,
+                        "max": 1,
+                    },
+                },
             },
             "training": _training_schema("organism_arena_parallel"),
             "evaluation": _eval_schema(),
@@ -615,9 +624,16 @@ def _arena_extra_schema() -> dict[str, Any]:
             "anneal_steps": {
                 "value": 15000,
                 "type": "int",
-                "desc": "Timesteps over which the damage reward scale ramps from 1.0 to 0.0",
+                "desc": "Timesteps over which damage reward ramps down after the elimination gate opens",
                 "min": 100,
                 "max": 10_000_000,
+            },
+            "min_eliminations": {
+                "value": 10,
+                "type": "int",
+                "desc": "Observed non-timeout outcomes required before damage reward annealing starts",
+                "min": 0,
+                "max": 1_000_000,
             },
         },
         "curriculum": {

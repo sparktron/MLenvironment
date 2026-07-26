@@ -1,6 +1,6 @@
 # Development Roadmap
 
-Last updated: 2026-07-25
+Last updated: 2026-07-26
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
@@ -21,15 +21,13 @@ the completed summary below so completed work is not presented as pending.
   remained `untrained_equivalent`, and arena matches timed out almost
   universally. Detailed evidence is in
   [`learning_quality_studies.md`](learning_quality_studies.md).
-- Walker next step: make PPO rollout size and optimizer-update count comparable
-  across the single-env and 24-env candidates, rerun a focused three-seed
-  learning study, and require 800-step forward locomotion rather than reward
-  alone. Keep PPO/SAC/TD3 comparisons deferred until this clears.
-- Arena next step: test combat-feasibility candidates (attack
-  range/falloff/cost), an approach signal, and elimination-gated dense-reward
-  annealing at a short budget. Do not start a longer arena run until attack
-  hits and damage are nonzero and timeout rate falls materially below the
-  current 99.7–100%.
+- Run the new focused walker matrix at a short one-seed budget, then at three
+  seeds × 300k only if episode length and displacement improve. The code now
+  equalizes PPO rollout/update settings and enforces the locomotion gate. Keep
+  PPO/SAC/TD3 comparisons deferred until this clears.
+- Run the feasible-combat arena candidates at a short one-seed budget. Advance
+  to three seeds × 30k only when attack hits/damage are nonzero and timeout
+  falls below 90%; the report now enforces those thresholds.
 
 ## Retained Limitations
 
@@ -41,6 +39,14 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-26) Implemented the post-promotion learning plan. Walker quality
+  candidates now share a 24×128 PPO rollout schedule and must clear explicit
+  episode-length, displacement, fall-rate, and launch-height gates. Arena
+  studies now compare feasible combat with and without distance-progress
+  shaping, report per-variant timeouts, and gate promotion on
+  hits/damage/timeouts. Dense damage reward annealing waits for a configurable
+  number of non-timeout outcomes; the GUI and shipped self-play template expose
+  the gate.
 - (2026-07-25) Completed promotion-scale learning validation: 15 walker runs
   at 300k steps and 18 arena runs at 30k steps, all with three seeds. Rendered
   walker rollouts confirmed partial stepping without launch/slide exploits but

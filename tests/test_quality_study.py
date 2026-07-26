@@ -38,7 +38,7 @@ def test_quality_study_dry_run_reports_full_plan(tmp_path: Path) -> None:
     )
 
     assert result["planned_runs"] == {
-        "walker": 15,
+        "walker": 9,
         "arena": 18,
         "algorithms": 18,
     }
@@ -51,7 +51,7 @@ def test_walker_quality_study_persists_results_and_is_resumable(
     train_calls = []
 
     def fake_train(cfg, extra_callbacks=None):
-        train_calls.append(cfg["experiment_name"])
+        train_calls.append(cfg)
         model = (
             Path(cfg["output"]["base_dir"])
             / cfg["experiment_name"]
@@ -77,12 +77,18 @@ def test_walker_quality_study_persists_results_and_is_resumable(
         "walker",
         seeds=[0],
         output_dir=tmp_path,
-        step_budget=64,
+        step_budget=300_000,
         eval_episodes=1,
     )
     assert first["completed"] is True
     assert len(train_calls) == len(quality_study.WALKER_VARIANTS)
+    for cfg in train_calls:
+        assert {
+            key: cfg["training"][key]
+            for key in quality_study.WALKER_STUDY_TRAINING
+        } == quality_study.WALKER_STUDY_TRAINING
     assert first["results"]["walker"]["promotion_ready"] is False
+    assert first["results"]["walker"]["evidence_ready"] is False
     assert (tmp_path / "report.json").is_file()
     assert (tmp_path / "report.md").is_file()
 
@@ -90,7 +96,7 @@ def test_walker_quality_study_persists_results_and_is_resumable(
         "walker",
         seeds=[0],
         output_dir=tmp_path,
-        step_budget=64,
+        step_budget=300_000,
         eval_episodes=1,
         resume=True,
     )
@@ -140,7 +146,52 @@ def test_arena_measurements_aggregate_resource_signals() -> None:
     )
 
     assert measurements["timeout_rate_mean"] == 0.25
+    assert measurements["per_variant_timeout_rate"] == {
+        "baseline": 0.25,
+        "scarce": 0.25,
+    }
     assert measurements["per_variant_episode_metrics"]["baseline"]["food_pickups"] == 2.0
+
+
+def test_walker_behavior_gate_requires_robust_transfer() -> None:
+    passing = _diagnostic_result()
+    for mode in ("deterministic", "stochastic"):
+        passing[mode] = {
+            **passing[mode],
+            "episode_length_mean": 800.0,
+            "forward_displacement_mean": 4.0,
+            "fall_rate": 0.0,
+            "peak_z_mean": 0.8,
+        }
+
+    aggregate = quality_study._aggregate_walker_results(
+        {
+            "candidate/seed_0": {
+                terrain: passing
+                for terrain in ("flat", "uneven", "obstacles", "push_recovery")
+            }
+        }
+    )
+
+    assert aggregate["rankings"][0]["behavioral_gate_passed"] is True
+    assert aggregate["promoted_variant"] == "candidate"
+
+
+def test_arena_behavior_gate_requires_hits_damage_and_fewer_timeouts() -> None:
+    measurements = {
+        "per_variant_timeout_rate": {"candidate": 0.5, "timeout": 1.0},
+        "per_variant_episode_metrics": {
+            "candidate": {"attack_hits": 2.0, "damage_dealt": 0.1},
+            "timeout": {"attack_hits": 0.0, "damage_dealt": 0.0},
+        },
+    }
+
+    results = quality_study._arena_behavior_results(
+        measurements, {"candidate": {}, "timeout": {}}
+    )
+
+    assert results["candidate"]["passed"] is True
+    assert results["timeout"]["passed"] is False
 
 
 def test_arena_native_tournaments_use_each_variant_environment(monkeypatch) -> None:

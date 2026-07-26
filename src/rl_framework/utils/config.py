@@ -101,6 +101,19 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
         _ensure_int(self_play_cfg.get("snapshot_freq", 5000), "self_play.snapshot_freq", min_value=1)
         _ensure_int(self_play_cfg.get("max_league_size", 10), "self_play.max_league_size", min_value=1)
 
+    anneal_cfg = cfg.get("reward_annealing", {})
+    if anneal_cfg.get("enabled", False):
+        _ensure_int(
+            anneal_cfg.get("anneal_steps", 500_000),
+            "reward_annealing.anneal_steps",
+            min_value=1,
+        )
+        _ensure_int(
+            anneal_cfg.get("min_eliminations", 0),
+            "reward_annealing.min_eliminations",
+            min_value=0,
+        )
+
     repro_cfg = cfg.get("reproducibility", {})
     for key in ("strict", "deterministic"):
         if key in repro_cfg and not isinstance(repro_cfg[key], bool):
@@ -304,6 +317,17 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
         if resources.get("food_placement", "uniform") not in {"uniform", "center"}:
             raise ValueError(
                 "environment.resources.food_placement must be 'uniform' or 'center'"
+            )
+        reward = env_cfg.get("reward") or {}
+        approach_weight = reward.get("approach_weight", 0.0)
+        if (
+            isinstance(approach_weight, bool)
+            or not isinstance(approach_weight, (int, float))
+            or approach_weight < 0
+        ):
+            raise ValueError(
+                "environment.reward.approach_weight must be a non-negative "
+                f"number, got {approach_weight!r}"
             )
 
 

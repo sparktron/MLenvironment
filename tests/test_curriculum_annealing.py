@@ -57,6 +57,12 @@ def test_reward_annealing_validates_anneal_steps() -> None:
         RewardAnnealingCallback(anneal_steps=0)
 
 
+@pytest.mark.parametrize("value", [-1, True, 1.5])
+def test_reward_annealing_validates_min_eliminations(value) -> None:
+    with pytest.raises(ValueError, match="min_eliminations"):
+        RewardAnnealingCallback(min_eliminations=value)
+
+
 def test_reward_annealing_pushes_decreasing_scale() -> None:
     """Pushed at _on_rollout_end (per-rollout granularity), not every step —
     an env_method push on every vector step would be a subprocess round-trip
@@ -102,6 +108,34 @@ def test_reward_annealing_clamps_at_zero_and_dedupes() -> None:
     cb._on_rollout_end()
     scales = [call[1][0]["reward.damage_scale"] for call in env.calls]
     assert scales == [0.0]  # second identical update suppressed
+
+
+def test_reward_annealing_waits_for_elimination_gate() -> None:
+    env = _FakeVecEnv()
+    cb = RewardAnnealingCallback(anneal_steps=1000, min_eliminations=2)
+    _attach(cb, num_timesteps=250, env=env)
+
+    cb.locals = {"infos": [{"episode_outcome": {"outcome": "timeout"}}]}
+    cb._on_step()
+    cb._on_rollout_end()
+
+    cb.num_timesteps = 300
+    cb.locals = {"infos": [{"episode_outcome": {"outcome": "ko"}}]}
+    cb._on_step()
+    cb._on_rollout_end()
+
+    cb.num_timesteps = 400
+    cb.locals = {"infos": [{"episode_outcome": {"outcome": "eliminated"}}]}
+    cb._on_step()
+    cb._on_rollout_end()
+
+    cb.num_timesteps = 650
+    cb.locals = {"infos": []}
+    cb._on_step()
+    cb._on_rollout_end()
+
+    scales = [call[1][0]["reward.damage_scale"] for call in env.calls]
+    assert scales == [1.0, 0.75]
 
 
 # -- CurriculumCallback configurable metric ----------------------------------

@@ -31,6 +31,10 @@ environment:
     food_radius: 0.10
     food_respawn_steps: 40
     food_placement: uniform
+  reward:
+    # Bounded distance-progress feedback. Kept off in the shipped
+    # baseline; the quality study enables it only for the approach candidate.
+    approach_weight: 0.0
 
 training:
   policy: MlpPolicy
@@ -61,6 +65,8 @@ self_play:
 reward_annealing:
   enabled: true
   anneal_steps: 15000
+  # Keep dense hit feedback until combat has produced real terminal outcomes.
+  min_eliminations: 10
 
 # Win-rate-gated curriculum: ramp combat tempo as agent_0's win rate climbs.
 # Metric is logged by ArenaMetricsCallback; thresholds are win-rate fractions.

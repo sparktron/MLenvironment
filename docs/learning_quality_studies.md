@@ -9,14 +9,15 @@ resuming with different seeds or budgets.
 
 | Study | Candidates | Evidence |
 |---|---|---|
-| Walker | legacy reward control, rebalanced flat, flat/uneven/obstacle curricula | zero-action baseline, deterministic and stochastic rollouts, cross-terrain transfer, fall rate, displacement, peak height, and push recovery |
+| Walker | rebalanced flat, flat curriculum, uneven curriculum; all use 24 envs × 128 steps and batch size 256 | zero-action baseline, deterministic and stochastic rollouts, cross-terrain transfer, fall rate, displacement, peak height, and push recovery |
 | Arena resources | baseline, scarce/high-cost, abundant/low-cost, large/slow | per-seed common-arena round robins plus native-regime tournaments recording attacks, contacts, damage, food pickups, and depleted-energy steps |
-| Arena depth | baseline, center-contested food, body collision damage | starts only after resource measurement; uses common-arena Elo and separate native-regime behavior metrics |
+| Arena combat | baseline, feasible combat, feasible combat plus approach shaping | starts only after resource measurement; uses common-arena Elo and separate native-regime behavior metrics |
 | Algorithms | PPO, SAC, TD3 | equal-step and equal-wall-clock training, followed by zero-action, deterministic, and stochastic evaluation |
 
-Territory mechanics are intentionally not enabled without evidence that food
-placement and contact damage leave a strategic gap. Both new arena mechanics
-default off (`food_placement: uniform`, `collision_damage: 0.0`).
+Feasible combat changes only the study candidate (`attack_range: 0.4`,
+`attack_cost: 0.02`); the approach candidate additionally sets
+`environment.reward.approach_weight: 0.02`. Shipped combat mechanics and
+approach shaping remain unchanged until a candidate clears the behavioral gate.
 
 ## Commands And Gates
 
@@ -34,13 +35,18 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-stud
   --study all --seeds 0,1,2 --resume-incomplete
 ```
 
-The walker readiness gate requires at least three seeds and 300k steps per
-candidate. Arena requires at least three seeds and 30k steps. The algorithm
-comparison requires at least three seeds, 300k equal-step training, and 300
-seconds per equal-wall-clock run. The higher built-in defaults provide margin:
-750k walker steps, 30k arena steps, 500k algorithm steps, 900 seconds, and 20
-evaluation episodes. A false readiness field means the report is diagnostic
-only and must not be used to change a shipped preset.
+The walker evidence gate requires at least three seeds and 300k steps per
+candidate. Its behavioral gate requires every terrain/seed evaluation to
+produce at least one action mode averaging 760 steps, 3 m displacement, at
+most 10% falls, and peak torso height below 1 m. Arena evidence requires at
+least three seeds and 30k steps; its native behavior gate requires timeout
+below 90%, at least 0.01 attack hits per episode, and at least 0.001 damage per
+episode. Reports expose `evidence_ready` separately from `promotion_ready`;
+only the latter authorizes changing a shipped preset.
+
+The algorithm comparison requires at least three seeds, 300k equal-step
+training, and 300 seconds per equal-wall-clock run. It remains deferred until
+the walker behavioral gate passes.
 
 ## Preliminary Run — 2026-07-19
 
@@ -150,3 +156,25 @@ that:
    it to zero at 15k steps solely by elapsed timesteps; and
 4. requires nonzero attack hits/damage plus a materially lower timeout rate
    before promotion-scale retraining.
+
+## Follow-up Implementation — 2026-07-26
+
+The next-study plan is implemented:
+
+- Walker candidates now share `num_envs: 24`, `n_steps: 128`, and
+  `batch_size: 256`, eliminating the prior ten-versus-hundreds PPO rollout
+  comparison. The matrix is focused on the three plausible candidates and
+  reports both evidence and behavioral gates.
+- Arena combat candidates now test the mechanics combination proven feasible
+  by the scripted probe, with a second candidate adding bounded
+  distance-progress shaping.
+- `reward_annealing.min_eliminations` keeps dense damage feedback at full
+  strength until real non-timeout outcomes appear. The shipped arena preset
+  uses a gate of ten outcomes.
+- Arena measurements now report timeout rate per variant, and promotion
+  requires timeout, attack-hit, and damage thresholds rather than Elo alone.
+
+Run short one-seed studies first in new output directories. If their learning
+signals move in the intended direction, repeat the exact 3-seed promotion
+commands above; do not resume the July 25 state because the study definitions
+have changed.

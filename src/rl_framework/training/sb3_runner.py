@@ -710,6 +710,9 @@ def train(
             callbacks.append(
                 RewardAnnealingCallback(
                     anneal_steps=int(anneal_cfg.get("anneal_steps", 500_000)),
+                    min_eliminations=int(
+                        anneal_cfg.get("min_eliminations", 0)
+                    ),
                     verbose=1,
                 )
             )

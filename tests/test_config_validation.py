@@ -92,6 +92,17 @@ def test_validate_experiment_config_rejects_invalid_self_play_values() -> None:
         validate_experiment_config(cfg)
 
 
+def test_validate_experiment_config_rejects_invalid_annealing_gate() -> None:
+    cfg = _base_cfg()
+    cfg["reward_annealing"] = {
+        "enabled": True,
+        "anneal_steps": 100,
+        "min_eliminations": -1,
+    }
+    with pytest.raises(ValueError, match="min_eliminations"):
+        validate_experiment_config(cfg)
+
+
 def test_validate_experiment_config_rejects_non_positive_learning_rate() -> None:
     cfg = _base_cfg()
     cfg["training"]["learning_rate"] = 0
@@ -185,6 +196,17 @@ def test_arena_rejects_invalid_strategic_depth_settings(
     cfg["environment"][section][field] = value
 
     with pytest.raises(ValueError, match=match):
+        validate_experiment_config(cfg)
+
+
+def test_arena_rejects_negative_approach_reward_weight() -> None:
+    cfg = _base_cfg()
+    cfg["environment"] = {
+        "type": "organism_arena_parallel",
+        "reward": {"approach_weight": -0.1},
+    }
+
+    with pytest.raises(ValueError, match="approach_weight"):
         validate_experiment_config(cfg)
 
 

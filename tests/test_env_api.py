@@ -572,6 +572,79 @@ def test_organism_env_attack_binary_mode_is_a_cliff() -> None:
     assert abs(rewards["agent_0"] - 0.1) < 1e-6, "full damage inside range"
 
 
+def test_organism_env_approach_reward_tracks_distance_progress() -> None:
+    env = make_env(
+        "organism_arena_parallel",
+        {
+            "type": "organism_arena_parallel",
+            "seed": 0,
+            "sim": {"spawn_jitter": 0.0},
+            "resources": {"food_count": 0, "movement_cost": 0.0},
+            "reward": {"approach_weight": 0.1},
+        },
+    )
+    try:
+        env.reset(seed=0)
+        env.state["agent_0"]["pos"] = np.array([-0.5, 0.0], dtype=np.float32)
+        env.state["agent_1"]["pos"] = np.array([0.5, 0.0], dtype=np.float32)
+        toward = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        noop = np.zeros(3, dtype=np.float32)
+
+        _, rewards, _, _, _ = env.step(
+            {"agent_0": toward, "agent_1": noop}
+        )
+
+        assert rewards["agent_0"] == pytest.approx(0.1)
+        assert env._episode_stats["agent_0"]["approach_reward"] == pytest.approx(
+            0.1
+        )
+    finally:
+        env.close()
+
+
+def test_feasible_combat_candidate_can_resolve_without_food() -> None:
+    env = make_env(
+        "organism_arena_parallel",
+        {
+            "type": "organism_arena_parallel",
+            "seed": 0,
+            "sim": {"spawn_jitter": 0.0},
+            "morphology": {"health": 1.2},
+            "battle_rules": {
+                "damage": 0.06,
+                "attack_range": 0.4,
+                "cooldown_steps": 3,
+                "max_steps": 200,
+            },
+            "resources": {
+                "food_count": 0,
+                "movement_cost": 0.01,
+                "attack_cost": 0.02,
+            },
+        },
+    )
+    try:
+        env.reset(seed=0)
+        outcome = None
+        while env.agents:
+            delta = env.state["agent_1"]["pos"] - env.state["agent_0"]["pos"]
+            distance = float(np.linalg.norm(delta))
+            direction = delta / max(distance, 1e-8)
+            move = direction if distance > 0.17 else np.zeros(2, dtype=np.float32)
+            actions = {
+                "agent_0": np.append(move, 1.0).astype(np.float32),
+                "agent_1": np.append(-move, 1.0).astype(np.float32),
+            }
+            _, _, _, _, infos = env.step(actions)
+            outcome = infos["agent_0"].get("episode_outcome", outcome)
+
+        assert outcome["outcome"] == "draw"
+        assert env.step_count < env.rules.max_steps
+        assert env._episode_stats["agent_0"]["attack_hits"] >= 30
+    finally:
+        env.close()
+
+
 def test_organism_env_infos_episode_outcome_on_ko() -> None:
     """Feature 2: terminal step annotates infos with a 'ko' episode_outcome."""
     cfg = {
@@ -741,6 +814,15 @@ def test_arena_live_params_update_morphology_and_bounds() -> None:
     assert env.cfg["morphology"]["base_size"] == 1.4
     assert env.bounds == 2.5
     assert env.cfg["sim"]["arena_half_extent"] == 2.5
+
+
+def test_arena_live_params_updates_approach_reward() -> None:
+    env = make_env("organism_arena_parallel", {"type": "organism_arena_parallel"})
+
+    env.update_live_params({"reward.approach_weight": 0.05})
+
+    assert env.reward_rules.approach_weight == 0.05
+    assert env.cfg["reward"]["approach_weight"] == 0.05
 
 
 def test_update_live_params_ignores_unknown_keys() -> None:

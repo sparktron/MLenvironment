@@ -171,6 +171,7 @@ def test_schema_exposes_arena_self_play_league_curriculum_groups(client):
     assert set(extra) == {"self_play", "reward_annealing", "curriculum"}
     assert extra["self_play"]["sampling_mode"]["choices"] == ["uniform", "recent_bias"]
     assert extra["reward_annealing"]["anneal_steps"]["type"] == "int"
+    assert extra["reward_annealing"]["min_eliminations"]["value"] == 10
     assert extra["curriculum"]["level_up_thresholds"]["type"] == "json"
     # walker_bullet has no self-play/annealing/curriculum concept.
     assert "extra" not in resp.get_json()["walker_bullet"]
@@ -185,6 +186,14 @@ def test_schema_arena_battle_rules_includes_sensing_and_falloff(client):
     ]
     assert battle_rules["sensing_radius"]["type"] == "float"
     assert battle_rules["attack_falloff"]["choices"] == ["linear", "binary"]
+
+
+def test_schema_arena_exposes_approach_reward(client):
+    c, _, _ = client
+    resp = c.get("/api/schema")
+
+    reward = resp.get_json()["organism_arena_parallel"]["environment"]["reward"]
+    assert reward["approach_weight"]["value"] == 0.0
 
 
 def test_schema_arena_exposes_resources_and_sim_collision(client):

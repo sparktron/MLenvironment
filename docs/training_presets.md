@@ -36,13 +36,15 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-stud
   --study all --seeds 0,1,2
 ```
 
-The walker matrix compares the legacy reward control, rebalanced flat preset,
-and all terrain curriculum stages with zero-action, deterministic, stochastic,
-transfer, launch-height, and push-recovery diagnostics. The arena matrix first
-runs resource tournaments, then evaluates contested-food and body-collision
-candidates; native-regime measurements are kept separate from common-baseline
-tournaments. The algorithm matrix compares PPO, SAC, and TD3 under both equal
-step and equal wall-clock budgets. See
+The focused walker matrix compares `rebalanced_flat`, `curriculum_flat`, and
+`curriculum_uneven` with a common 24×128 rollout schedule plus zero-action,
+deterministic, stochastic, transfer, launch-height, and push-recovery
+diagnostics. The arena matrix first runs resource tournaments, then evaluates
+feasible combat (`attack_range: 0.4`, `attack_cost: 0.02`) with and without
+approach shaping; native-regime measurements are kept separate from
+common-baseline tournaments. The algorithm matrix compares PPO, SAC, and TD3
+under both equal-step and equal wall-clock budgets, but remains deferred until
+walker behavior clears its promotion gate. See
 [`learning_quality_studies.md`](learning_quality_studies.md) for gates and
 report interpretation.
 

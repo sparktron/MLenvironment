@@ -87,6 +87,10 @@ scaled by reward annealing (below).
 
 - **Dense:** the attacker gains `+damage_dealt`, the defender loses the same,
   multiplied by the live `damage_scale` (annealed toward 0 — see below).
+- **Approach shaping:** optional `environment.reward.approach_weight` multiplies
+  bounded progress toward the nearest opponent while outside attack range.
+  The default is `0.0`; the quality study enables `0.02` only for its approach
+  candidate.
 - **Terminal:** the winner gains `+1.0`, the loser `−1.0` on a knockout.
 
 ## Arena-relevant training sections
@@ -106,8 +110,9 @@ These live under the top-level config (siblings of `environment`), not inside
 ### `reward_annealing`
 | Key | Default | Meaning |
 |-----|--------:|---------|
-| `enabled` | `false` | Linearly anneal the dense per-hit reward scale from 1.0 to 0.0 so the terminal win/loss signal eventually dominates. |
-| `anneal_steps` | `500000` | Timesteps over which the dense reward decays to zero. |
+| `enabled` | `false` | Anneal the dense per-hit reward scale from 1.0 to 0.0 so the terminal win/loss signal eventually dominates. |
+| `anneal_steps` | `500000` | Timesteps over which the dense reward decays after the elimination gate opens. |
+| `min_eliminations` | `0` | Observed non-timeout outcomes required before annealing starts. The shipped self-play preset uses `10`; `0` preserves immediate time-based annealing. |
 
 ### `curriculum`
 Win-rate-gated difficulty ramp. For the arena, gate on `arena/agent_0_win_rate`

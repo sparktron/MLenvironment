@@ -38,6 +38,12 @@ class ResourceRules:
     food_placement: str = "uniform"
 
 
+@dataclass
+class RewardRules:
+    damage_scale: float = 1.0
+    approach_weight: float = 0.0
+
+
 class OrganismArenaParallelEnv(ParallelEnv):
     metadata = {
         "name": "organism_arena_v0",
@@ -92,6 +98,21 @@ class OrganismArenaParallelEnv(ParallelEnv):
         self.resources = ResourceRules(
             **{k: v for k, v in resource_cfg.items() if k in ResourceRules.__annotations__}
         )
+        reward_cfg = get_section(cfg, "reward")
+        unknown_rewards = sorted(set(reward_cfg) - set(RewardRules.__annotations__))
+        if unknown_rewards:
+            warnings.warn(
+                f"Ignoring unknown reward keys {unknown_rewards}; "
+                f"valid keys are {sorted(RewardRules.__annotations__)}",
+                stacklevel=2,
+            )
+        self.reward_rules = RewardRules(
+            **{
+                key: value
+                for key, value in reward_cfg.items()
+                if key in RewardRules.__annotations__
+            }
+        )
         self.morphology = get_section(cfg, "morphology")
         self.state: dict[str, dict[str, Any]] = {}
         # Previous-step positions, used to derive each agent's velocity for the
@@ -102,7 +123,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
         # Scales only the dense per-hit reward (not the health damage itself).
         # Annealed toward 0 by RewardAnnealingCallback so the terminal win/loss
         # signal eventually dominates. See update_live_params().
-        self._damage_scale = 1.0
+        self._damage_scale = float(self.reward_rules.damage_scale)
         self.step_count = 0
         self._fig = None
         self._ax = None
@@ -207,6 +228,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
                 "attack_hits": 0.0,
                 "collision_contacts": 0.0,
                 "damage_dealt": 0.0,
+                "approach_reward": 0.0,
                 "energy_depleted_steps": 0.0,
                 "food_pickups": 0.0,
             }
@@ -357,10 +379,16 @@ class OrganismArenaParallelEnv(ParallelEnv):
         for key, value in params.items():
             if key == "reward.damage_scale":
                 self._damage_scale = float(value)
+                self.reward_rules.damage_scale = self._damage_scale
                 # setdefault leaves an explicit `reward: null` untouched (it
                 # only fills in a genuinely absent key); get_section replaces
                 # it with {} first so the write below cannot crash.
                 get_section(self.cfg, "reward")["damage_scale"] = self._damage_scale
+            elif key == "reward.approach_weight":
+                self.reward_rules.approach_weight = float(value)
+                get_section(self.cfg, "reward")["approach_weight"] = (
+                    self.reward_rules.approach_weight
+                )
             elif key.startswith("battle_rules."):
                 field = key.removeprefix("battle_rules.")
                 if hasattr(self.rules, field):
@@ -401,6 +429,11 @@ class OrganismArenaParallelEnv(ParallelEnv):
         terminations = {agent: False for agent in active_agents}
         truncations = {
             agent: self.step_count >= self.rules.max_steps for agent in active_agents
+        }
+        pre_move_distances = {
+            agent: self._nearest_opponent(agent)[1]
+            for agent in active_agents
+            if self._is_alive(agent)
         }
 
         # Movement, cooldown decay, and growth — living agents only; knocked-out
@@ -446,6 +479,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
             self.state[agent]["size"] = new_size
 
         self._resolve_collisions(active_agents)
+        self._apply_approach_rewards(active_agents, pre_move_distances, rewards)
         self._update_food(active_agents, rewards)
 
         # Attacks — each living attacker strikes its nearest living opponent
@@ -543,6 +577,37 @@ class OrganismArenaParallelEnv(ParallelEnv):
         for agent in active_agents:
             self._prev_positions[agent] = self.state[agent]["pos"].copy()
         return observations, rewards, terminations, truncations, infos
+
+    def _apply_approach_rewards(
+        self,
+        active_agents: list[str],
+        pre_move_distances: dict[str, float],
+        rewards: dict[str, float],
+    ) -> None:
+        """Reward bounded distance progress toward the nearest opponent."""
+        weight = self.reward_rules.approach_weight
+        if weight <= 0.0:
+            return
+        for agent in active_agents:
+            previous = pre_move_distances.get(agent)
+            if (
+                previous is None
+                or not np.isfinite(previous)
+                or previous <= self.rules.attack_range
+                or not self._is_alive(agent)
+            ):
+                continue
+            _, current = self._nearest_opponent(agent)
+            if not np.isfinite(current):
+                continue
+            normalized_progress = np.clip(
+                (previous - current) / max(self.move_speed, 1e-8),
+                -1.0,
+                1.0,
+            )
+            shaped_reward = float(weight * normalized_progress)
+            rewards[agent] += shaped_reward
+            self._episode_stats[agent]["approach_reward"] += shaped_reward
 
     def _resolve_collisions(self, active_agents: list[str]) -> None:
         """Separate overlapping living organisms after movement."""

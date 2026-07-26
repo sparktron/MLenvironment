@@ -29,18 +29,21 @@ from rl_framework.utils.config_merge import set_nested
 
 
 WALKER_VARIANTS: dict[str, tuple[str, dict[str, Any]]] = {
-    "legacy_reward_control": (
-        "walker_ppo_baseline",
-        {
-            "environment.reward.alive_bonus": 5.0,
-            "environment.reward.forward_velocity_weight": 1.5,
-            "environment.reward.orientation_penalty_weight": 0.3,
-        },
-    ),
     "rebalanced_flat": ("walker_ppo_baseline", {}),
     "curriculum_flat": ("walker_curriculum_flat", {}),
     "curriculum_uneven": ("walker_curriculum_uneven", {}),
-    "curriculum_obstacles": ("walker_curriculum_obstacles", {}),
+}
+
+WALKER_STUDY_TRAINING = {
+    "num_envs": 24,
+    "n_steps": 128,
+    "batch_size": 256,
+}
+WALKER_BEHAVIOR_GATE = {
+    "min_episode_length": 760.0,
+    "min_forward_displacement": 3.0,
+    "max_fall_rate": 0.10,
+    "max_peak_z": 1.0,
 }
 
 ARENA_RESOURCE_VARIANTS: dict[str, dict[str, Any]] = {
@@ -64,8 +67,20 @@ ARENA_RESOURCE_VARIANTS: dict[str, dict[str, Any]] = {
 }
 
 ARENA_DEPTH_VARIANTS: dict[str, dict[str, Any]] = {
-    "contested_food": {"environment.resources.food_placement": "center"},
-    "body_collision_damage": {"environment.battle_rules.collision_damage": 0.01},
+    "feasible_combat": {
+        "environment.battle_rules.attack_range": 0.4,
+        "environment.resources.attack_cost": 0.02,
+    },
+    "feasible_combat_approach": {
+        "environment.battle_rules.attack_range": 0.4,
+        "environment.resources.attack_cost": 0.02,
+        "environment.reward.approach_weight": 0.02,
+    },
+}
+ARENA_BEHAVIOR_GATE = {
+    "max_timeout_rate": 0.90,
+    "min_attack_hits": 0.01,
+    "min_damage_dealt": 0.001,
 }
 
 ALGORITHM_CONFIGS = {
@@ -248,26 +263,62 @@ def _behavior_score(terrain_results: dict[str, dict[str, Any]]) -> float:
     return float(np.mean(scores)) if scores else float("-inf")
 
 
+def _walker_behavior_passed(result: dict[str, Any]) -> bool:
+    """Return whether either action mode clears the robust-locomotion gate."""
+    for mode in ("deterministic", "stochastic"):
+        metrics = result[mode]
+        if (
+            metrics["episode_length_mean"]
+            >= WALKER_BEHAVIOR_GATE["min_episode_length"]
+            and metrics["forward_displacement_mean"]
+            >= WALKER_BEHAVIOR_GATE["min_forward_displacement"]
+            and metrics["fall_rate"] <= WALKER_BEHAVIOR_GATE["max_fall_rate"]
+            and metrics["peak_z_mean"] < WALKER_BEHAVIOR_GATE["max_peak_z"]
+        ):
+            return True
+    return False
+
+
 def _aggregate_walker_results(
     results: dict[str, dict[str, dict[str, Any]]]
 ) -> dict[str, Any]:
     by_variant: dict[str, list[float]] = {}
+    behavior_by_variant: dict[str, list[bool]] = {}
     for run_key, terrain_results in results.items():
         variant = run_key.split("/", 1)[0]
         by_variant.setdefault(variant, []).append(_behavior_score(terrain_results))
+        behavior_by_variant.setdefault(variant, []).extend(
+            _walker_behavior_passed(result) for result in terrain_results.values()
+        )
     rankings = [
         {
             "variant": variant,
             "behavior_score_mean": float(np.mean(values)),
             "behavior_score_std": float(np.std(values)),
             "seeds_completed": len(values),
+            "behavioral_gate_passed": bool(
+                behavior_by_variant.get(variant)
+                and all(behavior_by_variant[variant])
+            ),
+            "behavioral_eval_pass_rate": float(
+                np.mean(behavior_by_variant.get(variant, [False]))
+            ),
         }
         for variant, values in by_variant.items()
     ]
     rankings.sort(
         key=lambda row: cast(float, row["behavior_score_mean"]), reverse=True
     )
-    return {"rankings": rankings, "recommended_variant": rankings[0]["variant"] if rankings else None}
+    promoted = next(
+        (row["variant"] for row in rankings if row["behavioral_gate_passed"]),
+        None,
+    )
+    return {
+        "rankings": rankings,
+        "recommended_variant": rankings[0]["variant"] if rankings else None,
+        "promoted_variant": promoted,
+        "behavioral_gate": WALKER_BEHAVIOR_GATE,
+    }
 
 
 def _run_walker_study(
@@ -287,6 +338,7 @@ def _run_walker_study(
             "version": "v2",
             "coordinate_free": True,
         }
+        base.setdefault("training", {}).update(WALKER_STUDY_TRAINING)
         _apply_overrides(base, overrides)
         for seed in seeds:
             key = f"{variant}/seed_{seed}"
@@ -307,10 +359,14 @@ def _run_walker_study(
                 _atomic_json_write(state_path, state)
             diagnostics[key] = run["diagnostics"]
     aggregate = _aggregate_walker_results(diagnostics)
-    aggregate["promotion_ready"] = (
+    aggregate["evidence_ready"] = (
         len(seeds) >= 3
         and step_budget >= 300_000
+        and len(aggregate["rankings"]) == len(WALKER_VARIANTS)
         and all(row["seeds_completed"] == len(seeds) for row in aggregate["rankings"])
+    )
+    aggregate["promotion_ready"] = bool(
+        aggregate["evidence_ready"] and aggregate["promoted_variant"] is not None
     )
     aggregate["runs"] = diagnostics
     return aggregate
@@ -347,6 +403,9 @@ def _arena_variant_cfg(
     )
     cfg["environment"].setdefault("resources", {}).setdefault(
         "food_placement", "uniform"
+    )
+    cfg["environment"].setdefault("reward", {}).setdefault(
+        "approach_weight", 0.0
     )
     _apply_overrides(cfg, overrides)
     return cfg
@@ -434,10 +493,12 @@ def _arena_ranking(tournaments: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _arena_measurements(tournaments: list[dict[str, Any]]) -> dict[str, Any]:
     timeout_rates = []
+    timeouts_by_variant: dict[str, list[float]] = {}
     by_variant: dict[str, dict[str, list[float]]] = {}
     for tournament in tournaments:
         for match in tournament["matches"]:
-            timeout_rates.append(float(match["timeout_rate"]))
+            timeout_rate = float(match["timeout_rate"])
+            timeout_rates.append(timeout_rate)
             for label_key, metrics_key in (
                 ("competitor", "competitor_episode_metrics"),
                 ("opponent", "opponent_episode_metrics"),
@@ -445,12 +506,17 @@ def _arena_measurements(tournaments: list[dict[str, Any]]) -> dict[str, Any]:
                 label = match[label_key]
                 if label == "random":
                     continue
+                timeouts_by_variant.setdefault(label, []).append(timeout_rate)
                 for metric, value in match.get(metrics_key, {}).items():
                     by_variant.setdefault(label, {}).setdefault(metric, []).append(
                         float(value)
                     )
     return {
         "timeout_rate_mean": float(np.mean(timeout_rates)) if timeout_rates else 0.0,
+        "per_variant_timeout_rate": {
+            variant: float(np.mean(values))
+            for variant, values in timeouts_by_variant.items()
+        },
         "per_variant_episode_metrics": {
             variant: {
                 metric: float(np.mean(values)) for metric, values in metrics.items()
@@ -458,6 +524,28 @@ def _arena_measurements(tournaments: list[dict[str, Any]]) -> dict[str, Any]:
             for variant, metrics in by_variant.items()
         },
     }
+
+
+def _arena_behavior_results(
+    measurements: dict[str, Any], variants: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
+    results = {}
+    for variant in variants:
+        metrics = measurements["per_variant_episode_metrics"].get(variant, {})
+        timeout_rate = measurements["per_variant_timeout_rate"].get(variant, 1.0)
+        attack_hits = float(metrics.get("attack_hits", 0.0))
+        damage_dealt = float(metrics.get("damage_dealt", 0.0))
+        results[variant] = {
+            "timeout_rate": timeout_rate,
+            "attack_hits": attack_hits,
+            "damage_dealt": damage_dealt,
+            "passed": bool(
+                timeout_rate < ARENA_BEHAVIOR_GATE["max_timeout_rate"]
+                and attack_hits >= ARENA_BEHAVIOR_GATE["min_attack_hits"]
+                and damage_dealt >= ARENA_BEHAVIOR_GATE["min_damage_dealt"]
+            ),
+        }
+    return results
 
 
 def _run_arena_study(
@@ -520,6 +608,28 @@ def _run_arena_study(
         depth_variants, depth_paths, seeds, base, eval_episodes
     )
     depth_ranking = _arena_ranking(depth_tournaments)
+    depth_native_measurements = _arena_measurements(depth_native_tournaments)
+    behavior_results = _arena_behavior_results(
+        depth_native_measurements, depth_variants
+    )
+    promoted_depth_variant = next(
+        (
+            row["variant"]
+            for row in depth_ranking
+            if behavior_results.get(str(row["variant"]), {}).get("passed", False)
+        ),
+        None,
+    )
+    evidence_ready = (
+        len(seeds) >= 3
+        and step_budget >= 30_000
+        and len(resource_ranking) == len(ARENA_RESOURCE_VARIANTS)
+        and len(depth_ranking) == len(depth_variants)
+        and all(
+            row["seeds_completed"] == len(seeds)
+            for row in (*resource_ranking, *depth_ranking)
+        )
+    )
     return {
         "resource_rankings": resource_ranking,
         "resource_measurements": _arena_measurements(resource_tournaments),
@@ -533,14 +643,16 @@ def _run_arena_study(
         ),
         "depth_rankings": depth_ranking,
         "depth_measurements": _arena_measurements(depth_tournaments),
-        "depth_native_measurements": _arena_measurements(depth_native_tournaments),
+        "depth_native_measurements": depth_native_measurements,
         "depth_tournaments": depth_tournaments,
         "depth_native_tournaments": depth_native_tournaments,
         "recommended_depth_variant": depth_ranking[0]["variant"] if depth_ranking else None,
-        "promotion_ready": (
-            len(seeds) >= 3
-            and step_budget >= 30_000
-            and all(row["seeds_completed"] == len(seeds) for row in resource_ranking)
+        "behavioral_gate": ARENA_BEHAVIOR_GATE,
+        "behavioral_results": behavior_results,
+        "promoted_depth_variant": promoted_depth_variant,
+        "evidence_ready": evidence_ready,
+        "promotion_ready": bool(
+            evidence_ready and promoted_depth_variant is not None
         ),
     }
 

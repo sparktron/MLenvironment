@@ -456,6 +456,15 @@ three seeds, common/resource-native tournaments timed out universally and the
 depth-native timeout rate was 99.7%, with essentially no learned attack damage.
 PPO/SAC/TD3 comparisons remain deferred until walker behavior improves.
 
+The follow-up matrix now compares only `rebalanced_flat`, `curriculum_flat`,
+and `curriculum_uneven`, all with `num_envs: 24`, `n_steps: 128`, and
+`batch_size: 256`. Reports distinguish `evidence_ready` from
+`promotion_ready`: promotion additionally requires robust transfer behavior
+(at least 760 steps, 3 m displacement, at most 10% falls, and peak torso height
+below 1 m). Arena depth candidates now test feasible combat
+(`attack_range: 0.4`, `attack_cost: 0.02`) with and without distance-progress
+shaping; their gate requires nonzero hits/damage and timeout below 90%.
+
 ---
 
 ## ⚙️ Configuration
@@ -547,6 +556,9 @@ environment:
     food_respawn_steps: 40
     food_placement: uniform          # uniform | center (contested patch)
 
+  reward:
+    approach_weight: 0.0             # Reward for closing on the opponent
+
 # ─── Training ───────────────────────────────────────────────────
 training:
   algorithm: PPO                     # PPO (default), SAC, or TD3 (walker-only)
@@ -605,6 +617,12 @@ self_play:
   enabled: false                     # Set true to activate (organism only)
   snapshot_freq: 5000                # Save a snapshot every N timesteps
   max_league_size: 10                # Maximum stored opponent snapshots
+
+# ─── Arena Dense-Reward Annealing ──────────────────────────────
+reward_annealing:
+  enabled: false
+  anneal_steps: 15000                # Decay duration after gate opens
+  min_eliminations: 10               # Non-timeout outcomes required to start
 ```
 
 ### 📋 Included Experiment Configs
@@ -1016,10 +1034,10 @@ The active development plan lives in [`docs/open_items_todo.md`](docs/open_items
 - Learning-quality decisions are made through the resumable `quality-study`
   matrices; candidate defaults remain gated on promotion-scale evidence.
 - The 2026-07-25 promotion run cleared the evidence-budget gates but no
-  behavioral promotion gate. Walker work now targets rollout/update-frequency
-  comparability and balance; arena work targets feasible combat economics,
-  approach incentives, and outcome-gated dense-reward annealing before any
-  longer training.
+  behavioral promotion gate. The follow-up implementation now equalizes walker
+  rollout/update frequency and adds explicit locomotion gates. Arena studies
+  now include feasible-combat and approach-shaping candidates, while dense hit
+  reward cannot anneal until eliminations have occurred.
 - Throughput and operations: multi-run GUI orchestration beyond the current
   single-run policy.
 - Feature additions should be proposed only after the study reports identify a
