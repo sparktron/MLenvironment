@@ -1,6 +1,7 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working in this repository. It is
+the single source of truth; `CLAUDE.md` imports it.
 
 ## Project at a glance
 
@@ -19,7 +20,10 @@ Everything goes through one entry point:
 python -m rl_framework.cli.main <subcommand> [--config-name <name>] [...]
 ```
 
-Subcommands: `train`, `eval`, `sweep`, `multi-seed`, `render-replay`, `morph-search`, `gui`. `--config-name` is required for all except `gui`. Default `--config-dir` is `src/rl_framework/configs/experiments`. Outputs land in `outputs/<experiment_name>/seed_<seed>/{checkpoints,logs,videos}/`.
+Subcommands: `train`, `eval`, `arena-eval`, `arena-tournament`, `sweep`, `multi-seed`, `render-replay`, `morph-search`, `gui`. `--config-name` is required for all except `gui`. Default `--config-dir` is `src/rl_framework/configs/experiments`. Outputs land in `outputs/<experiment_name>/seed_<seed>/{checkpoints,logs,videos}/`.
+
+- `arena-eval`: head-to-head of `--policy` vs `--opponent` (either may be `random`); reports win/draw/timeout rates.
+- `arena-tournament`: round-robin over `--checkpoints` (comma-separated files/dirs; dirs contribute their `*.zip`) plus optional `--include-random`. Reports a Bradley-Terry Elo ranking; `--output` writes JSON, `--markdown-out` writes a report table.
 
 ## Tests, lint, repo policy
 
@@ -53,9 +57,18 @@ python scripts/check_repo_policy.py                    # custom — enforces no 
 - Auto-reload is on (`use_reloader=True` in `run_gui`), so Python edits restart the server — but any in-process training is killed on restart. Stop runs first if you want to preserve them.
 - The wizard schema lives in `src/rl_framework/gui/app.py::get_schema`. Nested groups (like `sim.control`) need the recursive `populateGroup` JS helper in `gui/static/app.js`; flat dicts under top-level sections render as inputs.
 
+## Arena config & training paths
+
+Full arena config reference (obs/action layout, `sim`/`morphology`/`battle_rules` keys and defaults, self-play/annealing/curriculum): `docs/organism_arena_config.md`.
+
+Two distinct vec-env paths in `sb3_runner.py`, chosen by whether self-play is on:
+
+- **Self-play** (`self_play.enabled: true`): `SelfPlayEnvWrapper` exposes one live agent, wrapped by `SingleAgentArenaEnv` (a `gymnasium.Env`) onto SB3's native `DummyVecEnv`/`SubprocVecEnv`. **`num_envs > 1` is supported and parallelizes across cores** — `env_method` (reward annealing, curriculum) propagates to subprocess workers, and `Monitor` gives `rollout/ep_rew_mean`. Each worker is seeded per rank so spawns/opponents differ. This is the preferred arena path.
+- **Shared-policy** (`self_play.enabled: false`): needs SuperSuit's 2-agent vec conversion + `_ArenaVecEnvAdapter` (seed()/uint8-dones patches), which only works single-process. A guard rejects `num_envs > 1` here.
+
 ## Subprocess gotcha
 
-`SubprocVecEnv` can't be smoke-tested from a stdin heredoc — multiprocessing tries to re-run the parent script and fails on `<stdin>`. For smoke tests of the parallel path, use `num_envs: 1` (DummyVecEnv) or write to a temp `.py` file and invoke it.
+`SubprocVecEnv` can't be smoke-tested from a stdin heredoc — multiprocessing tries to re-run the parent script and fails on `<stdin>`. For smoke tests of the parallel path, use `num_envs: 1` (DummyVecEnv) or write to a temp `.py` file and invoke it (`PYTHONPATH=src python /tmp/foo.py`).
 
 ## Workflow
 
