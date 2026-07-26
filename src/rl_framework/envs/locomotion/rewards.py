@@ -32,6 +32,11 @@ class WalkerReward:
     torque_penalty_weight: float = 0.01
     # One-time penalty applied on the step a fall is detected.
     fall_penalty: float = 10.0
+    # Structural gait terms are opt-in so existing configs and checkpoints
+    # retain bit-for-bit reward semantics.
+    gait_step_progress_weight: float = 0.0
+    gait_step_progress_clip: float = 0.25
+    stance_slip_penalty_weight: float = 0.0
 
     def compute(
         self,
@@ -40,6 +45,8 @@ class WalkerReward:
         action: np.ndarray,
         alive: bool,
         fell: bool = False,
+        gait_step_progress: float = 0.0,
+        stance_slip_speed: float = 0.0,
     ) -> float:
         return float(
             sum(
@@ -49,6 +56,8 @@ class WalkerReward:
                     action=action,
                     alive=alive,
                     fell=fell,
+                    gait_step_progress=gait_step_progress,
+                    stance_slip_speed=stance_slip_speed,
                 ).values()
             )
         )
@@ -60,6 +69,8 @@ class WalkerReward:
         action: np.ndarray,
         alive: bool,
         fell: bool = False,
+        gait_step_progress: float = 0.0,
+        stance_slip_speed: float = 0.0,
     ) -> dict[str, float]:
         """Return individually attributable reward terms.
 
@@ -74,10 +85,20 @@ class WalkerReward:
         orientation_penalty = -self.orientation_penalty_weight * pitch_roll_penalty
         action_penalty = -self.torque_penalty_weight * float(action @ action)
         fall_penalty = -self.fall_penalty if fell else 0.0
+        clipped_progress = min(
+            max(float(gait_step_progress), 0.0),
+            max(self.gait_step_progress_clip, 0.0),
+        )
+        gait_step_progress_reward = self.gait_step_progress_weight * clipped_progress
+        stance_slip_penalty = -self.stance_slip_penalty_weight * max(
+            float(stance_slip_speed), 0.0
+        )
         return {
             "alive": float(alive_reward),
             "velocity": float(velocity_reward),
             "orientation": float(orientation_penalty),
             "action": float(action_penalty),
             "fall": float(fall_penalty),
+            "gait_step_progress": float(gait_step_progress_reward),
+            "stance_slip": float(stance_slip_penalty),
         }

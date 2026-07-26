@@ -29,6 +29,8 @@ final locomotion gate clears.
 
 ## Phase 1: Measure Gait Structure
 
+Status: **implemented and baselined on 2026-07-26**.
+
 Add episode-level gait telemetry before changing rewards.
 
 ### Environment metrics
@@ -63,7 +65,22 @@ small debounce interval. Telemetry must not affect reward or termination.
 - Touchdown counts and slip measurements agree with rendered rollouts.
 - Freeze quantitative gait thresholds before reward ablations begin.
 
+All Phase 1 checks passed without changing the v2 observation shape. Twenty
+stochastic episodes from the sigma-0.10 checkpoints produced:
+
+| Seed | Alt. touchdowns / 100 steps | Progress / alt. touchdown | Stance slip | Flight | Longest same-foot sequence |
+|---:|---:|---:|---:|---:|---:|
+| 21 | 18.68 | 0.0027 m | 0.176 m/s | 17.9% | 3.35 |
+| 22 | 20.51 | 0.0050 m | 0.156 m/s | 16.6% | 3.35 |
+| 23 | 16.89 | 0.0031 m | 0.163 m/s | 18.0% | 3.20 |
+
+The support fractions sum to one by construction and in the environment
+regression test. Seed 22's progress per alternating touchdown distinguishes
+its repeatable shuffle from seeds 21 and 23.
+
 ## Phase 2: Add Zero-Default Structural Reward Terms
+
+Status: **implemented and smoke-tested on 2026-07-26**.
 
 Introduce two independently configurable terms:
 
@@ -83,6 +100,22 @@ Set candidate weights from measured Phase 1 magnitudes so each new term begins
 at no more than 10–20% of the mean velocity-reward magnitude. Do not guess
 weights before the telemetry baseline is available.
 
+The frozen initial settings are:
+
+- alternating progress: weight `40.0`, per-event progress clipped at `0.03 m`;
+- stance slip: penalty weight `0.5`;
+- combined: both settings;
+- control: both weights remain zero.
+
+Across the three baselines, mean velocity reward was 0.50–0.72 per step.
+Progress shaping contributes about 3–6% of that magnitude and stance slip
+about 11–16%, keeping each term within the planned shaping budget.
+
+The gait gate is now frozen at at least 15 alternating touchdowns per 100
+steps, at least 0.003 m progress per alternating touchdown, at most 0.18 m/s
+stance slip, at most 22% flight, and a mean longest same-foot sequence no
+greater than 5. Behavior gates remain unchanged.
+
 ### Tests
 
 - Reward components still sum exactly to total reward.
@@ -94,12 +127,19 @@ weights before the telemetry baseline is available.
 
 ## Phase 3: Focused Ablation
 
+Status: **started on 2026-07-26**.
+
 Use `velocity_sigma: 0.10`, the existing balance checkpoints, and three
 continuation candidates:
 
 - alternating-step progress only;
 - stance-slip penalty only;
 - combined step progress and stance-slip.
+
+A zero-weight continuation control is included to separate structural shaping
+from simply training longer. The 24-worker 3k smoke completed for all four
+variants with finite reward, gait telemetry, and checkpoint diagnostics. The
+resumable 50k rejection screen is the next active run.
 
 Execution order:
 
@@ -166,4 +206,3 @@ python scripts/check_repo_policy.py
 
 For any training-pipeline or reward change, also run a 24-worker smoke,
 deterministic/stochastic diagnostics, and visual inspection before scaling.
-

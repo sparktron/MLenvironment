@@ -218,6 +218,7 @@ def test_walker_metrics_callback_logs_terminal_episode_summaries() -> None:
                     "reward_orientation_mean": -0.1,
                     "reward_action_mean": -0.01,
                     "reward_fall_mean": 0.0,
+                    "gait_alternating_touchdowns_per_100_steps": 2.0,
                 }
             },
             {
@@ -233,6 +234,7 @@ def test_walker_metrics_callback_logs_terminal_episode_summaries() -> None:
                     "reward_orientation_mean": -0.3,
                     "reward_action_mean": -0.02,
                     "reward_fall_mean": -0.0625,
+                    "gait_alternating_touchdowns_per_100_steps": 4.0,
                 }
             },
         ],
@@ -245,6 +247,9 @@ def test_walker_metrics_callback_logs_terminal_episode_summaries() -> None:
     assert logger.records["walker/forward_displacement_mean"] == 0.5
     assert logger.records["walker/fall_rate"] == 0.5
     assert logger.records["walker/action_scale"] == 0.25
+    assert (
+        logger.records["walker/gait_alternating_touchdowns_per_100_steps"] == 3.0
+    )
 
 
 def test_curriculum_default_metric_is_ep_rew_mean() -> None:

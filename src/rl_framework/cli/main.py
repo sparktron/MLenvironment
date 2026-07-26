@@ -137,7 +137,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--study",
         default="all",
-        choices=["walker", "walker-velocity", "arena", "algorithms", "all"],
+        choices=[
+            "walker",
+            "walker-velocity",
+            "walker-gait",
+            "arena",
+            "algorithms",
+            "all",
+        ],
         help="Priority-3 quality study to run (default: all).",
     )
     parser.add_argument(
@@ -166,7 +173,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--study-source-dir",
         default="outputs/walker_stochastic_balance_candidate",
-        help="Seed directories containing balance checkpoints for walker-velocity.",
+        help="Seed directories containing continuation checkpoints for walker studies.",
     )
     parser.add_argument(
         "--registry-action",

@@ -172,6 +172,28 @@ forward shuffle while seed 23 mainly leaned and crept. No launch or sliding
 exploit appeared. The evidence gate is ready, but the per-seed promotion gate
 is false.
 
+### Gait-coordination continuation matrix
+
+`quality-study --study walker-gait` continues sigma-0.10 checkpoints with a
+zero-weight control, alternating-touchdown progress, stance-slip penalty, and
+their combination. Existing observation and action shapes are unchanged, and
+both structural weights default to zero.
+
+Phase 1 baseline telemetry over 20 stochastic episodes per seed showed
+16.9–20.5 valid alternating touchdowns per 100 steps, 0.0027–0.0050 m progress
+per alternating touchdown, 0.156–0.176 m/s stance slip, and 16.6–18.0% flight.
+The initial weights (`40.0` progress, `0.5` slip) contribute no more than the
+planned 10–20% of the measured velocity-reward magnitude.
+
+The gait gate requires at least 15 alternating touchdowns per 100 steps,
+0.003 m progress per alternating touchdown, at most 0.18 m/s stance slip, at
+most 22% flight, and no mean same-foot sequence longer than 5, in addition to
+the existing survival, fall, displacement, and peak-height gate. Every seed
+must pass; one-seed screens cannot promote a candidate.
+
+The 3k-step, 24-worker seed-22 smoke completed for all four variants. It is
+pipeline validation only; the 50k seed-22 rejection screen begins Phase 3.
+
 ## Preliminary Run — 2026-07-19
 
 Three-seed preliminary studies validated the complete workflow at deliberately

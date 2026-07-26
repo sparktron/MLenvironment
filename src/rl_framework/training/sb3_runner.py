@@ -307,6 +307,26 @@ class WalkerMetricsCallback(BaseCallback):
         "reward_orientation_mean": "reward_orientation_mean",
         "reward_action_mean": "reward_action_mean",
         "reward_fall_mean": "reward_fall_mean",
+        "reward_gait_step_progress_mean": "reward_gait_step_progress_mean",
+        "reward_stance_slip_mean": "reward_stance_slip_mean",
+        "gait_right_only_fraction": "gait_right_only_fraction",
+        "gait_left_only_fraction": "gait_left_only_fraction",
+        "gait_double_support_fraction": "gait_double_support_fraction",
+        "gait_flight_fraction": "gait_flight_fraction",
+        "gait_right_touchdowns": "gait_right_touchdowns_mean",
+        "gait_left_touchdowns": "gait_left_touchdowns_mean",
+        "gait_alternating_touchdowns": "gait_alternating_touchdowns_mean",
+        "gait_alternating_touchdowns_per_100_steps": (
+            "gait_alternating_touchdowns_per_100_steps"
+        ),
+        "gait_progress_per_alternating_touchdown": (
+            "gait_progress_per_alternating_touchdown"
+        ),
+        "gait_stance_slip_speed": "gait_stance_slip_speed",
+        "gait_longest_same_foot_sequence": (
+            "gait_longest_same_foot_sequence_mean"
+        ),
+        "gait_mean_action_delta_l2": "gait_mean_action_delta_l2",
     }
 
     def __init__(self) -> None:

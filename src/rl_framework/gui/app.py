@@ -302,6 +302,36 @@ def get_schema():
                         "min": 0,
                         "max": 100,
                     },
+                    "gait_step_progress_weight": {
+                        "value": 0.0,
+                        "type": "float",
+                        "desc": "Reward per metre of bounded alternating-step progress",
+                        "min": 0,
+                        "max": 200,
+                    },
+                    "gait_step_progress_clip": {
+                        "value": 0.25,
+                        "type": "float",
+                        "desc": "Maximum credited pelvis progress per alternating touchdown (m)",
+                        "min": 0,
+                        "max": 1,
+                    },
+                    "stance_slip_penalty_weight": {
+                        "value": 0.0,
+                        "type": "float",
+                        "desc": "Penalty on contacting-foot planar slip speed",
+                        "min": 0,
+                        "max": 20,
+                    },
+                },
+                "gait": {
+                    "touchdown_debounce_steps": {
+                        "value": 3,
+                        "type": "int",
+                        "desc": "Minimum control steps between counted touchdowns per foot",
+                        "min": 1,
+                        "max": 60,
+                    },
                 },
                 "termination": {
                     "min_height": {

@@ -129,6 +129,40 @@ def test_walker_action_scale_limits_applied_action_and_is_reported() -> None:
         env.close()
 
 
+def test_walker_terminal_info_contains_finite_gait_metrics() -> None:
+    env = make_env(
+        "walker_bullet",
+        {
+            "type": "walker_bullet",
+            "seed": 1,
+            "termination": {"max_steps": 3},
+        },
+    )
+    try:
+        env.reset(seed=1)
+        info = {}
+        for _ in range(3):
+            _, _, terminated, truncated, info = env.step(
+                np.zeros(env.action_space.shape, dtype=np.float32)
+            )
+            if terminated or truncated:
+                break
+
+        summary = info["walker_episode"]
+        fractions = [
+            summary["gait_right_only_fraction"],
+            summary["gait_left_only_fraction"],
+            summary["gait_double_support_fraction"],
+            summary["gait_flight_fraction"],
+        ]
+        assert sum(fractions) == pytest.approx(1.0)
+        assert np.all(np.isfinite(list(summary.values())))
+        assert "reward_gait_step_progress_mean" in summary
+        assert "reward_stance_slip_mean" in summary
+    finally:
+        env.close()
+
+
 def test_walker_push_recovery_publishes_push_event() -> None:
     env = make_env(
         "walker_bullet",

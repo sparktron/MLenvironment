@@ -312,6 +312,7 @@ def test_quality_study_cli_dry_run_json(monkeypatch, capsys, tmp_path):
     assert payload["planned_runs"] == {
         "walker": 0,
         "walker_velocity": 0,
+        "walker_gait": 0,
         "arena": 0,
         "algorithms": 18,
     }

@@ -29,11 +29,14 @@ the completed summary below so completed work is not presented as pending.
   continuations. `velocity_sigma_010` ranked first, but only seed 22 passed;
   stronger forward weighting was worse. The next walker work should target
   gait structure or phase coordination rather than more scalar velocity-reward
-  pressure. Execute the phased
-  [`walker gait-coordination plan`](plans/2026-07-26-walker-gait-coordination.md):
-  measure contact/strike/slip behavior, freeze gait thresholds, then test
-  zero-default structural reward terms. Keep PPO/SAC/TD3 comparisons deferred
-  until the final 3 m transfer gate clears.
+  pressure. Phase 1 of the
+  [`walker gait-coordination plan`](plans/2026-07-26-walker-gait-coordination.md)
+  is complete: contact/strike/slip telemetry established three-seed baselines,
+  zero-default structural rewards and gait gates are tested, and all four
+  candidates passed the 24-worker pipeline smoke. Run the seed-22 50k
+  rejection screen, then advance surviving candidates to seeds 21–23 × 150k.
+  Keep PPO/SAC/TD3 comparisons deferred until the final 3 m transfer gate
+  clears.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.
@@ -48,6 +51,12 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-26) Started the gait-coordination gate. Walker episodes now report
+  support fractions, debounced touchdowns, valid alternation, progress per
+  alternating strike, stance slip, same-foot sequences, and action deltas.
+  Diagnostics and TensorBoard propagate the metrics. Zero-default alternating
+  progress and stance-slip reward terms were calibrated from seeds 21–23 and
+  completed a four-variant 24-worker smoke without changing checkpoint shapes.
 - (2026-07-26) Added a seed-matched velocity-reward continuation study. It
   resumes balance checkpoints, compares two tighter velocity sigmas plus a
   higher forward-weight candidate, and rejects aggregate-only successes by

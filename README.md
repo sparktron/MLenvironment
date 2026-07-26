@@ -522,11 +522,23 @@ discrimination improved the best seed without making locomotion consistent;
 the higher 1.5 forward weight reduced mean displacement to 0.73 m. No
 candidate was promoted.
 
-The next walker iteration is defined in the
+The gait-coordination iteration is defined in the
 [gait-coordination plan](docs/plans/2026-07-26-walker-gait-coordination.md).
-It adds gait telemetry before any reward change, then tests zero-default
-alternating-step progress and stance-slip terms with explicit per-seed behavior
-and gait gates.
+Phase 1 telemetry and zero-default structural rewards are implemented. The
+resumable rejection screen continues the sigma-0.10 seed-22 checkpoint:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
+  --study walker-gait --seeds 22 \
+  --study-step-budget 50000 \
+  --study-source-dir outputs/quality_studies_walker_velocity_150k_20260726/models/quality_walker_velocity_sigma_010 \
+  --study-output-dir outputs/quality_studies_walker_gait_50k_20260726
+```
+
+The matrix includes a zero-weight continuation control, alternating-touchdown
+progress, stance-slip penalty, and their combination. It logs support,
+touchdown, alternation, progress, slip, flight, same-foot sequence, and action
+delta telemetry without changing the observation shape.
 
 ---
 
@@ -569,6 +581,12 @@ environment:
     orientation_penalty_weight: 1.0  # Weight on roll+pitch penalty
     torque_penalty_weight: 0.01      # Weight on action magnitude penalty
     fall_penalty: 10.0               # One-time terminal fall penalty
+    gait_step_progress_weight: 0.0   # Opt-in alternating-touchdown progress
+    gait_step_progress_clip: 0.25    # Max credited progress per event (m)
+    stance_slip_penalty_weight: 0.0  # Opt-in contacting-foot slip penalty
+
+  gait:
+    touchdown_debounce_steps: 3      # Per-foot event debounce
 
   termination:
     min_height: 0.18                 # Low-height contact fallback (metres)

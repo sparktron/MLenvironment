@@ -47,7 +47,10 @@ push-recovery diagnostics. Its short screen requires robust stochastic balance
 before a candidate can advance to low-velocity training.
 `quality-study --study walker-velocity` then resumes the saved balance
 checkpoints and compares tighter velocity-reward distributions with a per-seed
-locomotion gate. The arena matrix first runs
+locomotion gate. `quality-study --study walker-gait` continues the strongest
+velocity checkpoints with a zero-weight control and calibrated alternating-step
+progress / stance-slip ablations; it requires both behavior and gait structure
+to pass independently for every seed. The arena matrix first runs
 resource tournaments, then evaluates
 feasible combat (`attack_range: 0.4`, `attack_cost: 0.02`) with and without
 approach shaping; native-regime measurements are kept separate from

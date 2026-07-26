@@ -16,6 +16,7 @@ from rl_framework.envs.locomotion.dynamics import (
     REST_POSE,
     WalkerDynamics,
 )
+from rl_framework.envs.locomotion.gait import WalkerGaitTracker
 from rl_framework.envs.locomotion.rewards import WalkerReward
 from rl_framework.envs.locomotion.terminations import WalkerTermination
 from rl_framework.utils.config_merge import get_section
@@ -114,6 +115,12 @@ class WalkerBulletEnv(gym.Env):
             self._push_interval_steps = int(push_cfg.get("interval_steps", 0))
             self._push_force = float(push_cfg.get("force", 0.0))
             self._push_start_step = int(push_cfg.get("start_step", 0))
+            gait_cfg = get_section(cfg, "gait")
+            self._gait_tracker = WalkerGaitTracker(
+                touchdown_debounce_steps=int(
+                    gait_cfg.get("touchdown_debounce_steps", 3)
+                )
+            )
 
             self.step_count = 0
             self.robot_id = -1
@@ -393,6 +400,7 @@ class WalkerBulletEnv(gym.Env):
         quat=None,
         lin_vel=None,
         ang_vel=None,
+        foot_contacts: tuple[bool, bool] | None = None,
     ) -> np.ndarray:
         # Callers that have already queried PyBullet (e.g. step()) pass the
         # values in to avoid a second round-trip; reset() and render() let them
@@ -417,9 +425,10 @@ class WalkerBulletEnv(gym.Env):
         values.extend(s[1] for s in joint_states)
         values.extend((self._mass_scale, self._friction_scale))
         if self._observation_version == "v2":
+            if foot_contacts is None:
+                foot_contacts = self._foot_contacts()
             values.extend(
-                float(bool(p.getContactPoints(bodyA=self.robot_id, linkIndexA=link, physicsClientId=self._connection)))
-                for link in (2, 5)
+                float(contact) for contact in foot_contacts
             )
         self._obs_buf[:] = values
         if self._sensor_noise_std > 0.0:
@@ -431,6 +440,42 @@ class WalkerBulletEnv(gym.Env):
         # Guard against PyBullet solver divergence poisoning VecNormalize stats.
         obs = np.nan_to_num(obs, nan=0.0, posinf=1e6, neginf=-1e6)
         return obs
+
+    def _foot_contacts(self) -> tuple[bool, bool]:
+        support_body_ids = {self.plane_id, *self._terrain_body_ids}
+        contacts = [
+            bool(
+                [
+                    contact
+                    for contact in p.getContactPoints(
+                        bodyA=self.robot_id,
+                        linkIndexA=link,
+                        physicsClientId=self._connection,
+                    )
+                    if contact[2] in support_body_ids
+                ]
+            )
+            for link in (2, 5)
+        ]
+        return contacts[0], contacts[1]
+
+    def _foot_slip_speeds(self) -> tuple[float, float]:
+        speeds = []
+        for link in (2, 5):
+            state = p.getLinkState(
+                self.robot_id,
+                link,
+                computeLinkVelocity=1,
+                physicsClientId=self._connection,
+            )
+            velocity = np.nan_to_num(
+                np.asarray(state[6], dtype=np.float64),
+                nan=0.0,
+                posinf=1e6,
+                neginf=-1e6,
+            )
+            speeds.append(float(np.linalg.norm(velocity[:2])))
+        return speeds[0], speeds[1]
 
     def _apply_domain_randomization(self) -> None:
         rand_cfg = get_section(self.cfg, "domain_randomization")
@@ -532,9 +577,24 @@ class WalkerBulletEnv(gym.Env):
         self._episode_abs_tilt = 0.0
         self._episode_action_l2 = 0.0
         self._episode_reward_components = {
-            name: 0.0 for name in ("alive", "velocity", "orientation", "action", "fall")
+            name: 0.0
+            for name in (
+                "alive",
+                "velocity",
+                "orientation",
+                "action",
+                "fall",
+                "gait_step_progress",
+                "stance_slip",
+            )
         }
-        obs = self._get_obs()
+        foot_contacts = self._foot_contacts()
+        action_size = self.action_space.shape[0] if self.action_space.shape else 10
+        self._gait_tracker.reset(
+            initial_contacts=foot_contacts,
+            action_size=action_size,
+        )
+        obs = self._get_obs(foot_contacts=foot_contacts)
         return obs, {}
 
     def step(self, action: np.ndarray):
@@ -589,7 +649,22 @@ class WalkerBulletEnv(gym.Env):
             lin_vel = tuple(np.nan_to_num(lin_vel, nan=0.0, posinf=1e6, neginf=-1e6))
             ang_vel = tuple(np.nan_to_num(ang_vel, nan=0.0, posinf=1e6, neginf=-1e6))
 
-        obs = self._get_obs(pos=pos, quat=quat, lin_vel=lin_vel, ang_vel=ang_vel)
+        foot_contacts = self._foot_contacts()
+        foot_slip_speeds = self._foot_slip_speeds()
+        gait_step = self._gait_tracker.update(
+            step=self.step_count,
+            contacts=foot_contacts,
+            pelvis_x=float(pos[0]),
+            foot_slip_speeds=foot_slip_speeds,
+            applied_action=applied_action,
+        )
+        obs = self._get_obs(
+            pos=pos,
+            quat=quat,
+            lin_vel=lin_vel,
+            ang_vel=ang_vel,
+            foot_contacts=foot_contacts,
+        )
         roll, pitch, _ = p.getEulerFromQuaternion(quat)
 
         # Torso (base, linkIndexA=-1) touching any supporting world surface =
@@ -620,6 +695,8 @@ class WalkerBulletEnv(gym.Env):
             "action": applied_action,
             "alive": not terminated,
             "fell": terminated,
+            "gait_step_progress": gait_step.alternating_step_progress,
+            "stance_slip_speed": gait_step.stance_slip_speed,
         }
         reward_components = self.reward_fn.components(**reward_inputs)
         reward = self.reward_fn.compute(**reward_inputs)
@@ -641,20 +718,7 @@ class WalkerBulletEnv(gym.Env):
             termination_reason = "max_height"
         elif truncated:
             termination_reason = "time_limit"
-        right_foot_contact = bool(
-            p.getContactPoints(
-                bodyA=self.robot_id,
-                linkIndexA=2,
-                physicsClientId=self._connection,
-            )
-        )
-        left_foot_contact = bool(
-            p.getContactPoints(
-                bodyA=self.robot_id,
-                linkIndexA=5,
-                physicsClientId=self._connection,
-            )
-        )
+        right_foot_contact, left_foot_contact = foot_contacts
         info = {
             "x_position": pos[0],
             "z_position": pos[2],
@@ -669,6 +733,11 @@ class WalkerBulletEnv(gym.Env):
             "torso_contact_body": torso_contact_body,
             "right_foot_contact": right_foot_contact,
             "left_foot_contact": left_foot_contact,
+            "right_foot_touchdown": gait_step.right_touchdown,
+            "left_foot_touchdown": gait_step.left_touchdown,
+            "valid_alternating_touchdown": gait_step.valid_alternating_touchdown,
+            "gait_step_progress": gait_step.alternating_step_progress,
+            "stance_slip_speed": gait_step.stance_slip_speed,
             "termination_reason": termination_reason,
             "push_applied": push_applied,
         }
@@ -681,6 +750,7 @@ class WalkerBulletEnv(gym.Env):
                 "mean_abs_tilt": self._episode_abs_tilt / steps,
                 "mean_action_l2": self._episode_action_l2 / steps,
                 "action_scale": self._action_scale,
+                **self._gait_tracker.episode_metrics(),
                 **{
                     f"reward_{name}_mean": total / steps
                     for name, total in self._episode_reward_components.items()

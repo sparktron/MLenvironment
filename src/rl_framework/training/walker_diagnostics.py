@@ -13,6 +13,30 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from rl_framework.envs.registry import make_env
 from rl_framework.utils.checkpoint import find_vecnormalize_path_for_model, model_zip_path
 
+_GAIT_EPISODE_METRICS = (
+    "gait_right_only_fraction",
+    "gait_left_only_fraction",
+    "gait_double_support_fraction",
+    "gait_flight_fraction",
+    "gait_right_touchdowns",
+    "gait_left_touchdowns",
+    "gait_alternating_touchdowns",
+    "gait_alternating_touchdowns_per_100_steps",
+    "gait_progress_per_alternating_touchdown",
+    "gait_stance_slip_speed",
+    "gait_longest_same_foot_sequence",
+    "gait_mean_action_delta_l2",
+)
+_REWARD_EPISODE_METRICS = (
+    "reward_alive_mean",
+    "reward_velocity_mean",
+    "reward_orientation_mean",
+    "reward_action_mean",
+    "reward_fall_mean",
+    "reward_gait_step_progress_mean",
+    "reward_stance_slip_mean",
+)
+
 
 def _model_class(cfg: dict[str, Any]):
     algorithm = str(cfg.get("training", {}).get("algorithm", "PPO")).upper()
@@ -38,7 +62,7 @@ def _aggregate_episode_rows(rows: list[dict[str, float]]) -> dict[str, float]:
     def values(key: str) -> np.ndarray:
         return np.asarray([row[key] for row in rows], dtype=np.float64)
 
-    return {
+    result = {
         "episode_length_mean": float(np.mean(values("episode_length"))),
         "episode_length_std": float(np.std(values("episode_length"))),
         "return_mean": float(np.mean(values("return"))),
@@ -53,6 +77,13 @@ def _aggregate_episode_rows(rows: list[dict[str, float]]) -> dict[str, float]:
             / max(sum(row["pushes"] for row in rows), 1.0)
         ),
     }
+    for key in _GAIT_EPISODE_METRICS:
+        result[f"{key}_mean"] = float(np.mean(values(key)))
+        result[f"{key}_std"] = float(np.std(values(key)))
+    for key in _REWARD_EPISODE_METRICS:
+        result[key] = float(np.mean(values(key)))
+        result[f"{key}_std"] = float(np.std(values(key)))
+    return result
 
 
 def _rollouts(
@@ -100,19 +131,33 @@ def _rollouts(
                     if isinstance(reason, str)
                     else bool(info.get("torso_contact", False))
                 )
-        rows.append(
-            {
-                "episode_length": float(episode_length),
-                "return": episode_return,
-                "fell": float(final_fell),
-                "peak_z": peak_z if np.isfinite(peak_z) else 0.0,
-                "forward_displacement": final_x - (initial_x or 0.0),
-                "pushes": float(len(push_steps)),
-                "recovered_pushes": float(
-                    sum(episode_length - step >= recovery_window for step in push_steps)
-                ),
-            }
-        )
+        walker_episode = info.get("walker_episode", {})
+        row = {
+            "episode_length": float(episode_length),
+            "return": episode_return,
+            "fell": float(final_fell),
+            "peak_z": peak_z if np.isfinite(peak_z) else 0.0,
+            "forward_displacement": final_x - (initial_x or 0.0),
+            "pushes": float(len(push_steps)),
+            "recovered_pushes": float(
+                sum(episode_length - step >= recovery_window for step in push_steps)
+            ),
+        }
+        for key in _GAIT_EPISODE_METRICS:
+            value = walker_episode.get(key, 0.0)
+            row[key] = (
+                float(value)
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else 0.0
+            )
+        for key in _REWARD_EPISODE_METRICS:
+            value = walker_episode.get(key, 0.0)
+            row[key] = (
+                float(value)
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else 0.0
+            )
+        rows.append(row)
     return _aggregate_episode_rows(rows)
 
 

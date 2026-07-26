@@ -270,13 +270,28 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
         if coordinate_free and version != "v2":
             raise ValueError("environment.observation.coordinate_free requires version 'v2'")
         reward = env_cfg.get("reward", {})
-        for key in ("alive_bonus", "forward_velocity_weight", "orientation_penalty_weight", "torque_penalty_weight"):
+        for key in (
+            "alive_bonus",
+            "forward_velocity_weight",
+            "orientation_penalty_weight",
+            "torque_penalty_weight",
+            "gait_step_progress_weight",
+            "gait_step_progress_clip",
+            "stance_slip_penalty_weight",
+        ):
             if key in reward:
                 val = reward[key]
                 if isinstance(val, bool) or not isinstance(val, (int, float)) or val < 0:
                     raise ValueError(
                         f"environment.reward.{key} must be a non-negative number, got {val!r}"
                     )
+        gait = env_cfg.get("gait", {})
+        if "touchdown_debounce_steps" in gait:
+            _ensure_int(
+                gait["touchdown_debounce_steps"],
+                "environment.gait.touchdown_debounce_steps",
+                min_value=1,
+            )
         terrain = env_cfg.get("terrain", {})
         preset = terrain.get("preset", "flat")
         valid_presets = {"flat", "uneven", "obstacles", "push_recovery"}
