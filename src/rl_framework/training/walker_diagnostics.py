@@ -371,6 +371,87 @@ def collect_walker_touchdown_placement_telemetry(
     }
 
 
+def collect_walker_stance_phase_telemetry(
+    cfg: dict[str, Any],
+    model_path: str | Path,
+    *,
+    episodes: int = 20,
+) -> dict[str, Any]:
+    """Test whether episode-average completed stance quality predicts progress."""
+    if cfg.get("environment", {}).get("type") != "walker_bullet":
+        raise ValueError("walker diagnostics require environment.type=walker_bullet")
+    path = model_zip_path(model_path)
+    model = _model_class(cfg).load(str(path), device="cpu")
+    vec_env = _evaluation_env(cfg, path)
+    episode_rows: list[tuple[float, float, float, float]] = []
+    completed_stances = 0
+    try:
+        seed = int(cfg.get("seed", 0))
+        for episode in range(episodes):
+            vec_env.seed(seed + episode)
+            obs = vec_env.reset()
+            advances: list[float] = []
+            durations: list[float] = []
+            slips: list[float] = []
+            initial_x: float | None = None
+            final_x = 0.0
+            done = False
+            while not done:
+                action, _ = model.predict(obs, deterministic=False)
+                obs, _, dones, infos = vec_env.step(action)
+                info = infos[0]
+                x_position = float(info.get("x_position", final_x))
+                if initial_x is None:
+                    initial_x = x_position
+                final_x = x_position
+                event = info.get("stance_completion_event")
+                if isinstance(event, dict):
+                    advance = event.get("pelvis_advance")
+                    duration = event.get("duration")
+                    slip = event.get("mean_slip_speed")
+                    if all(isinstance(value, (int, float)) for value in (advance, duration, slip)):
+                        advances.append(float(advance))
+                        durations.append(float(duration))
+                        slips.append(float(slip))
+                        completed_stances += 1
+                done = bool(dones[0])
+            if advances:
+                episode_rows.append(
+                    (
+                        final_x - (initial_x or 0.0),
+                        float(np.mean(advances)),
+                        float(np.mean(durations)),
+                        float(np.mean(slips)),
+                    )
+                )
+    finally:
+        vec_env.close()
+
+    data = np.asarray(episode_rows, dtype=np.float64)
+
+    def correlation(column: int) -> float:
+        if len(data) < 2 or np.std(data[:, 0]) == 0 or np.std(data[:, column]) == 0:
+            return 0.0
+        return float(np.corrcoef(data[:, column], data[:, 0])[0, 1])
+
+    def mean(column: int) -> float:
+        return float(np.mean(data[:, column])) if len(data) else 0.0
+
+    return {
+        "episodes": episodes,
+        "episodes_with_completed_stances": len(episode_rows),
+        "completed_stance_count": completed_stances,
+        "episode_mean_stance_pelvis_advance_meters": mean(1),
+        "episode_mean_stance_duration_seconds": mean(2),
+        "episode_mean_stance_slip_speed": mean(3),
+        "correlation_with_episode_displacement": {
+            "pelvis_advance": correlation(1),
+            "duration": correlation(2),
+            "slip_speed": correlation(3),
+        },
+    }
+
+
 def evaluate_walker_transfer_suite(
     cfg: dict[str, Any],
     model_path: str | Path,

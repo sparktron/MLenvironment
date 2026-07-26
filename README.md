@@ -590,6 +590,12 @@ Across 578 event pairs, lead had near-zero correlation with that progress
 (`r = -0.054`), so foot-placement shaping is not justified and no additional
 50k candidate was run.
 
+The subsequent stance-phase analysis found 3,985 completed foot stances across
+20 seed-21 control episodes. Mean stance pelvis advance correlated positively
+with episode displacement (`r = 0.705`), but duration correlated negatively
+(`r = -0.492`) and slip positively (`r = 0.308`). That contradicts the required
+low-slip, longer-advance mechanism, so no stance-progress reward screen was run.
+
 ---
 
 ## ⚙️ Configuration

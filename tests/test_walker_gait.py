@@ -147,3 +147,22 @@ def test_sustained_swing_progress_requires_duration_and_clearance() -> None:
     assert second.touchdown_foot_lead == pytest.approx(-0.1)
     assert second.sustained_swing_progress == pytest.approx(0.2)
     assert tracker.episode_metrics()["gait_sustained_swing_touchdowns"] == 2.0
+
+
+def test_gait_tracker_reports_completed_stance_advance_duration_and_slip() -> None:
+    tracker = WalkerGaitTracker(control_timestep=0.1)
+    tracker.reset(initial_contacts=(False, True), action_size=2)
+
+    touchdown = _update(
+        tracker, step=1, contacts=(True, True), x=0.0, slips=(0.2, 0.0)
+    )
+    _update(tracker, step=2, contacts=(True, True), x=0.05, slips=(0.4, 0.0))
+    liftoff = _update(
+        tracker, step=3, contacts=(False, True), x=0.12, slips=(9.0, 0.0)
+    )
+
+    assert touchdown.stance_completion_side is None
+    assert liftoff.stance_completion_side == 0
+    assert liftoff.stance_pelvis_advance == pytest.approx(0.12)
+    assert liftoff.stance_duration == pytest.approx(0.2)
+    assert liftoff.stance_mean_slip_speed == pytest.approx(0.3)

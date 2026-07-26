@@ -63,6 +63,12 @@ must record both successful changes and failed hypotheses there.
   foot-placement shaping before training: 578 sustained touchdown pairs had
   a lead-to-next-touchdown-progress correlation of -0.054. Do not create a
   50k foot-placement reward candidate from this non-predictive signal.
+- (2026-07-26) A telemetry-only seed-21 stance-phase analysis also rejects a
+  reward candidate before training. Across 3,985 completed stances in 20
+  episodes, stance advance correlated with displacement (r=0.705), but duration
+  correlated negatively (r=-0.492) and slip positively (r=0.308). The required
+  low-slip, longer-advance mechanism is not present; do not run a stance reward
+  screen.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.

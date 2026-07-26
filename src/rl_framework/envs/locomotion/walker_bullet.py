@@ -770,6 +770,16 @@ class WalkerBulletEnv(gym.Env):
                 if gait_step.touchdown_swing_duration is not None
                 else None
             ),
+            "stance_completion_event": (
+                {
+                    "side": gait_step.stance_completion_side,
+                    "pelvis_advance": gait_step.stance_pelvis_advance,
+                    "duration": gait_step.stance_duration,
+                    "mean_slip_speed": gait_step.stance_mean_slip_speed,
+                }
+                if gait_step.stance_completion_side is not None
+                else None
+            ),
             "termination_reason": termination_reason,
             "push_applied": push_applied,
         }

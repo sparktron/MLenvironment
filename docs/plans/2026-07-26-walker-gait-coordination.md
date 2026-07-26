@@ -245,6 +245,18 @@ touchdown was 7.21 mm (p75 18.42 mm). Their Pearson correlation was -0.054.
 Landing lead therefore does not predict the proposed outcome, so a
 foot-placement reward would be speculative. Do not run a 50k candidate.
 
+## Phase 3e: Stance-Phase Telemetry
+
+Status: **rejected before training**.
+
+The fixed-target seed-21 control produced 3,985 completed touchdown-to-liftoff
+stances across 20 stochastic episodes. Episode-average stance pelvis advance
+correlated with displacement at 0.705, but stance duration correlated at -0.492
+and mean stance-foot slip at 0.308. The result does not support the required
+low-slip, longer-advance push-off mechanism (and advance alone is too close to
+the displacement outcome to justify shaping). Do not run a 50k stance reward
+candidate.
+
 ## Phase 3b: Velocity-Ramp Rejection Screen
 
 Status: **rejected at seed 21, 50k**.

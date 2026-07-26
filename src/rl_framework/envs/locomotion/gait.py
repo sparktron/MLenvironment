@@ -20,6 +20,10 @@ class GaitStep:
     touchdown_foot_lead: float | None
     sustained_swing_touchdown: bool
     sustained_swing_progress: float
+    stance_completion_side: int | None
+    stance_pelvis_advance: float | None
+    stance_duration: float | None
+    stance_mean_slip_speed: float | None
 
 
 @dataclass
@@ -55,6 +59,10 @@ class WalkerGaitTracker:
     _stride_lengths: list[float] = field(default_factory=list)
     _qualified_touchdowns: int = 0
     _sustained_swing_touchdowns: int = 0
+    _stance_start_steps: list[int | None] = field(default_factory=lambda: [None, None])
+    _stance_start_pelvis_x: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    _stance_slip_sums: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    _stance_slip_counts: list[int] = field(default_factory=lambda: [0, 0])
     _steps: int = 0
 
     def __post_init__(self) -> None:
@@ -96,6 +104,10 @@ class WalkerGaitTracker:
         self._stride_lengths = []
         self._qualified_touchdowns = 0
         self._sustained_swing_touchdowns = 0
+        self._stance_start_steps = [None, None]
+        self._stance_start_pelvis_x = [0.0, 0.0]
+        self._stance_slip_sums = [0.0, 0.0]
+        self._stance_slip_counts = [0, 0]
         self._steps = 0
 
     def update(
@@ -140,10 +152,31 @@ class WalkerGaitTracker:
 
         accepted_touchdowns: list[int] = []
         swing_events: dict[int, tuple[float, float]] = {}
+        stance_completion_side: int | None = None
+        stance_pelvis_advance: float | None = None
+        stance_duration: float | None = None
+        stance_mean_slip_speed: float | None = None
         for side, (contact, previous_contact) in enumerate(
             zip(contacts, self._previous_contacts)
         ):
             foot_x, foot_z = foot_positions[side]
+            if not contact and previous_contact:
+                stance_start = self._stance_start_steps[side]
+                if stance_start is not None:
+                    stance_completion_side = side
+                    stance_pelvis_advance = float(
+                        pelvis_x - self._stance_start_pelvis_x[side]
+                    )
+                    stance_duration = (step - stance_start) * self.control_timestep
+                    slip_count = self._stance_slip_counts[side]
+                    stance_mean_slip_speed = (
+                        self._stance_slip_sums[side] / slip_count
+                        if slip_count
+                        else 0.0
+                    )
+                self._stance_start_steps[side] = None
+                self._stance_slip_sums[side] = 0.0
+                self._stance_slip_counts[side] = 0
             if not contact:
                 if previous_contact:
                     self._swing_start_steps[side] = step
@@ -162,6 +195,10 @@ class WalkerGaitTracker:
                 accepted_touchdowns.append(side)
                 self._last_touchdown_steps[side] = step
                 self._touchdown_counts[side] += 1
+                self._stance_start_steps[side] = step
+                self._stance_start_pelvis_x[side] = float(pelvis_x)
+                self._stance_slip_sums[side] = 0.0
+                self._stance_slip_counts[side] = 0
                 swing_start = self._swing_start_steps[side]
                 if swing_start is not None:
                     self._qualified_touchdowns += 1
@@ -177,6 +214,11 @@ class WalkerGaitTracker:
                         self._stride_lengths.append(abs(float(foot_x) - previous_x))
                     self._last_stride_touchdown_x[side] = float(foot_x)
                 self._swing_start_steps[side] = None
+            if contact and self._stance_start_steps[side] is not None:
+                slip_speed = float(foot_slip_speeds[side])
+                if np.isfinite(slip_speed):
+                    self._stance_slip_sums[side] += max(slip_speed, 0.0)
+                    self._stance_slip_counts[side] += 1
         self._previous_contacts = contacts
 
         alternating = False
@@ -237,6 +279,10 @@ class WalkerGaitTracker:
             sustained_swing_progress=(
                 progress if alternating and sustained_swing_touchdown else 0.0
             ),
+            stance_completion_side=stance_completion_side,
+            stance_pelvis_advance=stance_pelvis_advance,
+            stance_duration=stance_duration,
+            stance_mean_slip_speed=stance_mean_slip_speed,
         )
 
     def episode_metrics(self) -> dict[str, float]:

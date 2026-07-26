@@ -387,6 +387,20 @@ Pearson correlation -0.054 (mean lead -1.16 mm; mean next-touchdown progress
 **Decision:** Reject the mechanism before training. A foot-placement reward is
 not justified; no 50k candidate was run.
 
+## 2026-07-26 — Stance-Phase Telemetry
+
+**Question:** Do longer, low-slip touchdown-to-liftoff stances with greater
+pelvis advance predict displacement strongly enough to justify a push-off term?
+
+**Observed result:** Across 3,985 completed stances in 20 seed-21 fixed-target
+control episodes, episode-average stance advance correlated with displacement
+at 0.705. Duration correlated at -0.492 and mean stance-foot slip at 0.308;
+the low-slip, longer-advance condition was not met.
+
+**Decision:** Reject before training. Stance advance alone is too close to the
+outcome to serve as a new mechanism, and the remaining predictors contradict
+the proposed reward direction. No 50k candidate was run.
+
 ## How To Append A Future Entry
 
 Do not rewrite an old failure to make a later result look inevitable. Add a
