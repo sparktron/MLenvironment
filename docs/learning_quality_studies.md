@@ -5,6 +5,11 @@ atomic `state.json`, `report.json`, and `report.md`. Interrupted studies can be
 continued with `--resume-incomplete`; the saved identity prevents accidentally
 resuming with different seeds or budgets.
 
+For the chronological teaching narrative—what changed, what worked, what
+failed, and why each result advanced or stopped—see the append-only
+[`walker_learning_history.md`](walker_learning_history.md). This document
+remains the detailed study and command reference.
+
 ## Study Matrix
 
 | Study | Candidates | Evidence |

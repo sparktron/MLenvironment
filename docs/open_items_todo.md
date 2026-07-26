@@ -4,6 +4,10 @@ Last updated: 2026-07-26
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
+The append-only
+[`walker_learning_history.md`](walker_learning_history.md) is the canonical
+teaching narrative and decision ledger for walker experiments; new studies
+must record both successful changes and failed hypotheses there.
 
 ## Priority 1: Runtime And GUI Performance
 
@@ -56,6 +60,10 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-26) Established an append-only walker learning history that records
+  hypotheses, controlled changes, per-seed evidence, visual checks, failures,
+  decisions, and lessons. Future experiments have a standard entry template so
+  the eventual successful process can be taught without losing rejected paths.
 - (2026-07-26) Completed the gait-coordination 150k matrix and stronger
   stance-slip rejection screen. Slip-only was the closest three-seed variant,
   but not every seed passed. Five-rollout stochastic renders checked its

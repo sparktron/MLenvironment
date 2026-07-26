@@ -542,6 +542,13 @@ progress, stance-slip penalty, and their combination. It logs support,
 touchdown, alternation, progress, slip, flight, same-foot sequence, and action
 delta telemetry without changing the observation shape.
 
+The append-only
+[walker learning experiment history](docs/walker_learning_history.md) records
+the complete teaching narrative: hypotheses, isolated changes, fixed gates,
+successful mechanisms, failures, visual checks, and the decision produced by
+each study. New learning experiments should add a dated entry there rather
+than replacing earlier failures with only the latest conclusion.
+
 The completed 150k matrix promoted no variant. Slip-only was the closest:
 seed 22 reached 793 stochastic steps, 5% falls, and 2.00 m displacement, while
 seed 23 reached 738 steps, 10% falls, and 1.26 m. Seed 21 reached 733 steps,
@@ -1162,6 +1169,10 @@ evaluation flow, checkpoints, and VecNormalize sidecars are shared with PPO.
 
 The active development plan lives in [`docs/open_items_todo.md`](docs/open_items_todo.md). The next work is grouped into:
 
+- The durable experimental decision ledger lives in
+  [`docs/walker_learning_history.md`](docs/walker_learning_history.md). Append
+  every walker learning experiment with its hypothesis, constants, results,
+  failure modes, visual evidence, and decision.
 - Priority 0 correctness fixes are currently cleared for the arena self-play validation path; new confirmed bugs should be added here first.
 - Learning-quality decisions are made through the resumable `quality-study`
   matrices; candidate defaults remain gated on promotion-scale evidence.
