@@ -140,6 +140,38 @@ locomotion does not. Only seed 22 crossed 1 m, so this is partial evidence and
 does not unlock the final 3 m locomotion promotion gate or algorithm
 comparison.
 
+### Velocity-reward continuation matrix
+
+`quality-study --study walker-velocity` resumes seed-matched checkpoints from
+`--study-source-dir` and compares three fixed low-velocity continuations:
+
+| Candidate | Velocity sigma | Forward-velocity weight |
+|---|---:|---:|
+| `velocity_sigma_015` | 0.15 | 1.0 |
+| `velocity_sigma_010` | 0.10 | 1.0 |
+| `velocity_sigma_015_weight_15` | 0.15 | 1.5 |
+
+The study is evidence-ready at three seeds and at least 100k continuation
+steps. Promotion requires every seed—not only the aggregate mean—to reach 600
+stochastic steps, at most 30% falls, at least 1 m forward displacement, and
+peak torso height below 1 m. Runs and diagnostics are resumable through the
+same `state.json` mechanism as the other quality studies.
+
+The seeds 21–23 study completed with 150k continuation steps per run:
+
+| Candidate | Mean steps | Mean falls | Mean displacement | Per-seed pass |
+|---|---:|---:|---:|---|
+| `velocity_sigma_010` | 702.7 | 20.0% | +0.90 m | no, yes, no |
+| `velocity_sigma_015` | 714.2 | 25.0% | +0.75 m | no, yes, no |
+| `velocity_sigma_015_weight_15` | 705.1 | 25.0% | +0.73 m | no, no, no |
+
+For the recommended `velocity_sigma_010` candidate, seed 21 survived all 800
+steps but moved only 0.90 m; seed 22 reached 1.35 m with 30% falls; seed 23
+reached 0.45 m with 30% falls. Rendering showed seed 22 repeating a small
+forward shuffle while seed 23 mainly leaned and crept. No launch or sliding
+exploit appeared. The evidence gate is ready, but the per-seed promotion gate
+is false.
+
 ## Preliminary Run — 2026-07-19
 
 Three-seed preliminary studies validated the complete workflow at deliberately

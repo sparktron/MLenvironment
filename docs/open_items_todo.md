@@ -25,9 +25,15 @@ the completed summary below so completed work is not presented as pending.
   screens. Independent staged seeds 21–23 (100k balance + 200k low velocity)
   averaged 700 stochastic steps, 18.3% falls, and 0.93 m displacement. Only
   seed 22 produced clear forward locomotion (1.60 m), so locomotion remains
-  seed-sensitive. Improve forward-progress consistency without sacrificing the
-  now-robust balance behavior, then repeat the staged three-seed gate. Keep
-  PPO/SAC/TD3 comparisons deferred until the final 3 m transfer gate clears.
+  seed-sensitive. The resumable `walker-velocity` matrix completed nine 150k
+  continuations. `velocity_sigma_010` ranked first, but only seed 22 passed;
+  stronger forward weighting was worse. The next walker work should target
+  gait structure or phase coordination rather than more scalar velocity-reward
+  pressure. Execute the phased
+  [`walker gait-coordination plan`](plans/2026-07-26-walker-gait-coordination.md):
+  measure contact/strike/slip behavior, freeze gait thresholds, then test
+  zero-default structural reward terms. Keep PPO/SAC/TD3 comparisons deferred
+  until the final 3 m transfer gate clears.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.
@@ -42,6 +48,11 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-26) Added a seed-matched velocity-reward continuation study. It
+  resumes balance checkpoints, compares two tighter velocity sigmas plus a
+  higher forward-weight candidate, and rejects aggregate-only successes by
+  requiring every seed to pass the stochastic locomotion gate. The completed
+  seeds 21–23 run selected sigma 0.10 but promoted nothing.
 - (2026-07-26) Completed the exploration-noise and staged low-velocity plan.
   PPO exposes validated initial action variance; four 100k candidates isolated
   variance, entropy, and action range; the winner advanced through a 150k

@@ -439,10 +439,13 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-stud
   --study all --seeds 0,1,2
 ```
 
-`--study` also accepts `walker`, `arena`, or `algorithms`. The default promotion
-budgets are 750k walker steps, 30k arena steps, and 500k algorithm steps plus a
-900-second wall-clock comparison. Override them with `--study-step-budget`,
-`--study-wall-clock-seconds`, and `--study-eval-episodes`; use
+`--study` also accepts `walker`, `walker-velocity`, `arena`, or `algorithms`.
+The `walker-velocity` study resumes seed-matched balance checkpoints from
+`--study-source-dir`. The default promotion budgets are 750k walker steps,
+150k walker-velocity continuation steps, 30k arena steps, and 500k algorithm
+steps plus a 900-second wall-clock comparison. Override them with
+`--study-step-budget`, `--study-wall-clock-seconds`, and
+`--study-eval-episodes`; use
 `--resume-incomplete` to continue from `state.json`. Results are written to
 `outputs/quality_studies/{report.json,report.md}`. See
 [`docs/learning_quality_studies.md`](docs/learning_quality_studies.md) for the
@@ -496,6 +499,34 @@ three-seed staged replication (100k balance + 200k low velocity) averaged
 700 steps, an 18% fall rate, and 0.93 m displacement. Seed 22 reached 1.60 m
 with 5% falls, but the other seeds did not reproduce that locomotion, so the
 candidate remains unpromoted.
+
+The next reproducible continuation matrix sharpens the low-velocity Gaussian
+with `velocity_sigma` values 0.15 and 0.10, plus a 0.15/1.5-weight candidate:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
+  --study walker-velocity --seeds 21,22,23 \
+  --study-step-budget 150000 \
+  --study-source-dir outputs/walker_stochastic_balance_candidate \
+  --study-output-dir outputs/quality_studies_walker_velocity
+```
+
+Each seed must independently average at least 600 stochastic steps, move at
+least 1 m, fall at most 30% of the time, and remain below 1 m peak torso
+height. Mean performance cannot hide a failed seed.
+
+The 150k continuation study completed all nine runs. `velocity_sigma_010`
+ranked first with 703 mean stochastic steps, 20% falls, and 0.90 m
+displacement, but only seed 22 passed the per-seed gate. Tighter reward
+discrimination improved the best seed without making locomotion consistent;
+the higher 1.5 forward weight reduced mean displacement to 0.73 m. No
+candidate was promoted.
+
+The next walker iteration is defined in the
+[gait-coordination plan](docs/plans/2026-07-26-walker-gait-coordination.md).
+It adds gait telemetry before any reward change, then tests zero-default
+alternating-step progress and stance-slip terms with explicit per-seed behavior
+and gait gates.
 
 ---
 

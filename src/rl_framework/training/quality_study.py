@@ -103,6 +103,25 @@ WALKER_BALANCE_GATE = {
     "max_abs_forward_displacement": 0.75,
     "max_peak_z": 1.0,
 }
+WALKER_VELOCITY_VARIANTS: dict[str, dict[str, Any]] = {
+    "velocity_sigma_015": {
+        "environment.reward.velocity_sigma": 0.15,
+    },
+    "velocity_sigma_010": {
+        "environment.reward.velocity_sigma": 0.10,
+    },
+    "velocity_sigma_015_weight_15": {
+        "environment.reward.velocity_sigma": 0.15,
+        "environment.reward.forward_velocity_weight": 1.5,
+    },
+}
+WALKER_VELOCITY_GATE = {
+    "evaluation_mode": "stochastic",
+    "min_episode_length": 600.0,
+    "min_forward_displacement": 1.0,
+    "max_fall_rate": 0.30,
+    "max_peak_z": 1.0,
+}
 
 ARENA_RESOURCE_VARIANTS: dict[str, dict[str, Any]] = {
     "baseline": {},
@@ -270,6 +289,7 @@ def _train_run(
     state_path: Path,
     *,
     wall_clock_seconds: float | None = None,
+    resume_from: str | Path | None = None,
 ) -> dict[str, Any]:
     previous = state["runs"].get(key)
     if previous and previous.get("status") == "completed":
@@ -280,12 +300,20 @@ def _train_run(
     callbacks: list[BaseCallback] | None = (
         [StopOnWallClock(wall_clock_seconds)] if wall_clock_seconds is not None else None
     )
-    record: dict[str, Any] = {"status": "running", "config": cfg}
+    record: dict[str, Any] = {
+        "status": "running",
+        "config": cfg,
+        "resume_from": str(resume_from) if resume_from is not None else None,
+    }
     state["runs"][key] = record
     _atomic_json_write(state_path, state)
     started_at = time.perf_counter()
     try:
-        model = train(cfg, extra_callbacks=callbacks)
+        model = train(
+            cfg,
+            extra_callbacks=callbacks,
+            resume_from=resume_from,
+        )
         path = model_zip_path(model)
         elapsed = time.perf_counter() - started_at
         record.update(
@@ -468,6 +496,146 @@ def _run_walker_study(
         aggregate["evidence_ready"] and aggregate["promoted_variant"] is not None
     )
     aggregate["runs"] = diagnostics
+    return aggregate
+
+
+def _walker_velocity_passed(result: dict[str, Any]) -> bool:
+    """Return whether a low-velocity continuation clears every behavior bound."""
+    metrics = result[WALKER_VELOCITY_GATE["evaluation_mode"]]
+    return bool(
+        metrics["episode_length_mean"]
+        >= WALKER_VELOCITY_GATE["min_episode_length"]
+        and metrics["forward_displacement_mean"]
+        >= WALKER_VELOCITY_GATE["min_forward_displacement"]
+        and metrics["fall_rate"] <= WALKER_VELOCITY_GATE["max_fall_rate"]
+        and metrics["peak_z_mean"] < WALKER_VELOCITY_GATE["max_peak_z"]
+    )
+
+
+def _aggregate_walker_velocity_results(
+    results: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    by_variant: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for run_key, result in results.items():
+        variant, seed_label = run_key.split("/", 1)
+        by_variant.setdefault(variant, []).append((seed_label, result))
+
+    rankings = []
+    for variant, seed_results in by_variant.items():
+        variant_results = [result for _, result in seed_results]
+        stochastic = [result["stochastic"] for result in variant_results]
+        per_seed_passed = {
+            seed_label: _walker_velocity_passed(result)
+            for seed_label, result in seed_results
+        }
+        row = {
+            "variant": variant,
+            "seeds_completed": len(variant_results),
+            "episode_length_mean": float(
+                np.mean([metrics["episode_length_mean"] for metrics in stochastic])
+            ),
+            "forward_displacement_mean": float(
+                np.mean(
+                    [metrics["forward_displacement_mean"] for metrics in stochastic]
+                )
+            ),
+            "fall_rate_mean": float(
+                np.mean([metrics["fall_rate"] for metrics in stochastic])
+            ),
+            "peak_z_mean": float(
+                np.mean([metrics["peak_z_mean"] for metrics in stochastic])
+            ),
+            "per_seed_passed": per_seed_passed,
+            "gate_passed": bool(
+                per_seed_passed and all(per_seed_passed.values())
+            ),
+        }
+        row["score"] = float(
+            row["forward_displacement_mean"]
+            + row["episode_length_mean"] / 800.0
+            - row["fall_rate_mean"]
+        )
+        rankings.append(row)
+    rankings.sort(
+        key=lambda row: (
+            cast(bool, row["gate_passed"]),
+            cast(float, row["score"]),
+        ),
+        reverse=True,
+    )
+    promoted = next(
+        (row["variant"] for row in rankings if row["gate_passed"]),
+        None,
+    )
+    return {
+        "rankings": rankings,
+        "recommended_variant": rankings[0]["variant"] if rankings else None,
+        "promoted_variant": promoted,
+        "behavioral_gate": WALKER_VELOCITY_GATE,
+        "runs": results,
+    }
+
+
+def _run_walker_velocity_study(
+    *,
+    seeds: list[int],
+    step_budget: int,
+    eval_episodes: int,
+    config_dir: Path,
+    source_dir: Path,
+    output_dir: Path,
+    state: dict[str, Any],
+    state_path: Path,
+) -> dict[str, Any]:
+    diagnostics: dict[str, dict[str, Any]] = {}
+    base = _load_cfg("walker_low_velocity_candidate", config_dir)
+    for variant, overrides in WALKER_VELOCITY_VARIANTS.items():
+        variant_cfg = deepcopy(base)
+        _apply_overrides(variant_cfg, overrides)
+        for seed in seeds:
+            key = f"{variant}/seed_{seed}"
+            source_model = (
+                source_dir / f"seed_{seed}" / "checkpoints" / "final_model.zip"
+            )
+            if not source_model.is_file():
+                raise FileNotFoundError(
+                    f"Walker velocity source checkpoint not found: {source_model}"
+                )
+            cfg = _prepare_cfg(
+                variant_cfg,
+                experiment_name=f"quality_walker_{variant}",
+                seed=seed,
+                step_budget=step_budget,
+                output_dir=output_dir,
+            )
+            run = _train_run(
+                f"walker_velocity/{key}",
+                cfg,
+                state,
+                state_path,
+                resume_from=source_model,
+            )
+            if run.get("status") != "completed":
+                continue
+            if "diagnostics" not in run:
+                run["diagnostics"] = evaluate_walker_checkpoint(
+                    cfg,
+                    run["model_path"],
+                    episodes=eval_episodes,
+                )
+                _atomic_json_write(state_path, state)
+            diagnostics[key] = run["diagnostics"]
+
+    aggregate = _aggregate_walker_velocity_results(diagnostics)
+    aggregate["evidence_ready"] = (
+        len(seeds) >= 3
+        and step_budget >= 100_000
+        and len(aggregate["rankings"]) == len(WALKER_VELOCITY_VARIANTS)
+        and all(row["seeds_completed"] == len(seeds) for row in aggregate["rankings"])
+    )
+    aggregate["promotion_ready"] = bool(
+        aggregate["evidence_ready"] and aggregate["promoted_variant"] is not None
+    )
     return aggregate
 
 
@@ -877,12 +1045,13 @@ def run_quality_study(
     step_budget: int | None = None,
     wall_clock_seconds: float = 900.0,
     eval_episodes: int = 20,
+    source_dir: str | Path = "outputs/walker_stochastic_balance_candidate",
     resume: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Run walker, arena, algorithm, or all Priority-3 quality studies."""
+    """Run walker, walker-velocity, arena, algorithm, or all quality studies."""
     studies = ["walker", "arena", "algorithms"] if study == "all" else [study]
-    invalid = set(studies) - {"walker", "arena", "algorithms"}
+    invalid = set(studies) - {"walker", "walker-velocity", "arena", "algorithms"}
     if invalid:
         raise ValueError(f"Unknown quality study: {sorted(invalid)}")
     if not seeds:
@@ -896,10 +1065,17 @@ def run_quality_study(
     identity = _study_identity(
         studies, seeds, step_budget, wall_clock_seconds, eval_episodes
     )
+    if "walker-velocity" in studies:
+        identity["source_dir"] = str(Path(source_dir))
     plan = {
         "identity": identity,
         "planned_runs": {
             "walker": len(WALKER_VARIANTS) * len(seeds) if "walker" in studies else 0,
+            "walker_velocity": (
+                len(WALKER_VELOCITY_VARIANTS) * len(seeds)
+                if "walker-velocity" in studies
+                else 0
+            ),
             "arena": (
                 (len(ARENA_RESOURCE_VARIANTS) + len(ARENA_DEPTH_VARIANTS)) * len(seeds)
                 if "arena" in studies
@@ -925,6 +1101,17 @@ def run_quality_study(
             step_budget=step_budget or 750_000,
             eval_episodes=eval_episodes,
             config_dir=config_path,
+            output_dir=output,
+            state=state,
+            state_path=state_path,
+        )
+    if "walker-velocity" in studies:
+        state["results"]["walker_velocity"] = _run_walker_velocity_study(
+            seeds=seeds,
+            step_budget=step_budget or 150_000,
+            eval_episodes=eval_episodes,
+            config_dir=config_path,
+            source_dir=Path(source_dir),
             output_dir=output,
             state=state,
             state_path=state_path,

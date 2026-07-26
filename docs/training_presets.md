@@ -44,7 +44,10 @@ The current walker matrix compares `balance_low_std`,
 `balance_low_std_slow_scale` with a common 24×128 rollout schedule plus
 zero-action, deterministic, stochastic, transfer, launch-height, and
 push-recovery diagnostics. Its short screen requires robust stochastic balance
-before a candidate can advance to low-velocity training. The arena matrix first runs
+before a candidate can advance to low-velocity training.
+`quality-study --study walker-velocity` then resumes the saved balance
+checkpoints and compares tighter velocity-reward distributions with a per-seed
+locomotion gate. The arena matrix first runs
 resource tournaments, then evaluates
 feasible combat (`attack_range: 0.4`, `attack_cost: 0.02`) with and without
 approach shaping; native-regime measurements are kept separate from

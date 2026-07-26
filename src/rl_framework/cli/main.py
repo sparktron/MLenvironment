@@ -137,7 +137,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--study",
         default="all",
-        choices=["walker", "arena", "algorithms", "all"],
+        choices=["walker", "walker-velocity", "arena", "algorithms", "all"],
         help="Priority-3 quality study to run (default: all).",
     )
     parser.add_argument(
@@ -162,6 +162,11 @@ def _parse_args() -> argparse.Namespace:
         "--study-output-dir",
         default="outputs/quality_studies",
         help="Quality-study state, models, and report directory.",
+    )
+    parser.add_argument(
+        "--study-source-dir",
+        default="outputs/walker_stochastic_balance_candidate",
+        help="Seed directories containing balance checkpoints for walker-velocity.",
     )
     parser.add_argument(
         "--registry-action",
@@ -464,6 +469,7 @@ def main() -> None:
             step_budget=args.study_step_budget,
             wall_clock_seconds=args.study_wall_clock_seconds,
             eval_episodes=args.study_eval_episodes,
+            source_dir=args.study_source_dir,
             resume=args.resume_incomplete,
             dry_run=args.dry_run,
         )

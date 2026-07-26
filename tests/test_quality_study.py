@@ -39,6 +39,7 @@ def test_quality_study_dry_run_reports_full_plan(tmp_path: Path) -> None:
 
     assert result["planned_runs"] == {
         "walker": 12,
+        "walker_velocity": 0,
         "arena": 18,
         "algorithms": 18,
     }
@@ -50,7 +51,7 @@ def test_walker_quality_study_persists_results_and_is_resumable(
 ) -> None:
     train_calls = []
 
-    def fake_train(cfg, extra_callbacks=None):
+    def fake_train(cfg, extra_callbacks=None, resume_from=None):
         train_calls.append(cfg)
         model = (
             Path(cfg["output"]["base_dir"])
@@ -110,6 +111,54 @@ def test_walker_quality_study_persists_results_and_is_resumable(
     )
     assert resumed["completed"] is True
     assert len(train_calls) == len(quality_study.WALKER_VARIANTS)
+
+
+def test_walker_velocity_study_resumes_balance_checkpoints(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source_dir = tmp_path / "balance"
+    source_model = source_dir / "seed_7" / "checkpoints" / "final_model.zip"
+    source_model.parent.mkdir(parents=True)
+    source_model.write_bytes(b"balance")
+    train_calls = []
+
+    def fake_train(cfg, extra_callbacks=None, resume_from=None):
+        train_calls.append((cfg, resume_from))
+        model = (
+            Path(cfg["output"]["base_dir"])
+            / cfg["experiment_name"]
+            / f"seed_{cfg['seed']}"
+            / "checkpoints"
+            / "final_model"
+        )
+        model.parent.mkdir(parents=True, exist_ok=True)
+        model.with_suffix(".zip").write_bytes(b"continued")
+        return model
+
+    monkeypatch.setattr(quality_study, "train", fake_train)
+    monkeypatch.setattr(
+        quality_study,
+        "evaluate_walker_checkpoint",
+        lambda cfg, path, episodes: _diagnostic_result(),
+    )
+
+    result = run_quality_study(
+        "walker-velocity",
+        seeds=[7],
+        source_dir=source_dir,
+        output_dir=tmp_path / "study",
+        step_budget=100_000,
+        eval_episodes=1,
+    )
+
+    assert result["completed"] is True
+    assert len(train_calls) == len(quality_study.WALKER_VELOCITY_VARIANTS)
+    assert all(resume_from == source_model for _, resume_from in train_calls)
+    assert {
+        cfg["environment"]["reward"]["velocity_sigma"] for cfg, _ in train_calls
+    } == {0.10, 0.15}
+    assert result["results"]["walker_velocity"]["evidence_ready"] is False
+    assert result["results"]["walker_velocity"]["promotion_ready"] is False
 
 
 def test_wall_clock_callback_stops_after_budget(monkeypatch) -> None:
@@ -251,6 +300,38 @@ def test_walker_balance_gate_rejects_deterministic_only_balance() -> None:
 
     assert aggregate["rankings"][0]["balance_gate_passed"] is False
     assert aggregate["balance_candidate"] is None
+
+
+def test_walker_velocity_gate_requires_every_seed_to_pass() -> None:
+    passing = _diagnostic_result()
+    passing["stochastic"] = {
+        **passing["stochastic"],
+        "episode_length_mean": 700.0,
+        "forward_displacement_mean": 1.2,
+        "fall_rate": 0.2,
+        "peak_z_mean": 0.8,
+    }
+    failing = {
+        **passing,
+        "stochastic": {
+            **passing["stochastic"],
+            "forward_displacement_mean": 0.8,
+        },
+    }
+
+    aggregate = quality_study._aggregate_walker_velocity_results(
+        {
+            "candidate/seed_0": passing,
+            "candidate/seed_1": failing,
+        }
+    )
+
+    assert aggregate["rankings"][0]["per_seed_passed"] == {
+        "seed_0": True,
+        "seed_1": False,
+    }
+    assert aggregate["rankings"][0]["gate_passed"] is False
+    assert aggregate["promoted_variant"] is None
 
 
 def test_arena_behavior_gate_requires_hits_damage_and_fewer_timeouts() -> None:
