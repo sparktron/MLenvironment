@@ -6,9 +6,14 @@ import numpy as np
 import supersuit as ss
 from stable_baselines3 import PPO, SAC, TD3
 from stable_baselines3.common.base_class import BaseAlgorithm
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import VecNormalize
 
 from rl_framework.envs.registry import make_env
+from rl_framework.training.evaluation_workers import (
+    episode_quotas,
+    make_seeded_vec_env,
+    resolve_evaluation_workers,
+)
 from rl_framework.training.sb3_runner import _ArenaVecEnvAdapter
 from rl_framework.utils.checkpoint import find_vecnormalize_path_for_model
 from rl_framework.utils.logging_utils import append_metrics_csv, create_experiment_paths
@@ -33,6 +38,7 @@ def _was_truncated(infos: Any) -> bool:
 
 def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
     env_cfg = cfg["environment"]
+    episodes = int(cfg.get("evaluation", {}).get("episodes", 5))
     paths = create_experiment_paths(
         cfg["output"]["base_dir"],
         cfg["experiment_name"],
@@ -49,7 +55,13 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
         )
         vec_env = _ArenaVecEnvAdapter(vec_env)
     else:
-        vec_env = DummyVecEnv([lambda: make_env(env_cfg["type"], env_cfg)])
+        workers = resolve_evaluation_workers(cfg, episodes)
+        vec_env = make_seeded_vec_env(
+            env_cfg["type"],
+            env_cfg,
+            workers,
+            cfg.get("training", {}),
+        )
 
     vn_path = find_vecnormalize_path_for_model(model_path)
     if vn_path is not None:
@@ -72,35 +84,64 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
             model = TD3.load(model_path, device=device)
         else:
             raise ValueError(f"Unsupported training.algorithm: {algorithm!r}")
-        episodes = cfg.get("evaluation", {}).get("episodes", 5)
         returns = []
         per_agent_returns: dict[int, list[float]] = {i: [] for i in range(num_agents)}
         terminated_episodes = 0
         truncated_episodes = 0
         episode_lengths = []
-        for _ in range(episodes):
+        if not is_multiagent:
+            completed = [0] * vec_env.num_envs
+            quotas = episode_quotas(episodes, vec_env.num_envs)
+            running_returns = np.zeros(vec_env.num_envs, dtype=np.float64)
+            running_lengths = np.zeros(vec_env.num_envs, dtype=np.int64)
+            vec_env.env_method(
+                "set_episode_seed_base",
+                int(cfg.get("seed", 0)),
+            )
             obs = vec_env.reset()
-            done = False
-            ep_ret = 0.0
-            ep_agent_ret = np.zeros(num_agents, dtype=np.float64)
-            ep_len = 0
-            while not done:
+            while any(done < quota for done, quota in zip(completed, quotas)):
                 action, _ = model.predict(obs, deterministic=True)
                 obs, reward, dones, infos = vec_env.step(action)
                 reward_arr = np.asarray(reward).flatten()
-                ep_ret += float(np.sum(reward_arr))
-                ep_agent_ret[: len(reward_arr)] += reward_arr.astype(np.float64)
-                ep_len += 1
-                done = bool(np.any(dones))
-            was_truncated = _was_truncated(infos)
-            if was_truncated:
-                truncated_episodes += 1
-            else:
-                terminated_episodes += 1
-            episode_lengths.append(ep_len)
-            returns.append(ep_ret)
-            for i in range(num_agents):
-                per_agent_returns[i].append(float(ep_agent_ret[i]))
+                for worker in range(vec_env.num_envs):
+                    if completed[worker] >= quotas[worker]:
+                        continue
+                    running_returns[worker] += float(reward_arr[worker])
+                    running_lengths[worker] += 1
+                    if not bool(dones[worker]):
+                        continue
+                    if _was_truncated([infos[worker]]):
+                        truncated_episodes += 1
+                    else:
+                        terminated_episodes += 1
+                    returns.append(float(running_returns[worker]))
+                    episode_lengths.append(int(running_lengths[worker]))
+                    completed[worker] += 1
+                    running_returns[worker] = 0.0
+                    running_lengths[worker] = 0
+        else:
+            for _ in range(episodes):
+                obs = vec_env.reset()
+                done = False
+                ep_ret = 0.0
+                ep_agent_ret = np.zeros(num_agents, dtype=np.float64)
+                ep_len = 0
+                while not done:
+                    action, _ = model.predict(obs, deterministic=True)
+                    obs, reward, dones, infos = vec_env.step(action)
+                    reward_arr = np.asarray(reward).flatten()
+                    ep_ret += float(np.sum(reward_arr))
+                    ep_agent_ret[: len(reward_arr)] += reward_arr.astype(np.float64)
+                    ep_len += 1
+                    done = bool(np.any(dones))
+                if _was_truncated(infos):
+                    truncated_episodes += 1
+                else:
+                    terminated_episodes += 1
+                episode_lengths.append(ep_len)
+                returns.append(ep_ret)
+                for i in range(num_agents):
+                    per_agent_returns[i].append(float(ep_agent_ret[i]))
         metrics: dict[str, float] = {
             "mean_return": float(np.mean(returns)),
             "std_return": float(np.std(returns)),

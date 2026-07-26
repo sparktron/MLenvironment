@@ -135,8 +135,10 @@ def test_walker_best_model_writes_matching_vecnorm_sidecar(tmp_path: Path) -> No
     cfg["evaluation"]["best_model"] = {
         "enabled": True,
         "eval_every": 64,
-        "episodes": 1,
+        "episodes": 2,
+        "workers": 2,
     }
+    cfg["training"]["worker_start_method"] = "spawn"
     train(cfg)
 
     checkpoints = (
@@ -370,11 +372,14 @@ def test_arena_tournament_on_trained_checkpoint(tmp_path: Path) -> None:
 
 
 def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
-    """evaluate() appends a row to eval_metrics.csv and returns a metrics dict."""
+    """Parallel evaluate() appends metrics and returns an aggregate result."""
     from rl_framework.training.eval_runner import evaluate
     from rl_framework.training.sb3_runner import train
+    from rl_framework.training.walker_diagnostics import evaluate_walker_checkpoint
 
     cfg = _walker_cfg(tmp_path)
+    cfg["evaluation"] = {"episodes": 2, "workers": 2}
+    cfg["training"]["worker_start_method"] = "spawn"
     model_path = train(cfg)
     zip_path = (
         str(model_path) + ".zip"
@@ -383,10 +388,13 @@ def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
     )
 
     metrics = evaluate(cfg, zip_path)
+    diagnostics = evaluate_walker_checkpoint(cfg, zip_path, episodes=2)
 
     assert "mean_return" in metrics
     assert "std_return" in metrics
     assert isinstance(metrics["mean_return"], float)
+    assert diagnostics["episodes"] == 2
+    assert diagnostics["deterministic"]["episode_length_mean"] > 0
 
     csv_path = (
         Path(tmp_path)

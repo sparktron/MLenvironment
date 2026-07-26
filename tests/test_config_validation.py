@@ -50,6 +50,14 @@ def test_validate_experiment_config_rejects_invalid_ranges() -> None:
         validate_experiment_config(cfg)
 
 
+@pytest.mark.parametrize("value", [0, -1, True, "2"])
+def test_validate_experiment_config_rejects_invalid_evaluation_workers(value) -> None:
+    cfg = _base_cfg()
+    cfg["evaluation"]["workers"] = value
+    with pytest.raises((TypeError, ValueError), match="evaluation.workers"):
+        validate_experiment_config(cfg)
+
+
 def test_validate_experiment_config_rejects_non_int_seed() -> None:
     cfg = _base_cfg()
     cfg["seed"] = "0"

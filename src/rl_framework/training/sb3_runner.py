@@ -23,6 +23,7 @@ from stable_baselines3.common.vec_env.base_vec_env import VecEnvWrapper
 
 from rl_framework.envs.registry import make_env
 from rl_framework.training.curriculum_callback import CurriculumCallback
+from rl_framework.training.evaluation_workers import resolve_evaluation_workers
 from rl_framework.training.reward_annealing_callback import RewardAnnealingCallback
 from rl_framework.training.self_play_callback import SelfPlayCallback
 from rl_framework.training.self_play_env_wrapper import (
@@ -87,10 +88,21 @@ class VecNormalizeBestModelCallback(BaseCallback):
 
 
 def _build_best_model_eval_env(
-    env_cfg: dict[str, Any], normalize_observations: bool
+    env_cfg: dict[str, Any],
+    normalize_observations: bool,
+    workers: int,
+    training_cfg: dict[str, Any],
 ):
     """Build a fresh walker eval env whose running stats are synced by SB3."""
-    eval_env: VecEnv = DummyVecEnv([_build_single_env(env_cfg)])
+    env_fns = [
+        _build_single_env(env_cfg, rank=worker)
+        for worker in range(workers)
+    ]
+    eval_env: VecEnv = (
+        DummyVecEnv(env_fns)
+        if workers == 1
+        else _make_subproc_vec_env(env_fns, training_cfg)
+    )
     if normalize_observations:
         eval_env = VecNormalize(eval_env, training=False, norm_reward=False)
     return eval_env
@@ -747,12 +759,31 @@ def train(
         if best_model_cfg.get("enabled", False):
             best_model_path = paths.checkpoints_dir / "best_model"
             eval_env_cfg = _worker_env_config(env_cfg, -1, render_env_index)
-            best_eval_env = _build_best_model_eval_env(eval_env_cfg, normalize)
+            best_eval_episodes = int(best_model_cfg.get("episodes", 5))
+            best_eval_workers = resolve_evaluation_workers(
+                {
+                    **cfg,
+                    "evaluation": {
+                        **cfg.get("evaluation", {}),
+                        "workers": best_model_cfg.get(
+                            "workers",
+                            cfg.get("evaluation", {}).get("workers"),
+                        ),
+                    },
+                },
+                best_eval_episodes,
+            )
+            best_eval_env = _build_best_model_eval_env(
+                eval_env_cfg,
+                normalize,
+                best_eval_workers,
+                cfg.get("training", {}),
+            )
             callbacks.append(
                 EvalCallback(
                     best_eval_env,
                     callback_on_new_best=VecNormalizeBestModelCallback(best_model_path),
-                    n_eval_episodes=int(best_model_cfg.get("episodes", 5)),
+                    n_eval_episodes=best_eval_episodes,
                     eval_freq=_callback_freq_from_timesteps(
                         int(best_model_cfg.get("eval_every", 50_000)), num_envs
                     ),

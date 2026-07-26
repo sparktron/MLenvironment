@@ -119,6 +119,8 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
     eval_cfg = cfg.get("evaluation", {})
     if "episodes" in eval_cfg:
         _ensure_int(eval_cfg["episodes"], "evaluation.episodes", min_value=1)
+    if "workers" in eval_cfg:
+        _ensure_int(eval_cfg["workers"], "evaluation.workers", min_value=1)
 
     self_play_cfg = cfg.get("self_play", {})
     if self_play_cfg.get("enabled", False):
@@ -175,6 +177,12 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
             "evaluation.best_model.episodes",
             min_value=1,
         )
+        if "workers" in best_model_cfg:
+            _ensure_int(
+                best_model_cfg["workers"],
+                "evaluation.best_model.workers",
+                min_value=1,
+            )
 
     _validate_env_specific(cfg)
     _validate_curriculum(cfg)

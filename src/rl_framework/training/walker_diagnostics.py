@@ -8,9 +8,13 @@ from typing import Any
 
 import numpy as np
 from stable_baselines3 import PPO, SAC, TD3
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import VecEnv, VecNormalize
 
-from rl_framework.envs.registry import make_env
+from rl_framework.training.evaluation_workers import (
+    episode_quotas,
+    make_seeded_vec_env,
+    resolve_evaluation_workers,
+)
 from rl_framework.utils.checkpoint import find_vecnormalize_path_for_model, model_zip_path
 
 _GAIT_EPISODE_METRICS = (
@@ -51,11 +55,17 @@ def _model_class(cfg: dict[str, Any]):
 
 
 def _evaluation_env(
-    cfg: dict[str, Any], model_path: str | Path
-) -> DummyVecEnv | VecNormalize:
+    cfg: dict[str, Any],
+    model_path: str | Path,
+    episodes: int,
+) -> VecEnv:
     env_cfg = deepcopy(cfg["environment"])
-    vec_env: DummyVecEnv | VecNormalize = DummyVecEnv(
-        [lambda: make_env("walker_bullet", env_cfg)]
+    workers = resolve_evaluation_workers(cfg, episodes)
+    vec_env: VecEnv = make_seeded_vec_env(
+        "walker_bullet",
+        env_cfg,
+        workers,
+        cfg.get("training", {}),
     )
     sidecar = find_vecnormalize_path_for_model(model_path)
     if sidecar is not None:
@@ -94,7 +104,7 @@ def _aggregate_episode_rows(rows: list[dict[str, float]]) -> dict[str, float]:
 
 
 def _rollouts(
-    vec_env: DummyVecEnv | VecNormalize,
+    vec_env: VecEnv,
     *,
     episodes: int,
     seed: int,
@@ -103,68 +113,92 @@ def _rollouts(
     recovery_window: int = 30,
 ) -> dict[str, float]:
     rows: list[dict[str, float]] = []
-    for episode in range(episodes):
-        vec_env.seed(seed + episode)
-        obs = vec_env.reset()
-        done = False
-        episode_return = 0.0
-        episode_length = 0
-        initial_x: float | None = None
-        final_x = 0.0
-        peak_z = float("-inf")
-        final_fell = False
-        push_steps: list[int] = []
-        while not done:
-            if model is None:
-                action = np.zeros((1, 10), dtype=np.float32)
-            else:
-                action, _ = model.predict(obs, deterministic=deterministic)
-            obs, rewards, dones, infos = vec_env.step(action)
-            episode_return += float(np.asarray(rewards).reshape(-1)[0])
-            episode_length += 1
-            info = infos[0]
-            x_position = float(info.get("x_position", final_x))
-            if initial_x is None:
-                initial_x = x_position
-            final_x = x_position
-            peak_z = max(peak_z, float(info.get("z_position", 0.0)))
+    workers = vec_env.num_envs
+    quotas = episode_quotas(episodes, workers)
+    completed = [0] * workers
+    episode_returns = np.zeros(workers, dtype=np.float64)
+    episode_lengths = np.zeros(workers, dtype=np.int64)
+    initial_x: list[float | None] = [None] * workers
+    final_x = np.zeros(workers, dtype=np.float64)
+    peak_z = np.full(workers, float("-inf"), dtype=np.float64)
+    push_steps: list[list[int]] = [[] for _ in range(workers)]
+    vec_env.env_method("set_episode_seed_base", seed)
+    obs = vec_env.reset()
+
+    while any(done < quota for done, quota in zip(completed, quotas)):
+        if model is None:
+            action = np.zeros((workers, 10), dtype=np.float32)
+        else:
+            action, _ = model.predict(obs, deterministic=deterministic)
+        obs, rewards, dones, infos = vec_env.step(action)
+        reward_values = np.asarray(rewards).reshape(-1)
+        for worker in range(workers):
+            if completed[worker] >= quotas[worker]:
+                continue
+            episode_returns[worker] += float(reward_values[worker])
+            episode_lengths[worker] += 1
+            info = infos[worker]
+            x_position = float(info.get("x_position", final_x[worker]))
+            if initial_x[worker] is None:
+                initial_x[worker] = x_position
+            final_x[worker] = x_position
+            peak_z[worker] = max(
+                peak_z[worker], float(info.get("z_position", 0.0))
+            )
             if info.get("push_applied", False):
-                push_steps.append(episode_length)
-            done = bool(dones[0])
-            if done:
-                reason = info.get("termination_reason")
-                final_fell = (
-                    reason != "time_limit"
-                    if isinstance(reason, str)
-                    else bool(info.get("torso_contact", False))
+                push_steps[worker].append(int(episode_lengths[worker]))
+            if not bool(dones[worker]):
+                continue
+
+            reason = info.get("termination_reason")
+            final_fell = (
+                reason != "time_limit"
+                if isinstance(reason, str)
+                else bool(info.get("torso_contact", False))
+            )
+            walker_episode = info.get("walker_episode", {})
+            row = {
+                "episode_length": float(episode_lengths[worker]),
+                "return": float(episode_returns[worker]),
+                "fell": float(final_fell),
+                "peak_z": (
+                    float(peak_z[worker]) if np.isfinite(peak_z[worker]) else 0.0
+                ),
+                "forward_displacement": float(
+                    final_x[worker] - (initial_x[worker] or 0.0)
+                ),
+                "pushes": float(len(push_steps[worker])),
+                "recovered_pushes": float(
+                    sum(
+                        episode_lengths[worker] - step >= recovery_window
+                        for step in push_steps[worker]
+                    )
+                ),
+            }
+            for key in _GAIT_EPISODE_METRICS:
+                value = walker_episode.get(key, 0.0)
+                row[key] = (
+                    float(value)
+                    if isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    else 0.0
                 )
-        walker_episode = info.get("walker_episode", {})
-        row = {
-            "episode_length": float(episode_length),
-            "return": episode_return,
-            "fell": float(final_fell),
-            "peak_z": peak_z if np.isfinite(peak_z) else 0.0,
-            "forward_displacement": final_x - (initial_x or 0.0),
-            "pushes": float(len(push_steps)),
-            "recovered_pushes": float(
-                sum(episode_length - step >= recovery_window for step in push_steps)
-            ),
-        }
-        for key in _GAIT_EPISODE_METRICS:
-            value = walker_episode.get(key, 0.0)
-            row[key] = (
-                float(value)
-                if isinstance(value, (int, float)) and not isinstance(value, bool)
-                else 0.0
-            )
-        for key in _REWARD_EPISODE_METRICS:
-            value = walker_episode.get(key, 0.0)
-            row[key] = (
-                float(value)
-                if isinstance(value, (int, float)) and not isinstance(value, bool)
-                else 0.0
-            )
-        rows.append(row)
+            for key in _REWARD_EPISODE_METRICS:
+                value = walker_episode.get(key, 0.0)
+                row[key] = (
+                    float(value)
+                    if isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    else 0.0
+                )
+            rows.append(row)
+            completed[worker] += 1
+            episode_returns[worker] = 0.0
+            episode_lengths[worker] = 0
+            initial_x[worker] = None
+            final_x[worker] = 0.0
+            peak_z[worker] = float("-inf")
+            push_steps[worker] = []
     return _aggregate_episode_rows(rows)
 
 
@@ -212,7 +246,7 @@ def evaluate_walker_checkpoint(
     path = model_zip_path(model_path)
     model = _model_class(cfg).load(str(path), device="cpu")
     seed = int(cfg.get("seed", 0))
-    vec_env = _evaluation_env(cfg, path)
+    vec_env = _evaluation_env(cfg, path, episodes)
     try:
         baseline = _rollouts(
             vec_env,
@@ -266,7 +300,7 @@ def collect_walker_swing_event_telemetry(
         raise ValueError("walker diagnostics require environment.type=walker_bullet")
     path = model_zip_path(model_path)
     model = _model_class(cfg).load(str(path), device="cpu")
-    vec_env = _evaluation_env(cfg, path)
+    vec_env = _evaluation_env(cfg, path, 1)
     durations: list[float] = []
     clearances: list[float] = []
     try:
@@ -319,7 +353,7 @@ def collect_walker_touchdown_placement_telemetry(
         raise ValueError("walker diagnostics require environment.type=walker_bullet")
     path = model_zip_path(model_path)
     model = _model_class(cfg).load(str(path), device="cpu")
-    vec_env = _evaluation_env(cfg, path)
+    vec_env = _evaluation_env(cfg, path, 1)
     leads: list[float] = []
     next_progress: list[float] = []
     try:
@@ -382,7 +416,7 @@ def collect_walker_stance_phase_telemetry(
         raise ValueError("walker diagnostics require environment.type=walker_bullet")
     path = model_zip_path(model_path)
     model = _model_class(cfg).load(str(path), device="cpu")
-    vec_env = _evaluation_env(cfg, path)
+    vec_env = _evaluation_env(cfg, path, 1)
     episode_rows: list[tuple[float, float, float, float]] = []
     completed_stances = 0
     try:

@@ -107,6 +107,11 @@ must record both successful changes and failed hypotheses there.
 
 ## Completed Foundations
 
+- (2026-07-26) Walker evaluation now fans episodes out across process-backed
+  vector environments for the `eval` command, quality-study checkpoint
+  diagnostics, and periodic best-model selection. `evaluation.workers` caps
+  parallelism, auto mode never exceeds the episode count, and strided seed
+  streams preserve deterministic, non-overlapping episode coverage.
 - (2026-07-26) Established an append-only walker learning history that records
   hypotheses, controlled changes, per-seed evidence, visual checks, failures,
   decisions, and lessons. Future experiments have a standard entry template so

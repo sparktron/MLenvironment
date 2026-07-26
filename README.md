@@ -728,6 +728,7 @@ training:
 # ─── Evaluation ─────────────────────────────────────────────────
 evaluation:
   episodes: 5                        # Number of eval episodes (locomotion)
+  workers: 4                         # Parallel walker eval processes (omit = auto)
   max_steps: 400                     # Max steps per eval episode (organism)
 
 # ─── Output ─────────────────────────────────────────────────────
@@ -925,8 +926,14 @@ matters when `num_envs > 1`. Use `spawn` when process isolation is more
 important than startup time, and benchmark before making either setting a
 long-run default. Evaluation reloads checkpoints on the configured
 `training.device` (CPU by default) instead of independently auto-selecting a
-device. If the optional `evaluation` section is omitted, evaluation uses five
-episodes.
+device. Walker `eval`, quality-study checkpoint diagnostics, and periodic
+best-model evaluation run episodes in process-backed vector environments.
+Set `evaluation.workers` to cap their process count; when omitted, evaluation
+uses up to the available logical CPUs but never more workers than episodes.
+Episode seeds remain deterministic and non-overlapping across workers.
+Shared-policy arena evaluation remains single-process because its SuperSuit
+adapter does not support multiple process workers. If the optional
+`evaluation` section is omitted, evaluation uses five episodes.
 
 See [local training presets](docs/training_presets.md) for ready-to-run smoke,
 overnight, high-throughput, arena self-play, and multi-seed commands.
@@ -1070,10 +1077,12 @@ VecNormalize evaluation environment and a matching sidecar:
 ```yaml
 evaluation:
   episodes: 5
+  workers: 4
   best_model:
     enabled: true
     eval_every: 50000
     episodes: 5
+    workers: 4
 ```
 
 This writes `checkpoints/best_model.zip` and

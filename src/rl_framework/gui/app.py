@@ -878,6 +878,13 @@ def _eval_schema() -> dict[str, Any]:
             "min": 1,
             "max": 100,
         },
+        "workers": {
+            "value": 4,
+            "type": "int",
+            "desc": "Parallel walker evaluation processes",
+            "min": 1,
+            "max": 32,
+        },
     }
 
 
