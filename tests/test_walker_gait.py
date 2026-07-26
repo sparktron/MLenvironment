@@ -140,8 +140,10 @@ def test_sustained_swing_progress_requires_duration_and_clearance() -> None:
     second = _update(tracker, step=6, contacts=(True, True), x=0.3, foot_positions=((0.2, 0.0), (0.2, 0.02)))
 
     assert first.sustained_swing_touchdown is True
+    assert first.touchdown_foot_lead == pytest.approx(0.1)
     assert first.sustained_swing_progress == 0.0
     assert second.valid_alternating_touchdown is True
     assert second.sustained_swing_touchdown is True
+    assert second.touchdown_foot_lead == pytest.approx(-0.1)
     assert second.sustained_swing_progress == pytest.approx(0.2)
     assert tracker.episode_metrics()["gait_sustained_swing_touchdowns"] == 2.0

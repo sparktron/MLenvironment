@@ -59,6 +59,10 @@ must record both successful changes and failed hypotheses there.
   (+0.157 m), below the required +0.25 m; it also missed the 1 m displacement
   and 0.003 m alternating-touchdown-progress floors. Do not advance to seeds
   21--23, 300k, transfer, or algorithm comparisons.
+- (2026-07-26) A telemetry-only seed-21 placement analysis rejects
+  foot-placement shaping before training: 578 sustained touchdown pairs had
+  a lead-to-next-touchdown-progress correlation of -0.054. Do not create a
+  50k foot-placement reward candidate from this non-predictive signal.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.

@@ -762,6 +762,9 @@ class WalkerBulletEnv(gym.Env):
                 {
                     "duration": gait_step.touchdown_swing_duration,
                     "clearance": gait_step.touchdown_swing_clearance,
+                    "side": gait_step.touchdown_side,
+                    "pelvis_x": float(pos[0]),
+                    "foot_lead": gait_step.touchdown_foot_lead,
                     "sustained": gait_step.sustained_swing_touchdown,
                 }
                 if gait_step.touchdown_swing_duration is not None

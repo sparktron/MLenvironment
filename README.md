@@ -584,6 +584,12 @@ both thresholds were met. The candidate improved stochastic displacement from
 1 m displacement floor, and the 0.003 m progress-per-alternating-touchdown
 floor. It is rejected; no multi-seed, 300k, or transfer stage was run.
 
+A subsequent telemetry-only seed-21 control analysis tested whether sustained
+touchdown foot placement predicts the pelvis progress to the next touchdown.
+Across 578 event pairs, lead had near-zero correlation with that progress
+(`r = -0.054`), so foot-placement shaping is not justified and no additional
+50k candidate was run.
+
 ---
 
 ## ⚙️ Configuration

@@ -308,6 +308,69 @@ def collect_walker_swing_event_telemetry(
     }
 
 
+def collect_walker_touchdown_placement_telemetry(
+    cfg: dict[str, Any],
+    model_path: str | Path,
+    *,
+    episodes: int = 20,
+) -> dict[str, Any]:
+    """Measure whether sustained touchdown placement predicts next-step progress."""
+    if cfg.get("environment", {}).get("type") != "walker_bullet":
+        raise ValueError("walker diagnostics require environment.type=walker_bullet")
+    path = model_zip_path(model_path)
+    model = _model_class(cfg).load(str(path), device="cpu")
+    vec_env = _evaluation_env(cfg, path)
+    leads: list[float] = []
+    next_progress: list[float] = []
+    try:
+        seed = int(cfg.get("seed", 0))
+        for episode in range(episodes):
+            vec_env.seed(seed + episode)
+            obs = vec_env.reset()
+            pending_pelvis_x: float | None = None
+            done = False
+            while not done:
+                action, _ = model.predict(obs, deterministic=False)
+                obs, _, dones, infos = vec_env.step(action)
+                event = infos[0].get("swing_touchdown_event")
+                if isinstance(event, dict) and event.get("sustained") is True:
+                    pelvis_x = event.get("pelvis_x")
+                    foot_lead = event.get("foot_lead")
+                    if isinstance(pelvis_x, (int, float)):
+                        if pending_pelvis_x is not None:
+                            progress = float(pelvis_x) - pending_pelvis_x
+                            if leads:
+                                next_progress.append(progress)
+                        pending_pelvis_x = float(pelvis_x)
+                        if isinstance(foot_lead, (int, float)):
+                            leads.append(float(foot_lead))
+                done = bool(dones[0])
+    finally:
+        vec_env.close()
+
+    paired = min(len(leads), len(next_progress))
+    lead_data = np.asarray(leads[:paired], dtype=np.float64)
+    progress_data = np.asarray(next_progress[:paired], dtype=np.float64)
+    correlation = (
+        float(np.corrcoef(lead_data, progress_data)[0, 1])
+        if paired >= 2 and np.std(lead_data) > 0 and np.std(progress_data) > 0
+        else 0.0
+    )
+    return {
+        "episodes": episodes,
+        "paired_event_count": paired,
+        "foot_lead_meters": {
+            "mean": float(np.mean(lead_data)) if paired else 0.0,
+            "p75": float(np.quantile(lead_data, 0.75)) if paired else 0.0,
+        },
+        "next_touchdown_progress_meters": {
+            "mean": float(np.mean(progress_data)) if paired else 0.0,
+            "p75": float(np.quantile(progress_data, 0.75)) if paired else 0.0,
+        },
+        "lead_to_next_progress_correlation": correlation,
+    }
+
+
 def evaluate_walker_transfer_suite(
     cfg: dict[str, Any],
     model_path: str | Path,

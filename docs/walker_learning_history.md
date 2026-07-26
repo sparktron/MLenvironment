@@ -374,6 +374,19 @@ floors.
 **Decision:** Reject. Do not run seeds 21--23, 300k, transfer, or algorithm
 comparisons. Artifacts: `outputs/quality_studies_walker_swing_touchdown_20260726`.
 
+## 2026-07-26 — Touchdown Placement Telemetry
+
+**Question:** Does a sustained touchdown landing farther ahead of the pelvis
+predict progress before the next touchdown, enough to justify a placement term?
+
+**Observed result:** The seed-21 fixed-target control produced 578 calibrated
+sustained-event pairs. Foot lead and pelvis progress to the next touchdown had
+Pearson correlation -0.054 (mean lead -1.16 mm; mean next-touchdown progress
+7.21 mm).
+
+**Decision:** Reject the mechanism before training. A foot-placement reward is
+not justified; no 50k candidate was run.
+
 ## How To Append A Future Entry
 
 Do not rewrite an old failure to make a later result look inevitable. Add a

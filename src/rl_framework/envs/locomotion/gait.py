@@ -16,6 +16,8 @@ class GaitStep:
     stance_slip_speed: float
     touchdown_swing_duration: float | None
     touchdown_swing_clearance: float | None
+    touchdown_side: int | None
+    touchdown_foot_lead: float | None
     sustained_swing_touchdown: bool
     sustained_swing_progress: float
 
@@ -181,11 +183,15 @@ class WalkerGaitTracker:
         progress = 0.0
         touchdown_swing_duration: float | None = None
         touchdown_swing_clearance: float | None = None
+        touchdown_side: int | None = None
+        touchdown_foot_lead: float | None = None
         sustained_swing_touchdown = False
         # A simultaneous two-foot landing is real contact telemetry, but it is
         # not evidence of an ordered right/left gait event.
         if len(accepted_touchdowns) == 1:
             side = accepted_touchdowns[0]
+            touchdown_side = side
+            touchdown_foot_lead = float(foot_positions[side][0] - pelvis_x)
             swing_event = swing_events.get(side)
             if swing_event is not None:
                 touchdown_swing_duration, touchdown_swing_clearance = swing_event
@@ -225,6 +231,8 @@ class WalkerGaitTracker:
             stance_slip_speed=stance_slip_speed,
             touchdown_swing_duration=touchdown_swing_duration,
             touchdown_swing_clearance=touchdown_swing_clearance,
+            touchdown_side=touchdown_side,
+            touchdown_foot_lead=touchdown_foot_lead,
             sustained_swing_touchdown=sustained_swing_touchdown,
             sustained_swing_progress=(
                 progress if alternating and sustained_swing_touchdown else 0.0

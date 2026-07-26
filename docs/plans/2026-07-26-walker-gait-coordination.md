@@ -234,6 +234,17 @@ m progress per alternating touchdown. It improved over the 0.104 m control by
 only +0.157 m, and missed the pre-existing 1 m displacement and 0.003 m
 progress floors. It is rejected; do not run seeds 21--23, 300k, or transfer.
 
+## Phase 3d: Touchdown Placement Telemetry
+
+Status: **rejected before training**.
+
+The fixed-target seed-21 control was evaluated with the calibrated 50 ms / 0.5
+mm sustained-swing classifier. Across 578 sustained touchdown pairs, mean foot
+lead was -1.16 mm (p75 70.99 mm), while mean pelvis progress to the next
+touchdown was 7.21 mm (p75 18.42 mm). Their Pearson correlation was -0.054.
+Landing lead therefore does not predict the proposed outcome, so a
+foot-placement reward would be speculative. Do not run a 50k candidate.
+
 ## Phase 3b: Velocity-Ramp Rejection Screen
 
 Status: **rejected at seed 21, 50k**.
