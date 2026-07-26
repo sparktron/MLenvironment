@@ -69,6 +69,30 @@ must record both successful changes and failed hypotheses there.
   correlated negatively (r=-0.492) and slip positively (r=0.308). The required
   low-slip, longer-advance mechanism is not present; do not run a stance reward
   screen.
+- (2026-07-26) **Gait gate corrected; it previously certified contact chatter.**
+  The frozen "at least 15 alternating touchdowns per 100 steps" floor was
+  calibrated from the chattering baseline. At 60 Hz control the rate is
+  `3.33 × cycle_frequency_Hz`, so 17–20 per 100 steps is a 5–6 Hz cycle with
+  10.9 mm strides and 0.7 mm clearance, and a genuine 1 Hz gait (~3.3 per 100
+  steps) would have failed. None of the five prior rejections was decided by
+  that floor — they turned on displacement, slip, fall rate, or correlation — but
+  the gate never discriminated, and the ranking score's `+ cadence / 100` term
+  actively favoured a faster shuffle. The gate is now a cadence band of 1.5–8.5
+  plus stride (≥0.10 m), clearance (≥0.02 m), and progress (≥0.05 m) floors, with
+  flight widened to 60%. `max_stance_slip_speed` is unchanged at 0.18 m/s and
+  **must be recalibrated from a faster reference gait** before it gates a faster
+  candidate. Open-loop measurement showed the actuator lifts a foot 33.7 mm at
+  the study's own settings versus the learned 0.7 mm, so control authority is not
+  the bottleneck.
+- (2026-07-26) **Budget is the other blocker.** Measured throughput is 5,970 fps,
+  so the 50k rejection screens cost ~8 s and a three-seed 150k matrix ~75 s,
+  while 10M steps costs 28 min. Re-baseline at 5–10M steps per seed before
+  running further variant comparisons; deltas at 150k are seed noise. Remaining
+  candidate levers, in order: alive-bonus/fall-penalty economics (standing earns
+  1.075/step against 1.75/step for perfect locomotion, so one extra fall per two
+  episodes erases the whole benefit of walking), target velocity below the
+  dynamically natural band (Froude ≈0.05 at 0.15 m/s), and exploration clamped to
+  ~0.05 rad by `log_std_init: -1.5` with `ent_coef: 0`.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.

@@ -1203,6 +1203,13 @@ The active development plan lives in [`docs/open_items_todo.md`](docs/open_items
   [`docs/walker_learning_history.md`](docs/walker_learning_history.md). Append
   every walker learning experiment with its hypothesis, constants, results,
   failure modes, visual evidence, and decision.
+- (2026-07-26) The walker gait gate was corrected: its original
+  "at least 15 alternating touchdowns per 100 steps" floor was calibrated from a
+  chattering baseline and would have rejected a real 1 Hz gait. It is now a
+  cadence band (1.5–8.5 per 100 steps) with stride, clearance, and progress
+  floors, and variant ranking no longer scores raw cadence. Measured throughput
+  is 5,970 fps, so re-baseline at 5–10M steps per seed rather than 150k before
+  comparing variants.
 - Priority 0 correctness fixes are currently cleared for the arena self-play validation path; new confirmed bugs should be added here first.
 - Learning-quality decisions are made through the resumable `quality-study`
   matrices; candidate defaults remain gated on promotion-scale evidence.

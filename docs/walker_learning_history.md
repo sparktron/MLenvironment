@@ -401,6 +401,92 @@ the low-slip, longer-advance condition was not met.
 outcome to serve as a new mechanism, and the remaining predictors contradict
 the proposed reward direction. No 50k candidate was run.
 
+## 2026-07-26 — Correction: The Frozen Gait Gate Certified Contact Chatter
+
+This is a dated correction to the gait thresholds frozen earlier on 2026-07-26,
+filed under the rule that a wrong historical value is corrected by appending
+rather than by rewriting. No earlier observation is retracted.
+
+**What was wrong:** the gait gate was calibrated as "at least as good as the
+measured baseline" (at least 15 alternating touchdowns per 100 steps, at most
+22% flight). The baseline it was calibrated from was itself the pathology. One
+gait cycle produces two alternating touchdowns, so at 60 Hz control the rate is
+`3.33 × cycle_frequency_Hz`. The baseline's 17–20 touchdowns per 100 steps is
+therefore a **5–6 Hz gait cycle** — roughly five times human cadence — paired
+with 10.9 mm strides and 0.7 mm of foot clearance. That is contact chatter, not
+stepping. A floor of 15 demanded chatter, and a genuine 1 Hz gait produces about
+3.3 touchdowns per 100 steps, so real walking would have **failed** the gate by
+roughly a factor of five.
+
+**What this does and does not invalidate.** Every rejection in the preceding
+five entries was decided on displacement, fall rate, stance slip, the paired
++0.25 m improvement rule, or a correlation analysis — **none was decided by the
+cadence floor**. Those decisions stand, and the placement (r = −0.054) and
+stance-phase (r = 0.705 / −0.492 / 0.308) analyses are independent of the gate
+entirely. The defect is that the gate never *discriminated*: every candidate
+chattered, so every candidate satisfied it. It reported that gait structure was
+acceptable while stride length sat at 11 mm, which pointed five consecutive
+experiments at displacement and slip shaping instead of at the stride collapse.
+The variant ranking made this worse by scoring `+ cadence / 100`, so a faster
+shuffle out-ranked longer stepping by construction.
+
+**Supporting measurement (open loop, no learning):** a scripted sinusoidal hip
+and knee gait was commanded at this study's own `action_scale: 0.25` and
+`position_gain: 0.1`.
+
+| action_scale | position_gain | foot clearance |
+|---:|---:|---:|
+| 0.25 | 0.1 | 33.7 mm |
+| 0.5 | 0.3 | 55.2 mm |
+| 1.0 | 1.0 | 170.9 mm |
+
+All rollouts fell within about a second, as an open-loop gait on a 65.9 kg
+biped should — this measures actuator capability, not balance. The conclusion is
+narrow and important: the actuator lifts a foot **33.7 mm at the exact settings
+where the learned policy achieves 0.7 mm**, a factor of 48. Control authority
+is not the constraint. Flight fractions of 0.17–0.56 were also observed, so the
+former 22% ceiling was below what a commanded gait naturally produces.
+
+**Change:** `WALKER_GAIT_GATE` in `quality_study.py` now requires a cadence
+*band* of 1.5–8.5 alternating touchdowns per 100 steps (cycle frequency
+0.45–2.5 Hz), a mean stride of at least 0.10 m, mean foot clearance of at least
+0.02 m, at least 0.05 m of progress per alternating touchdown, and at most 60%
+flight. The ranking score drops its cadence term in favour of stride length and
+clearance, which are monotonic in walking quality. `max_stance_slip_speed`
+remains **unchanged at 0.18 m/s** because it was measured in the 0.1 m/s regime
+and no faster reference gait has been measured; it must be recalibrated from
+measurement, not raised by guess, before it gates a faster candidate.
+
+**Decision:** treat gait *structure* as the open problem and stride length as
+the primary quantity. Do not resume reward-structure ablations under the old
+thresholds, and do not read the previous five entries as evidence that gait
+structure was adequate.
+
+**Lesson:** a threshold calibrated as "no worse than what we currently do" can
+only ever certify the current behavior. Freeze thresholds against the mechanism
+being sought — here, gait mechanics and demonstrated actuator capability — not
+against the run in front of you. A gate that every candidate passes is not a
+gate; it is a measurement you have stopped taking.
+
+## 2026-07-26 — Measured Throughput And Budget Scale
+
+**Question:** are the experiment budgets used above large enough to distinguish
+candidates from seed noise?
+
+**Observed result:** the real training pipeline sustains **5,970 fps** on this
+machine (60k steps in 10 s, `walker_low_velocity_candidate`, 24 envs). The
+50k rejection screens therefore cost about **8 seconds**, and a three-seed 150k
+matrix costs about **75 seconds**. A 10M-step run costs 28 minutes; 50M costs
+2.3 hours.
+
+**What this implies:** the ledger's conclusion that four gait variants were
+"too small for selection" (1.72–1.86 m) is the expected outcome of comparing
+policies at well under 1% of the budget a 3D biped needs. The rejection-screen
+method is sound; it has been spent adjudicating noise.
+
+**Decision:** re-baseline at 5–10M steps per seed before running further
+variant comparisons. This is a measurement, not yet a successful change.
+
 ## How To Append A Future Entry
 
 Do not rewrite an old failure to make a later result look inevitable. Add a

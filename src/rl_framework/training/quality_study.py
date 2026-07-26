@@ -23,9 +23,15 @@ from rl_framework.training.walker_diagnostics import (
     evaluate_walker_checkpoint,
     evaluate_walker_transfer_suite,
 )
-from rl_framework.training.velocity_target_ramp_callback import VelocityTargetRampCallback
+from rl_framework.training.velocity_target_ramp_callback import (
+    VelocityTargetRampCallback,
+)
 from rl_framework.utils.checkpoint import model_zip_path
-from rl_framework.utils.config import load_config, to_container, validate_experiment_config
+from rl_framework.utils.config import (
+    load_config,
+    to_container,
+    validate_experiment_config,
+)
 from rl_framework.utils.config_merge import set_nested
 
 
@@ -138,12 +144,42 @@ WALKER_GAIT_VARIANTS: dict[str, dict[str, Any]] = {
         "environment.reward.stance_slip_penalty_weight": 0.5,
     },
 }
+# Gait thresholds are a *band*, not a set of floors. The 2026-07-26 correction
+# (see docs/walker_learning_history.md) found that the original "at least as
+# good as the observed baseline" calibration froze the chatter it was meant to
+# diagnose: the baseline shuffled at ~20 alternating touchdowns per 100 steps
+# with 10.9 mm strides and 0.7 mm clearance, so a floor of 15 demanded ~11 Hz
+# stepping and *rejected* real walking.
+#
+# Cadence is derived from gait mechanics rather than from that baseline. One
+# gait cycle produces two alternating touchdowns, so at 60 Hz control:
+#     alternating touchdowns / 100 steps = 100 * 2 * f / 60 = 3.33 * f
+# for a cycle frequency f in Hz. Plausible bipedal walking spans f = 0.45-2.5 Hz
+# (human/Atlas-class walking sits at 0.8-1.4 Hz), giving 1.5-8.5. Anything
+# above the ceiling is contact chatter; anything below it is not stepping.
+#
+# Stride and clearance floors make a touchdown mean something. An open-loop
+# scripted gait at this study's own `action_scale: 0.25` / `position_gain: 0.1`
+# reached 33.7 mm of foot clearance, so 20 mm is ~60% of demonstrated actuator
+# capability rather than an invented number. Progress per alternating touchdown
+# is set to the minimum consistent with the 3 m success gate at the fastest
+# permitted cadence (3 m / ~67 touchdowns), and a same-foot stride is one full
+# cycle, i.e. about twice the per-touchdown pelvis advance.
+#
+# `max_stance_slip_speed` is deliberately UNCHANGED at the value measured in the
+# 0.1 m/s regime. It is the next threshold that needs recalibration: a
+# legitimate gait at a higher target velocity carries real stance-foot speed
+# through heel-strike and toe-off, so this ceiling must be re-measured from a
+# faster reference gait before it gates anything. Do not raise it by guess.
 WALKER_GAIT_GATE: dict[str, Any] = {
     **WALKER_VELOCITY_GATE,
-    "min_alternating_touchdowns_per_100_steps": 15.0,
-    "min_progress_per_alternating_touchdown": 0.003,
+    "min_alternating_touchdowns_per_100_steps": 1.5,
+    "max_alternating_touchdowns_per_100_steps": 8.5,
+    "min_progress_per_alternating_touchdown": 0.05,
+    "min_stride_length": 0.10,
+    "min_foot_clearance": 0.02,
     "max_stance_slip_speed": 0.18,
-    "max_flight_fraction": 0.22,
+    "max_flight_fraction": 0.60,
     "max_longest_same_foot_sequence": 5.0,
 }
 WALKER_VELOCITY_RAMP_VARIANTS: dict[str, dict[str, Any]] = {
@@ -276,9 +312,7 @@ def _prepare_cfg(
             int(prepared["training"].get("batch_size", 256)), rollout_size
         )
         prepared["training"]["batch_size"] = next(
-            size
-            for size in range(preferred_batch, 1, -1)
-            if rollout_size % size == 0
+            size for size in range(preferred_batch, 1, -1) if rollout_size % size == 0
         )
     prepared["training"]["checkpoint_every"] = min(
         int(prepared["training"].get("checkpoint_every", step_budget)), step_budget
@@ -400,8 +434,7 @@ def _walker_behavior_passed(result: dict[str, Any]) -> bool:
     for mode in ("deterministic", "stochastic"):
         metrics = result[mode]
         if (
-            metrics["episode_length_mean"]
-            >= WALKER_BEHAVIOR_GATE["min_episode_length"]
+            metrics["episode_length_mean"] >= WALKER_BEHAVIOR_GATE["min_episode_length"]
             and metrics["forward_displacement_mean"]
             >= WALKER_BEHAVIOR_GATE["min_forward_displacement"]
             and metrics["fall_rate"] <= WALKER_BEHAVIOR_GATE["max_fall_rate"]
@@ -415,8 +448,7 @@ def _walker_balance_passed(result: dict[str, Any]) -> bool:
     """Return whether stochastic actions produce stable, non-exploitative balance."""
     metrics = result[WALKER_BALANCE_GATE["evaluation_mode"]]
     return bool(
-        metrics["episode_length_mean"]
-        >= WALKER_BALANCE_GATE["min_episode_length"]
+        metrics["episode_length_mean"] >= WALKER_BALANCE_GATE["min_episode_length"]
         and metrics["fall_rate"] <= WALKER_BALANCE_GATE["max_fall_rate"]
         and abs(metrics["forward_displacement_mean"])
         <= WALKER_BALANCE_GATE["max_abs_forward_displacement"]
@@ -425,7 +457,7 @@ def _walker_balance_passed(result: dict[str, Any]) -> bool:
 
 
 def _aggregate_walker_results(
-    results: dict[str, dict[str, dict[str, Any]]]
+    results: dict[str, dict[str, dict[str, Any]]],
 ) -> dict[str, Any]:
     by_variant: dict[str, list[float]] = {}
     behavior_by_variant: dict[str, list[bool]] = {}
@@ -448,15 +480,13 @@ def _aggregate_walker_results(
             "behavior_score_std": float(np.std(values)),
             "seeds_completed": len(values),
             "behavioral_gate_passed": bool(
-                behavior_by_variant.get(variant)
-                and all(behavior_by_variant[variant])
+                behavior_by_variant.get(variant) and all(behavior_by_variant[variant])
             ),
             "behavioral_eval_pass_rate": float(
                 np.mean(behavior_by_variant.get(variant, [False]))
             ),
             "balance_gate_passed": bool(
-                balance_by_variant.get(variant)
-                and all(balance_by_variant[variant])
+                balance_by_variant.get(variant) and all(balance_by_variant[variant])
             ),
             "balance_eval_pass_rate": float(
                 np.mean(balance_by_variant.get(variant, [False]))
@@ -464,9 +494,7 @@ def _aggregate_walker_results(
         }
         for variant, values in by_variant.items()
     ]
-    rankings.sort(
-        key=lambda row: cast(float, row["behavior_score_mean"]), reverse=True
-    )
+    rankings.sort(key=lambda row: cast(float, row["behavior_score_mean"]), reverse=True)
     promoted = next(
         (row["variant"] for row in rankings if row["behavioral_gate_passed"]),
         None,
@@ -549,8 +577,7 @@ def _walker_velocity_passed(result: dict[str, Any]) -> bool:
     """Return whether a low-velocity continuation clears every behavior bound."""
     metrics = result[WALKER_VELOCITY_GATE["evaluation_mode"]]
     return bool(
-        metrics["episode_length_mean"]
-        >= WALKER_VELOCITY_GATE["min_episode_length"]
+        metrics["episode_length_mean"] >= WALKER_VELOCITY_GATE["min_episode_length"]
         and metrics["forward_displacement_mean"]
         >= WALKER_VELOCITY_GATE["min_forward_displacement"]
         and metrics["fall_rate"] <= WALKER_VELOCITY_GATE["max_fall_rate"]
@@ -592,9 +619,7 @@ def _aggregate_walker_velocity_results(
                 np.mean([metrics["peak_z_mean"] for metrics in stochastic])
             ),
             "per_seed_passed": per_seed_passed,
-            "gate_passed": bool(
-                per_seed_passed and all(per_seed_passed.values())
-            ),
+            "gate_passed": bool(per_seed_passed and all(per_seed_passed.values())),
         }
         row["score"] = float(
             row["forward_displacement_mean"]
@@ -690,8 +715,15 @@ def _walker_gait_passed(result: dict[str, Any]) -> bool:
     metrics = result[WALKER_GAIT_GATE["evaluation_mode"]]
     return bool(
         _walker_velocity_passed(result)
+        # Cadence is a band: too slow is not stepping, too fast is chatter.
         and metrics["gait_alternating_touchdowns_per_100_steps_mean"]
         >= WALKER_GAIT_GATE["min_alternating_touchdowns_per_100_steps"]
+        and metrics["gait_alternating_touchdowns_per_100_steps_mean"]
+        <= WALKER_GAIT_GATE["max_alternating_touchdowns_per_100_steps"]
+        # Stride and clearance are what separate a step from a contact flicker.
+        and metrics["gait_stride_length_mean"] >= WALKER_GAIT_GATE["min_stride_length"]
+        and metrics["gait_foot_clearance_mean"]
+        >= WALKER_GAIT_GATE["min_foot_clearance"]
         and metrics["gait_progress_per_alternating_touchdown_mean"]
         >= WALKER_GAIT_GATE["min_progress_per_alternating_touchdown"]
         and metrics["gait_stance_slip_speed_mean"]
@@ -737,19 +769,24 @@ def _aggregate_walker_gait_results(
             ),
             "stance_slip_speed_mean": mean("gait_stance_slip_speed_mean"),
             "flight_fraction_mean": mean("gait_flight_fraction_mean"),
+            "stride_length_mean": mean("gait_stride_length_mean"),
+            "foot_clearance_mean": mean("gait_foot_clearance_mean"),
             "longest_same_foot_sequence_mean": mean(
                 "gait_longest_same_foot_sequence_mean"
             ),
             "per_seed_passed": per_seed_passed,
-            "gate_passed": bool(
-                per_seed_passed and all(per_seed_passed.values())
-            ),
+            "gate_passed": bool(per_seed_passed and all(per_seed_passed.values())),
         }
+        # Raw cadence is deliberately absent from the score: it is banded, not
+        # maximised, and rewarding it is how the chattering shuffle came to
+        # out-rank longer stepping. Stride length and clearance are monotonic —
+        # more of either is unambiguously more like walking.
         row["score"] = float(
             row["forward_displacement_mean"]
             + row["episode_length_mean"] / 800.0
             - row["fall_rate_mean"]
-            + row["alternating_touchdowns_per_100_steps_mean"] / 100.0
+            + row["stride_length_mean"]
+            + row["foot_clearance_mean"]
             + 10.0 * row["progress_per_alternating_touchdown_mean"]
             - row["stance_slip_speed_mean"]
         )
@@ -869,25 +906,36 @@ def _aggregate_walker_velocity_ramp_results(
             "variant": variant,
             "seeds_completed": len(seed_results),
             "forward_displacement_mean": float(
-                np.mean([metrics["forward_displacement_mean"] for metrics in stochastic])
+                np.mean(
+                    [metrics["forward_displacement_mean"] for metrics in stochastic]
+                )
             ),
             "episode_length_mean": float(
                 np.mean([metrics["episode_length_mean"] for metrics in stochastic])
             ),
-            "fall_rate_mean": float(np.mean([metrics["fall_rate"] for metrics in stochastic])),
-            "peak_z_mean": float(np.mean([metrics["peak_z_mean"] for metrics in stochastic])),
+            "fall_rate_mean": float(
+                np.mean([metrics["fall_rate"] for metrics in stochastic])
+            ),
+            "peak_z_mean": float(
+                np.mean([metrics["peak_z_mean"] for metrics in stochastic])
+            ),
             "stance_slip_speed_mean": float(
-                np.mean([metrics["gait_stance_slip_speed_mean"] for metrics in stochastic])
+                np.mean(
+                    [metrics["gait_stance_slip_speed_mean"] for metrics in stochastic]
+                )
             ),
             "per_seed_passed": per_seed_passed,
-            "frozen_gate_passed": bool(per_seed_passed and all(per_seed_passed.values())),
+            "frozen_gate_passed": bool(
+                per_seed_passed and all(per_seed_passed.values())
+            ),
         }
 
     control = rows.get("control")
     candidate = rows.get(candidate_variant)
     if control is not None and candidate is not None:
         improvement = (
-            candidate["forward_displacement_mean"] - control["forward_displacement_mean"]
+            candidate["forward_displacement_mean"]
+            - control["forward_displacement_mean"]
         )
         candidate["displacement_improvement_over_control"] = improvement
         candidate["material_displacement_improvement"] = bool(
@@ -900,10 +948,14 @@ def _aggregate_walker_velocity_ramp_results(
     for variant, row in rows.items():
         if variant != candidate_variant:
             row["gate_passed"] = False
-    rankings = sorted(rows.values(), key=lambda row: row["forward_displacement_mean"], reverse=True)
+    rankings = sorted(
+        rows.values(), key=lambda row: row["forward_displacement_mean"], reverse=True
+    )
     return {
         "rankings": rankings,
-        "promoted_variant": candidate_variant if candidate and candidate["gate_passed"] else None,
+        "promoted_variant": candidate_variant
+        if candidate and candidate["gate_passed"]
+        else None,
         "frozen_behavioral_and_gait_gate": WALKER_GAIT_GATE,
         gate_label: paired_gate,
         "runs": results,
@@ -934,7 +986,9 @@ def _run_walker_velocity_ramp_study(
     for variant, values in WALKER_VELOCITY_RAMP_VARIANTS.items():
         for seed in seeds:
             key = f"{variant}/seed_{seed}"
-            source_model = source_dir / f"seed_{seed}" / "checkpoints" / "final_model.zip"
+            source_model = (
+                source_dir / f"seed_{seed}" / "checkpoints" / "final_model.zip"
+            )
             if not source_model.is_file():
                 raise FileNotFoundError(
                     f"Walker velocity-ramp source checkpoint not found: {source_model}"
@@ -948,7 +1002,11 @@ def _run_walker_velocity_ramp_study(
                 output_dir=output_dir,
             )
             callbacks = (
-                [VelocityTargetRampCallback(start=0.15, end=target_end, ramp_steps=step_budget)]
+                [
+                    VelocityTargetRampCallback(
+                        start=0.15, end=target_end, ramp_steps=step_budget
+                    )
+                ]
                 if target_end > 0.15
                 else None
             )
@@ -979,9 +1037,7 @@ def _run_walker_velocity_ramp_study(
         and all(row["seeds_completed"] == len(seeds) for row in aggregate["rankings"])
     )
     aggregate["evidence_ready"] = (
-        step_budget >= 150_000
-        and len(seeds) >= 3
-        and aggregate["screening_ready"]
+        step_budget >= 150_000 and len(seeds) >= 3 and aggregate["screening_ready"]
     )
     aggregate["promotion_ready"] = bool(
         aggregate["evidence_ready"] and aggregate["promoted_variant"] is not None
@@ -1016,7 +1072,9 @@ def _run_walker_swing_touchdown_study(
         _apply_overrides(variant_cfg, overrides)
         for seed in seeds:
             key = f"{variant}/seed_{seed}"
-            source_model = source_dir / f"seed_{seed}" / "checkpoints" / "final_model.zip"
+            source_model = (
+                source_dir / f"seed_{seed}" / "checkpoints" / "final_model.zip"
+            )
             if not source_model.is_file():
                 raise FileNotFoundError(
                     f"Walker swing-touchdown source checkpoint not found: {source_model}"
@@ -1061,7 +1119,9 @@ def _run_walker_swing_touchdown_study(
     return aggregate
 
 
-def _relabel_tournament(result: dict[str, Any], labels_by_path: dict[str, str]) -> dict[str, Any]:
+def _relabel_tournament(
+    result: dict[str, Any], labels_by_path: dict[str, str]
+) -> dict[str, Any]:
     label_map = {
         competitor["label"]: labels_by_path.get(competitor["path"], competitor["label"])
         for competitor in result["competitors"]
@@ -1073,7 +1133,9 @@ def _relabel_tournament(result: dict[str, Any], labels_by_path: dict[str, str]) 
     for match in result["matches"]:
         match["competitor"] = label_map[match["competitor"]]
         match["opponent"] = label_map[match["opponent"]]
-    result["ratings"] = {label_map[key]: value for key, value in result["ratings"].items()}
+    result["ratings"] = {
+        label_map[key]: value for key, value in result["ratings"].items()
+    }
     result["win_rate_matrix"] = {
         label_map[left]: {label_map[right]: value for right, value in row.items()}
         for left, row in result["win_rate_matrix"].items()
@@ -1093,9 +1155,7 @@ def _arena_variant_cfg(
     cfg["environment"].setdefault("resources", {}).setdefault(
         "food_placement", "uniform"
     )
-    cfg["environment"].setdefault("reward", {}).setdefault(
-        "approach_weight", 0.0
-    )
+    cfg["environment"].setdefault("reward", {}).setdefault("approach_weight", 0.0)
     _apply_overrides(cfg, overrides)
     return cfg
 
@@ -1109,7 +1169,11 @@ def _arena_tournaments(
 ) -> list[dict[str, Any]]:
     tournaments = []
     for seed in seeds:
-        paths = [model_paths[name][seed] for name in variants if seed in model_paths.get(name, {})]
+        paths = [
+            model_paths[name][seed]
+            for name in variants
+            if seed in model_paths.get(name, {})
+        ]
         if len(paths) < 2:
             continue
         labels = {
@@ -1166,7 +1230,9 @@ def _arena_ranking(tournaments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for tournament in tournaments:
         for standing in tournament["standings"]:
             if standing["competitor"] != "random":
-                by_variant.setdefault(standing["competitor"], []).append(standing["elo"])
+                by_variant.setdefault(standing["competitor"], []).append(
+                    standing["elo"]
+                )
     rows = [
         {
             "variant": variant,
@@ -1259,7 +1325,9 @@ def _run_arena_study(
                 step_budget=step_budget,
                 output_dir=output_dir,
             )
-            run = _train_run(f"arena/resources/{variant}/seed_{seed}", cfg, state, state_path)
+            run = _train_run(
+                f"arena/resources/{variant}/seed_{seed}", cfg, state, state_path
+            )
             if run.get("status") == "completed":
                 model_paths.setdefault(variant, {})[seed] = run["model_path"]
 
@@ -1286,7 +1354,9 @@ def _run_arena_study(
                 step_budget=step_budget,
                 output_dir=output_dir,
             )
-            run = _train_run(f"arena/depth/{variant}/seed_{seed}", cfg, state, state_path)
+            run = _train_run(
+                f"arena/depth/{variant}/seed_{seed}", cfg, state, state_path
+            )
             if run.get("status") == "completed":
                 depth_paths.setdefault(variant, {})[seed] = run["model_path"]
     depth_variants = {"baseline": {}, **ARENA_DEPTH_VARIANTS}
@@ -1335,14 +1405,14 @@ def _run_arena_study(
         "depth_native_measurements": depth_native_measurements,
         "depth_tournaments": depth_tournaments,
         "depth_native_tournaments": depth_native_tournaments,
-        "recommended_depth_variant": depth_ranking[0]["variant"] if depth_ranking else None,
+        "recommended_depth_variant": depth_ranking[0]["variant"]
+        if depth_ranking
+        else None,
         "behavioral_gate": ARENA_BEHAVIOR_GATE,
         "behavioral_results": behavior_results,
         "promoted_depth_variant": promoted_depth_variant,
         "evidence_ready": evidence_ready,
-        "promotion_ready": bool(
-            evidence_ready and promoted_depth_variant is not None
-        ),
+        "promotion_ready": bool(evidence_ready and promoted_depth_variant is not None),
     }
 
 
@@ -1454,7 +1524,16 @@ def _format_report(result: dict[str, Any]) -> str:
         ]
     )
     for study, payload in result["results"].items():
-        lines.extend([f"## {study.title()}", "", "```json", json.dumps(payload, indent=2), "```", ""])
+        lines.extend(
+            [
+                f"## {study.title()}",
+                "",
+                "```json",
+                json.dumps(payload, indent=2),
+                "```",
+                "",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -1495,7 +1574,12 @@ def run_quality_study(
     identity = _study_identity(
         studies, seeds, step_budget, wall_clock_seconds, eval_episodes
     )
-    if {"walker-velocity", "walker-gait", "walker-velocity-ramp", "walker-swing-touchdown"} & set(studies):
+    if {
+        "walker-velocity",
+        "walker-gait",
+        "walker-velocity-ramp",
+        "walker-swing-touchdown",
+    } & set(studies):
         identity["source_dir"] = str(Path(source_dir))
     plan = {
         "identity": identity,
@@ -1619,7 +1703,11 @@ def run_quality_study(
         run.get("status") == "completed" for run in state["runs"].values()
     )
     _atomic_json_write(state_path, state)
-    report = {"identity": identity, "results": state["results"], "completed": state["completed"]}
+    report = {
+        "identity": identity,
+        "results": state["results"],
+        "completed": state["completed"],
+    }
     _atomic_json_write(output / "report.json", report)
     (output / "report.md").write_text(_format_report(report), encoding="utf-8")
     return report

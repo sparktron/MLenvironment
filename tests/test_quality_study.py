@@ -20,8 +20,14 @@ def _diagnostic_result() -> dict:
         "forward_displacement_std": 0.0,
         "pushes_mean": 1.0,
         "push_recovery_rate": 0.8,
-        "gait_alternating_touchdowns_per_100_steps_mean": 18.0,
-        "gait_progress_per_alternating_touchdown_mean": 0.004,
+        # A plausible walking gait: ~1.2 Hz cycle, 30 cm strides, 4 cm
+        # clearance. The pre-correction fixture used 18 touchdowns per 100
+        # steps with 4 mm of progress, which is the contact chatter the gait
+        # band now rejects.
+        "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+        "gait_progress_per_alternating_touchdown_mean": 0.15,
+        "gait_stride_length_mean": 0.30,
+        "gait_foot_clearance_mean": 0.04,
         "gait_stance_slip_speed_mean": 0.15,
         "gait_flight_fraction_mean": 0.18,
         "gait_longest_same_foot_sequence_mean": 3.0,
@@ -93,13 +99,11 @@ def test_walker_quality_study_persists_results_and_is_resumable(
     assert first["completed"] is True
     assert len(train_calls) == len(quality_study.WALKER_VARIANTS)
     assert {
-        cfg["experiment_name"].removeprefix("quality_walker_")
-        for cfg in train_calls
+        cfg["experiment_name"].removeprefix("quality_walker_") for cfg in train_calls
     } == set(quality_study.WALKER_VARIANTS)
     for cfg in train_calls:
         assert {
-            key: cfg["training"][key]
-            for key in quality_study.WALKER_STUDY_TRAINING
+            key: cfg["training"][key] for key in quality_study.WALKER_STUDY_TRAINING
         } == quality_study.WALKER_STUDY_TRAINING
         assert cfg["environment"]["sim"]["mass"] == 28.0
         assert 0 < cfg["environment"]["sim"]["action_scale"] <= 1.0
@@ -263,7 +267,9 @@ def test_walker_verdict_detects_reward_hack() -> None:
     }
     stochastic = {**deterministic, "return_mean": 5.0}
 
-    assert _verdict(baseline, deterministic, stochastic, 800) == "reward_hack_high_peak_z"
+    assert (
+        _verdict(baseline, deterministic, stochastic, 800) == "reward_hack_high_peak_z"
+    )
 
 
 def test_walker_verdict_does_not_call_standing_drift_walking() -> None:
@@ -309,7 +315,9 @@ def test_arena_measurements_aggregate_resource_signals() -> None:
         "baseline": 0.25,
         "scarce": 0.25,
     }
-    assert measurements["per_variant_episode_metrics"]["baseline"]["food_pickups"] == 2.0
+    assert (
+        measurements["per_variant_episode_metrics"]["baseline"]["food_pickups"] == 2.0
+    )
 
 
 def test_walker_behavior_gate_requires_robust_transfer() -> None:
@@ -417,18 +425,18 @@ def test_walker_velocity_gate_requires_every_seed_to_pass() -> None:
 
 def test_walker_gait_gate_rejects_behavior_without_gait_structure() -> None:
     passing = _diagnostic_result()
-    weak_gait = {
+    not_stepping = {
         **passing,
         "stochastic": {
             **passing["stochastic"],
-            "gait_alternating_touchdowns_per_100_steps_mean": 5.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 0.5,
         },
     }
 
     aggregate = quality_study._aggregate_walker_gait_results(
         {
             "candidate/seed_0": passing,
-            "candidate/seed_1": weak_gait,
+            "candidate/seed_1": not_stepping,
         }
     )
 
@@ -438,6 +446,69 @@ def test_walker_gait_gate_rejects_behavior_without_gait_structure() -> None:
     }
     assert aggregate["rankings"][0]["gate_passed"] is False
     assert aggregate["promoted_variant"] is None
+
+
+def test_walker_gait_gate_rejects_contact_chatter() -> None:
+    """The regime the pre-correction gate demanded must now fail.
+
+    Twenty alternating touchdowns per 100 steps is ~11 Hz stepping with
+    millimetre strides — the shuffle that passed every structural ablation
+    while displacement stalled near 1-2 m.
+    """
+    chatter = _diagnostic_result()
+    chatter["stochastic"] = {
+        **chatter["stochastic"],
+        "gait_alternating_touchdowns_per_100_steps_mean": 20.0,
+        "gait_progress_per_alternating_touchdown_mean": 0.005,
+        "gait_stride_length_mean": 0.011,
+        "gait_foot_clearance_mean": 0.0007,
+    }
+
+    aggregate = quality_study._aggregate_walker_gait_results(
+        {"candidate/seed_0": chatter}
+    )
+
+    assert aggregate["rankings"][0]["per_seed_passed"] == {"seed_0": False}
+    assert aggregate["promoted_variant"] is None
+
+
+def test_walker_gait_gate_rejects_short_strides_at_valid_cadence() -> None:
+    """Correct cadence alone is not evidence of stepping."""
+    mincing = _diagnostic_result()
+    mincing["stochastic"] = {
+        **mincing["stochastic"],
+        "gait_stride_length_mean": 0.02,
+        "gait_foot_clearance_mean": 0.001,
+    }
+
+    aggregate = quality_study._aggregate_walker_gait_results(
+        {"candidate/seed_0": mincing}
+    )
+
+    assert aggregate["rankings"][0]["per_seed_passed"] == {"seed_0": False}
+
+
+def test_walker_gait_score_does_not_reward_raw_cadence() -> None:
+    """A faster shuffle must not out-rank longer strides on score alone."""
+    long_strides = _diagnostic_result()
+    fast_shuffle = _diagnostic_result()
+    fast_shuffle["stochastic"] = {
+        **fast_shuffle["stochastic"],
+        "gait_alternating_touchdowns_per_100_steps_mean": 8.0,
+        "gait_stride_length_mean": 0.05,
+        "gait_foot_clearance_mean": 0.005,
+    }
+
+    aggregate = quality_study._aggregate_walker_gait_results(
+        {
+            "strides/seed_0": long_strides,
+            "shuffle/seed_0": fast_shuffle,
+        }
+    )
+
+    by_variant = {row["variant"]: row for row in aggregate["rankings"]}
+    assert by_variant["strides"]["score"] > by_variant["shuffle"]["score"]
+    assert aggregate["rankings"][0]["variant"] == "strides"
 
 
 def test_arena_behavior_gate_requires_hits_damage_and_fewer_timeouts() -> None:
@@ -472,9 +543,7 @@ def test_arena_native_tournaments_use_each_variant_environment(monkeypatch) -> N
                 {"competitor": "final_model"},
                 {"competitor": "random"},
             ],
-            "matches": [
-                {"competitor": "final_model", "opponent": "random"}
-            ],
+            "matches": [{"competitor": "final_model", "opponent": "random"}],
             "ratings": {"final_model": 1500.0, "random": 1500.0},
             "win_rate_matrix": {
                 "final_model": {"final_model": None, "random": 0.5},
@@ -493,7 +562,10 @@ def test_arena_native_tournaments_use_each_variant_environment(monkeypatch) -> N
     }
 
     tournaments = quality_study._arena_native_tournaments(
-        {"baseline": {}, "contested": {"environment.resources.food_placement": "center"}},
+        {
+            "baseline": {},
+            "contested": {"environment.resources.food_placement": "center"},
+        },
         {"baseline": {3: "base.zip"}, "contested": {3: "center.zip"}},
         [3],
         base,

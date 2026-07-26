@@ -111,10 +111,30 @@ Across the three baselines, mean velocity reward was 0.50–0.72 per step.
 Progress shaping contributes about 3–6% of that magnitude and stance slip
 about 11–16%, keeping each term within the planned shaping budget.
 
-The gait gate is now frozen at at least 15 alternating touchdowns per 100
-steps, at least 0.003 m progress per alternating touchdown, at most 0.18 m/s
+The gait gate was originally frozen at at least 15 alternating touchdowns per
+100 steps, at least 0.003 m progress per alternating touchdown, at most 0.18 m/s
 stance slip, at most 22% flight, and a mean longest same-foot sequence no
-greater than 5. Behavior gates remain unchanged.
+greater than 5.
+
+**Superseded on 2026-07-26.** Those thresholds were calibrated as "no worse than
+the measured baseline", and the baseline was contact chatter: 17–20 alternating
+touchdowns per 100 steps is a 5–6 Hz gait cycle with 10.9 mm strides and 0.7 mm
+clearance. The floor demanded chatter and would have rejected a real 1 Hz gait.
+See the dated correction in
+[`walker_learning_history.md`](../walker_learning_history.md). The gate is now:
+
+- alternating touchdowns per 100 steps within **1.5–8.5** (a band, derived from
+  `rate = 3.33 × cycle_frequency_Hz` over 0.45–2.5 Hz);
+- mean stride length at least **0.10 m**;
+- mean foot clearance at least **0.02 m** (an open-loop scripted gait reaches
+  33.7 mm at this study's own `action_scale: 0.25` / `position_gain: 0.1`);
+- at least **0.05 m** progress per alternating touchdown;
+- at most **60%** flight (commanded gaits measured 17–56%);
+- stance slip at most 0.18 m/s, **unchanged and pending recalibration** from a
+  faster reference gait;
+- mean longest same-foot sequence no greater than 5.
+
+Behavior gates remain unchanged. Variant ranking no longer scores raw cadence.
 
 ### Tests
 
