@@ -21,10 +21,12 @@ the completed summary below so completed work is not presented as pending.
   remained `untrained_equivalent`, and arena matches timed out almost
   universally. Detailed evidence is in
   [`learning_quality_studies.md`](learning_quality_studies.md).
-- Run the new focused walker matrix at a short one-seed budget, then at three
-  seeds × 300k only if episode length and displacement improve. The code now
-  equalizes PPO rollout/update settings and enforces the locomotion gate. Keep
-  PPO/SAC/TD3 comparisons deferred until this clears.
+- The focused walker matrix has now completed at three seeds × 300k with
+  equalized PPO rollout/update settings. `curriculum_flat` ranked first, but
+  its flat deterministic average was only 177.6 steps and 0.59 m with a 73.3%
+  fall rate; no candidate cleared any behavioral gate. Inspect the best
+  checkpoints and revise locomotion learning/reward design before another
+  promotion-scale run. Keep PPO/SAC/TD3 comparisons deferred until this clears.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.
@@ -39,6 +41,11 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-26) Completed the focused walker promotion study: nine 300k-step
+  trainings plus 20-episode deterministic/stochastic diagnostics. The
+  equalized 24×128 rollout schedule removed the prior comparison confound, but
+  all behavioral pass rates were zero. `curriculum_flat` ranked first and no
+  preset was promoted.
 - (2026-07-26) Implemented the post-promotion learning plan. Walker quality
   candidates now share a 24×128 PPO rollout schedule and must clear explicit
   episode-length, displacement, fall-rate, and launch-height gates. Arena

@@ -465,6 +465,13 @@ below 1 m). Arena depth candidates now test feasible combat
 (`attack_range: 0.4`, `attack_cost: 0.02`) with and without distance-progress
 shaping; their gate requires nonzero hits/damage and timeout below 90%.
 
+The 2026-07-26 focused walker run completed all nine 300k-step trainings and
+their 20-episode diagnostics. `curriculum_flat` ranked first, but no evaluation
+cleared the locomotion gate and no preset was promoted. On flat terrain,
+`curriculum_flat` averaged 177.6 deterministic steps, 0.59 m displacement, and
+a 73.3% fall rate across seeds. The equalized rollout schedule removed the
+earlier comparison confound without producing robust walking.
+
 ---
 
 ## ⚙️ Configuration

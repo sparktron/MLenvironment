@@ -115,6 +115,46 @@ optimizer-update count comparable across candidates (for example, lower
 `n_steps` when using 24 environments), then increase the total budget only if
 learning curves are still improving. Algorithm comparisons remain deferred.
 
+## Focused Walker Run — 2026-07-26
+
+The equal-rollout follow-up completed all nine training runs and all
+20-episode deterministic/stochastic diagnostics:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
+  --study walker --seeds 0,1,2 --study-step-budget 300000 \
+  --study-eval-episodes 20 \
+  --study-output-dir outputs/quality_studies_walker_focused_20260726
+```
+
+Every candidate used 24 environments, 128 steps per environment, and batch
+size 256. Evidence readiness passed, but all behavioral pass rates were zero
+and `promotion_ready` remained false.
+
+| Rank | Candidate | Behavior score (mean ± std) |
+|---:|---|---:|
+| 1 | `curriculum_flat` | -0.190 ± 0.079 |
+| 2 | `curriculum_uneven` | -0.308 ± 0.189 |
+| 3 | `rebalanced_flat` | -0.446 ± 0.253 |
+
+Flat-terrain evaluation averages across the three seeds were:
+
+| Candidate | Mode | Episode steps | Forward displacement | Fall rate |
+|---|---|---:|---:|---:|
+| `curriculum_flat` | deterministic | 177.6 | 0.59 m | 73.3% |
+| `curriculum_flat` | stochastic | 107.8 | 0.28 m | 75.0% |
+| `curriculum_uneven` | deterministic | 119.0 | 0.87 m | 86.7% |
+| `curriculum_uneven` | stochastic | 94.1 | 0.46 m | 75.0% |
+| `rebalanced_flat` | deterministic | 71.9 | 0.74 m | 78.3% |
+| `rebalanced_flat` | stochastic | 84.1 | 0.61 m | 71.7% |
+
+Peak torso height remained near 0.70–0.71 m, so self-launching was not the
+failure mode. The best individual flat deterministic displacement was 1.59 m
+from `curriculum_uneven/seed_0`, but it averaged only 154 steps with a 90% fall
+rate. Equalizing PPO rollout/update settings therefore removed the earlier
+methodological confound but did not produce robust locomotion. PPO/SAC/TD3
+comparisons remain deferred.
+
 ### Arena
 
 Command:
