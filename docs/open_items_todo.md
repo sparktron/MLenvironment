@@ -32,13 +32,16 @@ the completed summary below so completed work is not presented as pending.
   pressure. Phase 1 of the
   [`walker gait-coordination plan`](plans/2026-07-26-walker-gait-coordination.md)
   is complete: contact/strike/slip telemetry established three-seed baselines,
-  zero-default structural rewards and gait gates are tested, and all four
-  candidates passed the 24-worker pipeline smoke and seed-22 50k rejection
-  screen. Combined led at 1.86 m with 10% falls, but control was close at
-  1.79 m with 20% falls. Rendered combined rollouts showed a legitimate small
-  alternating shuffle. Run all four variants at seeds 21–23 × 150k before
-  selecting anything. Keep PPO/SAC/TD3 comparisons deferred until the final
-  3 m transfer gate clears.
+  zero-default structural rewards and gait gates are tested, and the four
+  variants completed seeds 21–23 × 150k. Slip-only came closest but seed 21
+  exceeded the frozen 0.18 m/s slip ceiling; displacement remained only
+  1.26–2.00 m across seeds. Renders of slip-only seeds 21 and 22 confirmed an
+  upright compact alternating shuffle without an obvious exploit. A seed-21
+  50k screen then rejected weight 0.75 on displacement (0.967 m) and weight
+  1.0 on slip (0.18065 m/s). Do not advance either weight or loosen the slip
+  threshold. The next walker iteration must improve forward displacement while
+  preserving the gait and fall gates; keep PPO/SAC/TD3 comparisons deferred
+  until the final 3 m transfer gate clears.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.
@@ -53,6 +56,11 @@ the completed summary below so completed work is not presented as pending.
 
 ## Completed Foundations
 
+- (2026-07-26) Completed the gait-coordination 150k matrix and stronger
+  stance-slip rejection screen. Slip-only was the closest three-seed variant,
+  but not every seed passed. Five-rollout stochastic renders checked its
+  strongest and slip-gate-failing seeds. Neither 0.75 nor 1.0 passed the fixed
+  seed-21 screen, so no candidate advanced to 300k or transfer testing.
 - (2026-07-26) Started the gait-coordination gate. Walker episodes now report
   support fractions, debounced touchdowns, valid alternation, progress per
   alternating strike, stance slip, same-foot sequences, and action deltas.

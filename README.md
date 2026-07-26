@@ -542,6 +542,23 @@ progress, stance-slip penalty, and their combination. It logs support,
 touchdown, alternation, progress, slip, flight, same-foot sequence, and action
 delta telemetry without changing the observation shape.
 
+The completed 150k matrix promoted no variant. Slip-only was the closest:
+seed 22 reached 793 stochastic steps, 5% falls, and 2.00 m displacement, while
+seed 23 reached 738 steps, 10% falls, and 1.26 m. Seed 21 reached 733 steps,
+10% falls, and 1.52 m but missed the frozen 0.18 m/s stance-slip ceiling at
+0.190 m/s. Stochastic renders of seeds 21 and 22 showed legitimate upright,
+compact alternating steps with no launch, prone, sliding, or same-foot tapping
+exploit. Their selected 800-step rollouts moved 2.04 m and 2.01 m,
+respectively; seed 22 also fell early in two of five sampled rollouts.
+
+A follow-up seed-21 50k rejection screen tested stronger slip penalties without
+changing the gate. Weight 0.75 reached 682 steps, 20% falls, 0.967 m, and
+0.1794 m/s slip, failing displacement. Weight 1.0 reached 729 steps, 20%
+falls, 1.093 m, and 0.18065 m/s slip, failing the unchanged slip ceiling.
+Neither candidate advanced to the three-seed 150k rerun, so the conditional
+300k and flat/uneven/obstacle/push transfer stages were not run. The final
+target remains 760 steps, at most 10% falls, and 3 m displacement.
+
 ---
 
 ## ⚙️ Configuration

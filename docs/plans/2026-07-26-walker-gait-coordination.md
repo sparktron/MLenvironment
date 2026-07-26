@@ -127,7 +127,7 @@ greater than 5. Behavior gates remain unchanged.
 
 ## Phase 3: Focused Ablation
 
-Status: **started on 2026-07-26**.
+Status: **completed without promotion on 2026-07-26**.
 
 Use `velocity_sigma: 0.10`, the existing balance checkpoints, and three
 continuation candidates:
@@ -183,7 +183,39 @@ After Phase 1 freezes thresholds, require:
 
 Promotion requires both the behavior and gait gates for all three seeds.
 
+### Evidence-scale result
+
+The seeds 21–23 × 150k matrix completed for all four variants. Slip-only was
+the closest to promotion:
+
+| Seed | Steps | Falls | Displacement | Slip | Gate |
+|---:|---:|---:|---:|---:|---|
+| 21 | 733 | 10% | 1.52 m | 0.190 m/s | fail: slip |
+| 22 | 793 | 5% | 2.00 m | 0.140 m/s | pass |
+| 23 | 738 | 10% | 1.26 m | 0.178 m/s | pass |
+
+The variant therefore failed the all-seed gate. Stochastic five-rollout
+rendering confirmed that seeds 21 and 22 use compact, upright alternating
+steps without a visible launch, prone, sliding, or same-foot tapping exploit.
+The selected rollouts both survived 800 steps and moved 2.04 m and 2.01 m.
+Seed 22 nevertheless fell after 90 and 121 steps in two other samples,
+consistent with its stochastic variance and deterministic collapse.
+
+A final seed-21 50k rejection screen tested slip weights 0.75 and 1.0 while
+holding every gait threshold fixed:
+
+| Weight | Steps | Falls | Displacement | Slip | Rejection |
+|---:|---:|---:|---:|---:|---|
+| 0.75 | 682 | 20% | 0.967 m | 0.1794 m/s | displacement below 1.0 m |
+| 1.0 | 729 | 20% | 1.093 m | 0.18065 m/s | slip above 0.18 m/s |
+
+Neither weight survived. In particular, the 1.0 result does not justify
+loosening or rounding the frozen slip ceiling. No weight advanced to the
+three-seed rerun.
+
 ## Phase 4: Promotion Validation
+
+Status: **not entered; Phase 3 produced no surviving candidate**.
 
 Only after a candidate clears Phase 3:
 
