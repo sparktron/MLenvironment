@@ -117,9 +117,9 @@ class WalkerBulletEnv(gym.Env):
             self._push_start_step = int(push_cfg.get("start_step", 0))
             gait_cfg = get_section(cfg, "gait")
             self._gait_tracker = WalkerGaitTracker(
-                touchdown_debounce_steps=int(
-                    gait_cfg.get("touchdown_debounce_steps", 3)
-                )
+                touchdown_debounce_steps=int(gait_cfg.get("touchdown_debounce_steps", 3)),
+                control_timestep=float(sim_cfg.get("timestep", 1.0 / 240.0))
+                * int(sim_cfg.get("frame_skip", 4)),
             )
 
             self.step_count = 0
@@ -477,6 +477,19 @@ class WalkerBulletEnv(gym.Env):
             speeds.append(float(np.linalg.norm(velocity[:2])))
         return speeds[0], speeds[1]
 
+    def _foot_positions(self) -> tuple[tuple[float, float], tuple[float, float]]:
+        """Return sagittal foot positions used for stride/swing telemetry."""
+        positions = []
+        for link in (2, 5):
+            state = p.getLinkState(
+                self.robot_id, link, physicsClientId=self._connection
+            )
+            position = np.nan_to_num(
+                np.asarray(state[0], dtype=np.float64), nan=0.0, posinf=1e6, neginf=-1e6
+            )
+            positions.append((float(position[0]), float(position[2])))
+        return positions[0], positions[1]
+
     def _apply_domain_randomization(self) -> None:
         rand_cfg = get_section(self.cfg, "domain_randomization")
         sim_cfg = get_section(self.cfg, "sim")
@@ -651,11 +664,13 @@ class WalkerBulletEnv(gym.Env):
 
         foot_contacts = self._foot_contacts()
         foot_slip_speeds = self._foot_slip_speeds()
+        foot_positions = self._foot_positions()
         gait_step = self._gait_tracker.update(
             step=self.step_count,
             contacts=foot_contacts,
             pelvis_x=float(pos[0]),
             foot_slip_speeds=foot_slip_speeds,
+            foot_positions=foot_positions,
             applied_action=applied_action,
         )
         obs = self._get_obs(

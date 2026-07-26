@@ -322,6 +322,35 @@ This is a hypothesis and planned diagnostic direction, not a successful
 change. It belongs in the supported list only after passing the same rejection,
 multi-seed, and transfer process.
 
+## 2026-07-26 — Velocity Ramp And Qualified-Swing Telemetry
+
+**Question:** Can a higher staged velocity target improve displacement without
+breaking the frozen slip and gait limits, and does any gain reflect longer
+steps rather than contact chatter?
+
+**Change:** Added reward-agnostic stride length, swing-duration, swing-clearance,
+qualified-touchdown, and cadence telemetry. Added a seed-matched rejection
+study that holds the 0.5 stance-slip penalty and every other training setting
+fixed, comparing 0.15 m/s with a linear 0.15--0.25 m/s ramp.
+
+**Decision rule:** Reject the ramp if it misses any existing behavior or gait
+gate, including the 0.18 m/s slip ceiling, or if it gains less than 0.25 m of
+mean stochastic displacement over control. The planned 50k seed-21 run is a
+screen only. A survivor, and only a survivor, proceeds to seeds 21--23 at
+150k; sustained-swing touchdown progress is deferred unless telemetry shows
+faster shuffling rather than longer strides.
+
+**Observed result:** The corrected 50k screen rejected the candidate. At its
+0.25 m/s final target, stochastic displacement rose from 0.104 m (control) to
+0.200 m, a +0.097 m change below the frozen +0.25 m materiality rule. The ramp
+also averaged 666 steps and 35% falls, missing the 1 m displacement and 30%
+fall gates. Slip was compliant (0.156 m/s), but stride length (10.88 mm), swing
+duration (41.5 ms), and clearance (0.66 mm) were not above control (10.94 mm,
+43.4 ms, and 0.70 mm).
+
+**Decision:** Reject the ramp. Do not run seeds 21--23 × 150k, 300k, or
+transfer testing; do not add the conditional swing-gated touchdown reward.
+
 ## How To Append A Future Entry
 
 Do not rewrite an old failure to make a later result look inevitable. Add a

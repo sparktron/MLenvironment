@@ -217,6 +217,40 @@ three-seed rerun.
 
 Status: **not entered; Phase 3 produced no surviving candidate**.
 
+## Phase 3b: Velocity-Ramp Rejection Screen
+
+Status: **rejected at seed 21, 50k**.
+
+Keep `stance_slip_penalty_weight: 0.5` and the frozen 0.18 m/s slip ceiling.
+Before changing reward structure, compare a fixed 0.15 m/s control against a
+linear, time-based target ramp from 0.15 to 0.25 m/s. The control and candidate
+resume the same seed-matched balance checkpoint and retain all other reward,
+action, physics, and optimizer parameters. The candidate must clear every
+existing behavior and gait gate and improve mean stochastic displacement by at
+least 0.25 m over its paired control. This one-seed 50k screen may reject, but
+cannot promote; only a survivor advances to seeds 21--23 at 150k.
+
+The tracker now records same-foot stride length after a completed swing, swing
+duration, swing clearance above liftoff height, and qualified-touchdown cadence.
+These metrics distinguish longer steps from contact chatter before any
+sustained-swing touchdown reward is considered.
+
+The corrected screen (which measures continuation steps rather than the
+resumed checkpoint's lifetime steps) rejected the ramp. It improved mean
+stochastic displacement from 0.104 m to 0.200 m, only +0.097 m against the
+required +0.25 m. It also failed the existing 1 m displacement and 30% fall
+limits (666 steps, 35% falls). Slip remained compliant at 0.156 m/s, but stride
+length (10.88 mm) and swing duration (41.5 ms) were slightly below the
+control's 10.94 mm and 43.4 ms. Do not advance this ramp or add a
+swing-gated reward on its basis.
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
+  --study walker-velocity-ramp --seeds 21 --study-step-budget 50000 \
+  --study-source-dir outputs/walker_stochastic_balance_candidate \
+  --study-output-dir outputs/quality_studies_walker_velocity_ramp_20260726
+```
+
 Only after a candidate clears Phase 3:
 
 1. Continue three seeds to 300k total staged steps.

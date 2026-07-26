@@ -141,6 +141,7 @@ def _parse_args() -> argparse.Namespace:
             "walker",
             "walker-velocity",
             "walker-gait",
+            "walker-velocity-ramp",
             "arena",
             "algorithms",
             "all",

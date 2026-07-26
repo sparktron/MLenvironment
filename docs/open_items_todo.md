@@ -43,9 +43,14 @@ must record both successful changes and failed hypotheses there.
   upright compact alternating shuffle without an obvious exploit. A seed-21
   50k screen then rejected weight 0.75 on displacement (0.967 m) and weight
   1.0 on slip (0.18065 m/s). Do not advance either weight or loosen the slip
-  threshold. The next walker iteration must improve forward displacement while
-  preserving the gait and fall gates; keep PPO/SAC/TD3 comparisons deferred
-  until the final 3 m transfer gate clears.
+  threshold. The seed-21 50k velocity-ramp screen is rejected: retaining slip
+  weight 0.5, the 0.15--0.25 m/s ramp gained only +0.097 m (0.200 m vs 0.104 m
+  control), missed the 1 m and 30%-fall gates, and showed no longer stride or
+  swing. Do not advance it to seeds 21--23 or add a sustained-swing touchdown
+  reward without a new measured mechanism. New qualified-swing telemetry
+  measures stride length, swing duration, clearance, and cadence to determine
+  whether any gain is longer stepping rather than contact chatter. Keep
+  PPO/SAC/TD3 comparisons deferred until the final 3 m transfer gate clears.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.

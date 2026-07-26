@@ -439,7 +439,8 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-stud
   --study all --seeds 0,1,2
 ```
 
-`--study` also accepts `walker`, `walker-velocity`, `arena`, or `algorithms`.
+`--study` also accepts `walker`, `walker-velocity`, `walker-gait`,
+`walker-velocity-ramp`, `arena`, or `algorithms`.
 The `walker-velocity` study resumes seed-matched balance checkpoints from
 `--study-source-dir`. The default promotion budgets are 750k walker steps,
 150k walker-velocity continuation steps, 30k arena steps, and 500k algorithm
@@ -565,6 +566,13 @@ falls, 1.093 m, and 0.18065 m/s slip, failing the unchanged slip ceiling.
 Neither candidate advanced to the three-seed 150k rerun, so the conditional
 300k and flat/uneven/obstacle/push transfer stages were not run. The final
 target remains 760 steps, at most 10% falls, and 3 m displacement.
+
+The corrected seed-21 50k velocity-ramp screen retained slip weight 0.5 and
+compared fixed 0.15 m/s with a 0.15--0.25 m/s target ramp. The ramp reached
+0.200 m stochastic displacement versus 0.104 m control, below the predeclared
++0.25 m improvement requirement, and missed the existing displacement/fall
+gates. Qualified-swing telemetry found no longer stride or swing, so the ramp
+was rejected without a three-seed or transfer stage.
 
 ---
 

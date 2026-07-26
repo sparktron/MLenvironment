@@ -327,6 +327,11 @@ class WalkerMetricsCallback(BaseCallback):
             "gait_longest_same_foot_sequence_mean"
         ),
         "gait_mean_action_delta_l2": "gait_mean_action_delta_l2",
+        "gait_stride_length": "gait_stride_length",
+        "gait_swing_duration": "gait_swing_duration",
+        "gait_foot_clearance": "gait_foot_clearance",
+        "gait_cadence_steps_per_min": "gait_cadence_steps_per_min",
+        "gait_qualified_touchdowns": "gait_qualified_touchdowns_mean",
     }
 
     def __init__(self) -> None:

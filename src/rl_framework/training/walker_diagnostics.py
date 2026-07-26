@@ -26,6 +26,11 @@ _GAIT_EPISODE_METRICS = (
     "gait_stance_slip_speed",
     "gait_longest_same_foot_sequence",
     "gait_mean_action_delta_l2",
+    "gait_stride_length",
+    "gait_swing_duration",
+    "gait_foot_clearance",
+    "gait_cadence_steps_per_min",
+    "gait_qualified_touchdowns",
 )
 _REWARD_EPISODE_METRICS = (
     "reward_alive_mean",

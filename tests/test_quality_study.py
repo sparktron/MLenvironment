@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from rl_framework.training import quality_study
 from rl_framework.training.quality_study import StopOnWallClock, run_quality_study
 from rl_framework.training.walker_diagnostics import _verdict
@@ -46,6 +47,7 @@ def test_quality_study_dry_run_reports_full_plan(tmp_path: Path) -> None:
         "walker": 12,
         "walker_velocity": 0,
         "walker_gait": 0,
+        "walker_velocity_ramp": 0,
         "arena": 18,
         "algorithms": 18,
     }
@@ -217,6 +219,26 @@ def test_walker_gait_study_resumes_seed_matched_continuations(
     } == {0.0, 40.0}
     assert result["results"]["walker_gait"]["evidence_ready"] is False
     assert result["results"]["walker_gait"]["promotion_ready"] is False
+
+
+def test_walker_velocity_ramp_requires_frozen_gates_and_control_improvement() -> None:
+    control = _diagnostic_result()
+    candidate = _diagnostic_result()
+    control["stochastic"] = {**control["stochastic"], "forward_displacement_mean": 1.2}
+    candidate["stochastic"] = {
+        **candidate["stochastic"],
+        "forward_displacement_mean": 1.5,
+    }
+
+    aggregate = quality_study._aggregate_walker_velocity_ramp_results(
+        {"control/seed_21": control, "ramp_to_025/seed_21": candidate}
+    )
+
+    ramp = next(row for row in aggregate["rankings"] if row["variant"] == "ramp_to_025")
+    assert ramp["frozen_gate_passed"] is True
+    assert ramp["displacement_improvement_over_control"] == pytest.approx(0.3)
+    assert ramp["gate_passed"] is True
+    assert aggregate["promoted_variant"] == "ramp_to_025"
 
 
 def test_wall_clock_callback_stops_after_budget(monkeypatch) -> None:

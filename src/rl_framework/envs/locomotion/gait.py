@@ -21,6 +21,7 @@ class WalkerGaitTracker:
     """Episode-local, reward-agnostic walker gait telemetry."""
 
     touchdown_debounce_steps: int = 3
+    control_timestep: float = 1.0 / 60.0
     _previous_contacts: tuple[bool, bool] = (False, False)
     _last_touchdown_steps: list[int] = field(default_factory=lambda: [-10_000, -10_000])
     _last_touchdown_side: int | None = None
@@ -35,11 +36,23 @@ class WalkerGaitTracker:
     _longest_same_foot_sequence: int = 0
     _action_delta_sum: float = 0.0
     _previous_action: np.ndarray | None = None
+    _swing_start_steps: list[int | None] = field(default_factory=lambda: [None, None])
+    _swing_start_z: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    _swing_peak_z: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    _last_stride_touchdown_x: list[float | None] = field(
+        default_factory=lambda: [None, None]
+    )
+    _swing_durations: list[float] = field(default_factory=list)
+    _swing_clearances: list[float] = field(default_factory=list)
+    _stride_lengths: list[float] = field(default_factory=list)
+    _qualified_touchdowns: int = 0
     _steps: int = 0
 
     def __post_init__(self) -> None:
         if self.touchdown_debounce_steps < 1:
             raise ValueError("touchdown_debounce_steps must be at least 1")
+        if self.control_timestep <= 0:
+            raise ValueError("control_timestep must be positive")
 
     def reset(
         self,
@@ -61,6 +74,14 @@ class WalkerGaitTracker:
         self._longest_same_foot_sequence = 0
         self._action_delta_sum = 0.0
         self._previous_action = np.zeros(action_size, dtype=np.float32)
+        self._swing_start_steps = [None, None]
+        self._swing_start_z = [0.0, 0.0]
+        self._swing_peak_z = [0.0, 0.0]
+        self._last_stride_touchdown_x = [None, None]
+        self._swing_durations = []
+        self._swing_clearances = []
+        self._stride_lengths = []
+        self._qualified_touchdowns = 0
         self._steps = 0
 
     def update(
@@ -70,6 +91,7 @@ class WalkerGaitTracker:
         contacts: tuple[bool, bool],
         pelvis_x: float,
         foot_slip_speeds: tuple[float, float],
+        foot_positions: tuple[tuple[float, float], tuple[float, float]],
         applied_action: np.ndarray,
     ) -> GaitStep:
         """Record one step and return reward-ready structural measurements."""
@@ -106,6 +128,16 @@ class WalkerGaitTracker:
         for side, (contact, previous_contact) in enumerate(
             zip(contacts, self._previous_contacts)
         ):
+            foot_x, foot_z = foot_positions[side]
+            if not contact:
+                if previous_contact:
+                    self._swing_start_steps[side] = step
+                    self._swing_start_z[side] = float(foot_z)
+                    self._swing_peak_z[side] = float(foot_z)
+                elif self._swing_start_steps[side] is not None:
+                    self._swing_peak_z[side] = max(
+                        self._swing_peak_z[side], float(foot_z)
+                    )
             if (
                 contact
                 and not previous_contact
@@ -115,6 +147,20 @@ class WalkerGaitTracker:
                 accepted_touchdowns.append(side)
                 self._last_touchdown_steps[side] = step
                 self._touchdown_counts[side] += 1
+                swing_start = self._swing_start_steps[side]
+                if swing_start is not None:
+                    self._qualified_touchdowns += 1
+                    self._swing_durations.append(
+                        (step - swing_start) * self.control_timestep
+                    )
+                    self._swing_clearances.append(
+                        max(self._swing_peak_z[side] - self._swing_start_z[side], 0.0)
+                    )
+                    previous_x = self._last_stride_touchdown_x[side]
+                    if previous_x is not None:
+                        self._stride_lengths.append(abs(float(foot_x) - previous_x))
+                    self._last_stride_touchdown_x[side] = float(foot_x)
+                self._swing_start_steps[side] = None
         self._previous_contacts = contacts
 
         alternating = False
@@ -181,4 +227,17 @@ class WalkerGaitTracker:
                 self._longest_same_foot_sequence
             ),
             "gait_mean_action_delta_l2": self._action_delta_sum / steps,
+            "gait_stride_length": (
+                float(np.mean(self._stride_lengths)) if self._stride_lengths else 0.0
+            ),
+            "gait_swing_duration": (
+                float(np.mean(self._swing_durations)) if self._swing_durations else 0.0
+            ),
+            "gait_foot_clearance": (
+                float(np.mean(self._swing_clearances)) if self._swing_clearances else 0.0
+            ),
+            "gait_cadence_steps_per_min": (
+                60.0 * self._qualified_touchdowns / (steps * self.control_timestep)
+            ),
+            "gait_qualified_touchdowns": float(self._qualified_touchdowns),
         }
