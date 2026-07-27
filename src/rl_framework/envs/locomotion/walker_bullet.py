@@ -81,11 +81,17 @@ class WalkerBulletEnv(gym.Env):
             obs_cfg = get_section(cfg, "observation")
             self._observation_version = str(obs_cfg.get("version", "v1"))
             self._coordinate_free = bool(obs_cfg.get("coordinate_free", False))
-            self._include_previous_action = bool(obs_cfg.get("include_previous_action", False))
+            self._include_previous_action = bool(
+                obs_cfg.get("include_previous_action", False)
+            )
             if self._observation_version == "v1" and self._coordinate_free:
-                raise ValueError("observation.coordinate_free requires observation.version: v2")
+                raise ValueError(
+                    "observation.coordinate_free requires observation.version: v2"
+                )
             if self._observation_version == "v1" and self._include_previous_action:
-                raise ValueError("observation.include_previous_action requires observation.version: v2")
+                raise ValueError(
+                    "observation.include_previous_action requires observation.version: v2"
+                )
             # v1: pos(3)+quat(4)+lin_vel(3)+ang_vel(3)+joints(20)+DR(2) = 35
             # v2 adds binary right/left foot contacts. Coordinate-free v2
             # drops global x/y position, keeping height as the useful local cue.
@@ -123,7 +129,9 @@ class WalkerBulletEnv(gym.Env):
             self._push_start_step = int(push_cfg.get("start_step", 0))
             gait_cfg = get_section(cfg, "gait")
             self._gait_tracker = WalkerGaitTracker(
-                touchdown_debounce_steps=int(gait_cfg.get("touchdown_debounce_steps", 3)),
+                touchdown_debounce_steps=int(
+                    gait_cfg.get("touchdown_debounce_steps", 3)
+                ),
                 control_timestep=float(sim_cfg.get("timestep", 1.0 / 240.0))
                 * int(sim_cfg.get("frame_skip", 4)),
                 min_swing_duration=float(gait_cfg.get("min_swing_duration", 0.0)),
@@ -169,7 +177,9 @@ class WalkerBulletEnv(gym.Env):
     )  # ≈ 0.678 m
 
     @staticmethod
-    def _warn_unknown_section_keys(section: dict[str, Any], cls: type, name: str) -> None:
+    def _warn_unknown_section_keys(
+        section: dict[str, Any], cls: type, name: str
+    ) -> None:
         unknown = sorted(set(section) - set(cls.__annotations__))
         if unknown:
             warnings.warn(
@@ -379,14 +389,25 @@ class WalkerBulletEnv(gym.Env):
         terrain_cfg = get_section(self.cfg, "terrain")
         friction = float(get_section(self.cfg, "sim").get("friction", 0.8))
 
-        def add_box(position: tuple[float, float, float], half_extents: tuple[float, float, float]) -> None:
-            collision = p.createCollisionShape(p.GEOM_BOX, halfExtents=half_extents, physicsClientId=cid)
+        def add_box(
+            position: tuple[float, float, float],
+            half_extents: tuple[float, float, float],
+        ) -> None:
+            collision = p.createCollisionShape(
+                p.GEOM_BOX, halfExtents=half_extents, physicsClientId=cid
+            )
             visual = p.createVisualShape(
-                p.GEOM_BOX, halfExtents=half_extents, rgbaColor=[0.25, 0.45, 0.25, 1.0], physicsClientId=cid
+                p.GEOM_BOX,
+                halfExtents=half_extents,
+                rgbaColor=[0.25, 0.45, 0.25, 1.0],
+                physicsClientId=cid,
             )
             body_id = p.createMultiBody(
-                baseMass=0.0, baseCollisionShapeIndex=collision, baseVisualShapeIndex=visual,
-                basePosition=position, physicsClientId=cid,
+                baseMass=0.0,
+                baseCollisionShapeIndex=collision,
+                baseVisualShapeIndex=visual,
+                basePosition=position,
+                physicsClientId=cid,
             )
             p.changeDynamics(body_id, -1, lateralFriction=friction, physicsClientId=cid)
             self._terrain_body_ids.append(body_id)
@@ -400,7 +421,9 @@ class WalkerBulletEnv(gym.Env):
         elif self._terrain_preset == "obstacles":
             obstacle_height = float(terrain_cfg.get("obstacle_height", 0.10))
             for x in (1.2, 2.4, 3.6):
-                add_box((x, 0.0, obstacle_height / 2), (0.10, 0.55, obstacle_height / 2))
+                add_box(
+                    (x, 0.0, obstacle_height / 2), (0.10, 0.55, obstacle_height / 2)
+                )
 
     def _get_obs(
         self,
@@ -435,9 +458,7 @@ class WalkerBulletEnv(gym.Env):
         if self._observation_version == "v2":
             if foot_contacts is None:
                 foot_contacts = self._foot_contacts()
-            values.extend(
-                float(contact) for contact in foot_contacts
-            )
+            values.extend(float(contact) for contact in foot_contacts)
         if self._include_previous_action:
             values.extend(self._previous_action)
         self._obs_buf[:] = values
@@ -636,6 +657,9 @@ class WalkerBulletEnv(gym.Env):
                 "gait_step_progress",
                 "swing_touchdown_progress",
                 "stance_slip",
+                "action_rate",
+                "swing_clearance",
+                "touchdown_rate",
             )
         }
         foot_contacts = self._foot_contacts()
@@ -666,8 +690,12 @@ class WalkerBulletEnv(gym.Env):
         ):
             direction = -1.0 if self._rng.integers(0, 2) else 1.0
             p.applyExternalForce(
-                self.robot_id, -1, [0.0, direction * self._push_force, 0.0], [0.0, 0.0, 0.0],
-                p.WORLD_FRAME, physicsClientId=self._connection,
+                self.robot_id,
+                -1,
+                [0.0, direction * self._push_force, 0.0],
+                [0.0, 0.0, 0.0],
+                p.WORLD_FRAME,
+                physicsClientId=self._connection,
             )
             push_applied = True
         self.dynamics.apply_action(
@@ -759,6 +787,11 @@ class WalkerBulletEnv(gym.Env):
             "gait_step_progress": gait_step.alternating_step_progress,
             "sustained_swing_progress": gait_step.sustained_swing_progress,
             "stance_slip_speed": gait_step.stance_slip_speed,
+            # GaitStep.action_delta_l2 is the L2 *norm*; the penalty is on the
+            # squared rate, matching the usual ||a_t - a_{t-1}||^2 form.
+            "action_rate_l2": gait_step.action_delta_l2**2,
+            "swing_clearance": gait_step.swing_clearance_now,
+            "touchdown_interval": gait_step.touchdown_interval,
         }
         reward_components = self.reward_fn.components(**reward_inputs)
         reward = self.reward_fn.compute(**reward_inputs)
@@ -802,6 +835,8 @@ class WalkerBulletEnv(gym.Env):
             "sustained_swing_progress": gait_step.sustained_swing_progress,
             "stance_slip_speed": gait_step.stance_slip_speed,
             "action_delta_l2": gait_step.action_delta_l2,
+            "swing_clearance_now": gait_step.swing_clearance_now,
+            "touchdown_interval": gait_step.touchdown_interval,
             "target_velocity": self.reward_fn.target_velocity,
             "velocity_error": self.reward_fn.target_velocity - float(lin_vel[0]),
             "right_foot_tangential_velocity": foot_tangential_velocities[0],

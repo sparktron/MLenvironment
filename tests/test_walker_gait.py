@@ -166,3 +166,71 @@ def test_gait_tracker_reports_completed_stance_advance_duration_and_slip() -> No
     assert liftoff.stance_pelvis_advance == pytest.approx(0.12)
     assert liftoff.stance_duration == pytest.approx(0.2)
     assert liftoff.stance_mean_slip_speed == pytest.approx(0.3)
+
+
+def test_swing_clearance_now_tracks_the_lifted_foot_every_step() -> None:
+    """Dense per-step clearance, unlike the one-per-landing touchdown value."""
+    tracker = WalkerGaitTracker(touchdown_debounce_steps=1, control_timestep=1 / 60)
+    tracker.reset(initial_contacts=(True, True), action_size=10)
+
+    # Both feet planted at z=0.02: nothing is swinging.
+    step = _update(
+        tracker, step=1, contacts=(True, True), x=0.0,
+        foot_positions=((0.0, 0.02), (0.0, 0.02)),
+    )
+    assert step.swing_clearance_now == pytest.approx(0.0)
+
+    # Left foot leaves the ground -> swing starts, clearance measured from there.
+    step = _update(
+        tracker, step=2, contacts=(True, False), x=0.0,
+        foot_positions=((0.0, 0.02), (0.0, 0.02)),
+    )
+    assert step.swing_clearance_now == pytest.approx(0.0)
+
+    for n, (height, expected) in enumerate(
+        [(0.05, 0.03), (0.09, 0.07), (0.06, 0.04)], start=3
+    ):
+        step = _update(
+            tracker, step=n, contacts=(True, False), x=0.0,
+            foot_positions=((0.0, 0.02), (0.0, height)),
+        )
+        assert step.swing_clearance_now == pytest.approx(expected)
+
+    # Back down: swing ends, clearance returns to zero.
+    step = _update(
+        tracker, step=6, contacts=(True, True), x=0.0,
+        foot_positions=((0.0, 0.02), (0.0, 0.02)),
+    )
+    assert step.swing_clearance_now == pytest.approx(0.0)
+
+
+def test_touchdown_interval_measures_time_since_the_previous_contact() -> None:
+    tracker = WalkerGaitTracker(touchdown_debounce_steps=1, control_timestep=1 / 60)
+    tracker.reset(initial_contacts=(False, False), action_size=10)
+
+    # First touchdown has no predecessor to measure against.
+    step = _update(tracker, step=1, contacts=(True, False), x=0.0)
+    assert step.right_touchdown and step.touchdown_interval is None
+
+    # Steps without a touchdown report nothing.
+    step = _update(tracker, step=2, contacts=(True, False), x=0.0)
+    assert step.touchdown_interval is None
+
+    # Left lands 11 steps later -> 11/60 s.
+    _update(tracker, step=3, contacts=(False, False), x=0.0)
+    step = _update(tracker, step=12, contacts=(False, True), x=0.0)
+    assert step.left_touchdown
+    assert step.touchdown_interval == pytest.approx(11 / 60)
+
+
+def test_simultaneous_landing_reports_one_interval_not_a_spurious_zero() -> None:
+    tracker = WalkerGaitTracker(touchdown_debounce_steps=1, control_timestep=1 / 60)
+    tracker.reset(initial_contacts=(False, False), action_size=10)
+
+    _update(tracker, step=1, contacts=(True, False), x=0.0)
+    _update(tracker, step=2, contacts=(False, False), x=0.0)
+    step = _update(tracker, step=7, contacts=(True, True), x=0.0)
+
+    assert step.right_touchdown and step.left_touchdown
+    # Measured from step 1, not 0.0 for whichever foot is processed second.
+    assert step.touchdown_interval == pytest.approx(6 / 60)

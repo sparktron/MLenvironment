@@ -1,0 +1,81 @@
+# Paired CONTROL for the reward-structure screen (2026-07-27).
+#
+# Reproduces the reward economics every prior walker study inherited from
+# `walker_low_velocity_candidate`: a large survival bonus, a large fall
+# penalty, and a Gaussian velocity term whose sigma was calibrated in the
+# 0.15 m/s regime and then ramped to a 1.0 m/s target without rescaling.
+#
+# Trained FROM SCRATCH so it is a like-for-like partner to the candidate;
+# every prior walking policy was a continuation of a balance checkpoint that
+# had been trained with `log_std_init: -1.5, ent_coef: 0.0` to stand still.
+experiment_name: walker_reward_v2_control
+seed: 21
+
+environment:
+  type: walker_bullet
+  seed: 21
+  observation:
+    version: v2
+    coordinate_free: true
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    action_scale: 0.5
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  terrain:
+    preset: flat
+  reward:
+    alive_bonus: 0.75
+    forward_velocity_weight: 1.0
+    target_velocity: 0.15        # ramped to 1.0 by training.velocity_target_ramp
+    velocity_sigma: 0.10         # fixed while the target moves — the defect
+    velocity_mode: gaussian
+    orientation_penalty_weight: 1.0
+    torque_penalty_weight: 0.02
+    fall_penalty: 40.0
+    stance_slip_penalty_weight: 0.5
+    stance_slip_penalty_clip: 1.3398472589562194
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 10000000
+  num_envs: 24
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 10
+  learning_rate: 0.0003
+  gamma: 0.995
+  log_std_init: -1.0
+  ent_coef: 0.001
+  checkpoint_every: 2000000
+  normalize_observations: true
+  device: cpu
+  velocity_target_ramp:
+    start: 0.15
+    end: 1.0
+    ramp_steps: 3000000
+
+evaluation:
+  episodes: 20
+
+output:
+  base_dir: outputs

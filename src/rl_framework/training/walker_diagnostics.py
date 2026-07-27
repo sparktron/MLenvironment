@@ -19,7 +19,10 @@ from rl_framework.training.evaluation_workers import (
     make_seeded_vec_env,
     resolve_evaluation_workers,
 )
-from rl_framework.utils.checkpoint import find_vecnormalize_path_for_model, model_zip_path
+from rl_framework.utils.checkpoint import (
+    find_vecnormalize_path_for_model,
+    model_zip_path,
+)
 
 _GAIT_EPISODE_METRICS = (
     "gait_right_only_fraction",
@@ -50,6 +53,9 @@ _REWARD_EPISODE_METRICS = (
     "reward_gait_step_progress_mean",
     "reward_swing_touchdown_progress_mean",
     "reward_stance_slip_mean",
+    "reward_action_rate_mean",
+    "reward_swing_clearance_mean",
+    "reward_touchdown_rate_mean",
 )
 
 
@@ -146,9 +152,7 @@ def _rollouts(
             if initial_x[worker] is None:
                 initial_x[worker] = x_position
             final_x[worker] = x_position
-            peak_z[worker] = max(
-                peak_z[worker], float(info.get("z_position", 0.0))
-            )
+            peak_z[worker] = max(peak_z[worker], float(info.get("z_position", 0.0)))
             if info.get("push_applied", False):
                 push_steps[worker].append(int(episode_lengths[worker]))
             if not bool(dones[worker]):
@@ -183,16 +187,14 @@ def _rollouts(
                 value = walker_episode.get(key, 0.0)
                 row[key] = (
                     float(value)
-                    if isinstance(value, (int, float))
-                    and not isinstance(value, bool)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool)
                     else 0.0
                 )
             for key in _REWARD_EPISODE_METRICS:
                 value = walker_episode.get(key, 0.0)
                 row[key] = (
                     float(value)
-                    if isinstance(value, (int, float))
-                    and not isinstance(value, bool)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool)
                     else 0.0
                 )
             rows.append(row)
@@ -224,9 +226,8 @@ def _verdict(
         and stochastic["episode_length_mean"] < baseline["episode_length_mean"]
     ):
         return "untrained_equivalent"
-    if (
-        stochastic["return_mean"] > 0
-        and stochastic["return_mean"] > 2.0 * max(deterministic["return_mean"], 1e-8)
+    if stochastic["return_mean"] > 0 and stochastic["return_mean"] > 2.0 * max(
+        deterministic["return_mean"], 1e-8
     ):
         return "deterministic_collapse"
     if (
@@ -275,7 +276,9 @@ def evaluate_walker_checkpoint(
         )
     finally:
         vec_env.close()
-    max_steps = int(cfg.get("environment", {}).get("termination", {}).get("max_steps", 800))
+    max_steps = int(
+        cfg.get("environment", {}).get("termination", {}).get("max_steps", 800)
+    )
     return {
         "algorithm": str(cfg.get("training", {}).get("algorithm", "PPO")).upper(),
         "model_path": str(path),
@@ -320,7 +323,9 @@ def collect_walker_swing_event_telemetry(
                 if isinstance(event, dict):
                     duration = event.get("duration")
                     clearance = event.get("clearance")
-                    if isinstance(duration, (int, float)) and isinstance(clearance, (int, float)):
+                    if isinstance(duration, (int, float)) and isinstance(
+                        clearance, (int, float)
+                    ):
                         durations.append(float(duration))
                         clearances.append(float(clearance))
                 done = bool(dones[0])
@@ -447,7 +452,10 @@ def collect_walker_stance_phase_telemetry(
                     advance = event.get("pelvis_advance")
                     duration = event.get("duration")
                     slip = event.get("mean_slip_speed")
-                    if all(isinstance(value, (int, float)) for value in (advance, duration, slip)):
+                    if all(
+                        isinstance(value, (int, float))
+                        for value in (advance, duration, slip)
+                    ):
                         advances.append(float(advance))
                         durations.append(float(duration))
                         slips.append(float(slip))
@@ -762,7 +770,9 @@ def collect_walker_fall_recovery_telemetry(
                 frame = vec_env.get_images()[0]
                 if frame is not None:
                     render_frames.append(
-                        Image.fromarray(frame).resize((320, 240), Image.Resampling.BILINEAR)
+                        Image.fromarray(frame).resize(
+                            (320, 240), Image.Resampling.BILINEAR
+                        )
                     )
             row: dict[str, Any] = {
                 "step": episode_step,
@@ -784,9 +794,7 @@ def collect_walker_fall_recovery_telemetry(
                     )
                 else:
                     stance_ages[side_index] = None
-                velocity = info.get(
-                    f"{side}_foot_tangential_velocity", (0.0, 0.0)
-                )
+                velocity = info.get(f"{side}_foot_tangential_velocity", (0.0, 0.0))
                 velocity_pair = [float(velocity[0]), float(velocity[1])]
                 speed = float(np.linalg.norm(velocity_pair))
                 normal_force = float(info.get(f"{side}_foot_normal_force", 0.0))

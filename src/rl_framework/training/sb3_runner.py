@@ -10,7 +10,11 @@ import gymnasium as gym
 import numpy as np
 import supersuit as ss
 from stable_baselines3 import PPO, SAC, TD3
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
+from stable_baselines3.common.callbacks import (
+    BaseCallback,
+    CheckpointCallback,
+    EvalCallback,
+)
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import (
     DummyVecEnv,
@@ -26,7 +30,9 @@ from rl_framework.training.curriculum_callback import CurriculumCallback
 from rl_framework.training.evaluation_workers import resolve_evaluation_workers
 from rl_framework.training.reward_annealing_callback import RewardAnnealingCallback
 from rl_framework.training.self_play_callback import SelfPlayCallback
-from rl_framework.training.velocity_target_ramp_callback import VelocityTargetRampCallback
+from rl_framework.training.velocity_target_ramp_callback import (
+    VelocityTargetRampCallback,
+)
 from rl_framework.training.self_play_env_wrapper import (
     LeagueSampler,
     SelfPlayEnvWrapper,
@@ -58,7 +64,12 @@ def _configure_torch_num_threads(training_cfg: dict[str, Any]) -> None:
 
 def _make_subproc_vec_env(env_fns: list, training_cfg: dict[str, Any]):
     """Build a subprocess vec env with the configured process start method."""
-    for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "BLAS_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+    for name in (
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "BLAS_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+    ):
         os.environ.setdefault(name, "1")
     start_method = training_cfg.get("worker_start_method")
     if start_method is None:
@@ -95,10 +106,7 @@ def _build_best_model_eval_env(
     training_cfg: dict[str, Any],
 ):
     """Build a fresh walker eval env whose running stats are synced by SB3."""
-    env_fns = [
-        _build_single_env(env_cfg, rank=worker)
-        for worker in range(workers)
-    ]
+    env_fns = [_build_single_env(env_cfg, rank=worker) for worker in range(workers)]
     eval_env: VecEnv = (
         DummyVecEnv(env_fns)
         if workers == 1
@@ -322,6 +330,12 @@ class WalkerMetricsCallback(BaseCallback):
         "reward_fall_mean": "reward_fall_mean",
         "reward_gait_step_progress_mean": "reward_gait_step_progress_mean",
         "reward_stance_slip_mean": "reward_stance_slip_mean",
+        "reward_swing_touchdown_progress_mean": (
+            "reward_swing_touchdown_progress_mean"
+        ),
+        "reward_action_rate_mean": "reward_action_rate_mean",
+        "reward_swing_clearance_mean": "reward_swing_clearance_mean",
+        "reward_touchdown_rate_mean": "reward_touchdown_rate_mean",
         "gait_right_only_fraction": "gait_right_only_fraction",
         "gait_left_only_fraction": "gait_left_only_fraction",
         "gait_double_support_fraction": "gait_double_support_fraction",
@@ -336,9 +350,7 @@ class WalkerMetricsCallback(BaseCallback):
             "gait_progress_per_alternating_touchdown"
         ),
         "gait_stance_slip_speed": "gait_stance_slip_speed",
-        "gait_longest_same_foot_sequence": (
-            "gait_longest_same_foot_sequence_mean"
-        ),
+        "gait_longest_same_foot_sequence": ("gait_longest_same_foot_sequence_mean"),
         "gait_mean_action_delta_l2": "gait_mean_action_delta_l2",
         "gait_stride_length": "gait_stride_length",
         "gait_swing_duration": "gait_swing_duration",
@@ -395,9 +407,7 @@ def _build_single_env(
     def _make():
         rank_cfg = _worker_env_config(env_cfg, rank, render_env_index)
         env = make_env(rank_cfg["type"], rank_cfg)
-        env = _advertise_selected_render_mode(
-            env, env_cfg, rank, render_env_index
-        )
+        env = _advertise_selected_render_mode(env, env_cfg, rank, render_env_index)
         filename = (
             str(monitor_dir / f"monitor_env{rank}.csv")
             if monitor_dir is not None
@@ -442,9 +452,7 @@ def _build_arena_selfplay_env(
             seed=base_seed + 1000 * rank,
         )
         env = SingleAgentArenaEnv(SelfPlayEnvWrapper(par_env, sampler))
-        env = _advertise_selected_render_mode(
-            env, env_cfg, rank, render_env_index
-        )
+        env = _advertise_selected_render_mode(env, env_cfg, rank, render_env_index)
         filename = (
             str(monitor_dir / f"monitor_env{rank}.csv")
             if monitor_dir is not None
@@ -765,6 +773,11 @@ def train(
                     start=float(velocity_ramp_cfg["start"]),
                     end=float(velocity_ramp_cfg["end"]),
                     ramp_steps=int(velocity_ramp_cfg["ramp_steps"]),
+                    sigma_fraction=(
+                        None
+                        if velocity_ramp_cfg.get("sigma_fraction") is None
+                        else float(velocity_ramp_cfg["sigma_fraction"])
+                    ),
                 )
             )
 
@@ -834,9 +847,7 @@ def train(
             callbacks.append(
                 RewardAnnealingCallback(
                     anneal_steps=int(anneal_cfg.get("anneal_steps", 500_000)),
-                    min_eliminations=int(
-                        anneal_cfg.get("min_eliminations", 0)
-                    ),
+                    min_eliminations=int(anneal_cfg.get("min_eliminations", 0)),
                     verbose=1,
                 )
             )
@@ -874,9 +885,15 @@ def train(
             vecnormalize_env.save(str(_vecnormalize_path_for_model(final_path)))
             vecnormalize_env.save(str(paths.checkpoints_dir / "vecnormalize.pkl"))
         registry.update_run(run_identity, status="completed", model_path=final_path)
-        registry.record_artifact(run_identity, "final_model", final_path.with_suffix(".zip"))
-        registry.record_artifact(run_identity, "run_metadata", paths.run_dir / "run_metadata.json")
-        registry.record_artifact(run_identity, "vecnormalize", paths.checkpoints_dir / "vecnormalize.pkl")
+        registry.record_artifact(
+            run_identity, "final_model", final_path.with_suffix(".zip")
+        )
+        registry.record_artifact(
+            run_identity, "run_metadata", paths.run_dir / "run_metadata.json"
+        )
+        registry.record_artifact(
+            run_identity, "vecnormalize", paths.checkpoints_dir / "vecnormalize.pkl"
+        )
         for artifact in paths.checkpoints_dir.iterdir():
             if artifact.is_file():
                 registry.record_artifact(run_identity, "checkpoint", artifact)

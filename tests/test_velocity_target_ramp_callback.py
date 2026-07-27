@@ -36,3 +36,38 @@ def test_velocity_ramp_measures_elapsed_continuation_steps() -> None:
     callback._on_rollout_end()
 
     assert env.calls == [{"reward.target_velocity": 0.2}]
+
+
+def test_velocity_ramp_rescales_sigma_with_the_moving_target() -> None:
+    """A fixed sigma makes the Gaussian unreachable once the target moves.
+
+    At sigma 0.10 with the target ramped to 1.0 the reward at 0.6 m/s is
+    3.3e-4, so the velocity gradient vanishes mid-ramp. Scaling sigma with the
+    target keeps the basin of attraction proportional.
+    """
+    callback = VelocityTargetRampCallback(
+        start=0.15, end=1.0, ramp_steps=100_000, sigma_fraction=0.5
+    )
+    env = _Env()
+    callback.init_callback(_Model(env))
+    callback.num_timesteps = 0
+    callback._on_training_start()
+
+    callback.num_timesteps = 100_000
+    callback._on_rollout_end()
+
+    assert env.calls == [{"reward.target_velocity": 1.0, "reward.velocity_sigma": 0.5}]
+
+
+def test_velocity_ramp_omits_sigma_when_not_requested() -> None:
+    """clipped_linear has no sigma, so the ramp must not invent one."""
+    callback = VelocityTargetRampCallback(start=0.15, end=1.0, ramp_steps=100_000)
+    env = _Env()
+    callback.init_callback(_Model(env))
+    callback.num_timesteps = 0
+    callback._on_training_start()
+
+    callback.num_timesteps = 100_000
+    callback._on_rollout_end()
+
+    assert env.calls == [{"reward.target_velocity": 1.0}]

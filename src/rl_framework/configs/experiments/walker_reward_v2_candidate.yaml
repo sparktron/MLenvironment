@@ -1,0 +1,110 @@
+# Paired CANDIDATE for the reward-structure screen (2026-07-27).
+#
+# Identical to `walker_reward_v2_control` in physics, PPO settings, seed,
+# budget, randomization, and velocity ramp. The ONLY differences are the two
+# reward changes under test:
+#
+# Priority 1 — reward economics.
+#   alive_bonus 0.75 -> 0.10 and fall_penalty 40.0 -> 2.0. Under the control
+#   the survival term is 2.7x the velocity term at the observed operating
+#   point and one fall costs 144 steps of velocity reward, so the optimal
+#   policy is "minimise single-support time while drifting forward" — which is
+#   the contact chatter every prior study measured. Termination already
+#   supplies a penalty via forgone future reward; 40.0 on top of it is what
+#   made risk-aversion dominate.
+#   velocity_mode gaussian -> clipped_linear. The Gaussian at sigma 0.10 with
+#   a 1.0 m/s target pays 3.3e-4 at 0.6 m/s and 1.3e-14 at 0.2 m/s: below
+#   ~0.7 m/s there is no velocity gradient at all. Clipped-linear holds a
+#   constant gradient across the whole range and saturates at target.
+#
+# Priority 2 — pay for the quantities that are gated.
+#   stance_slip_penalty_weight 0.5 -> 0.0. Slip only accrues while a foot is
+#   in contact, so the cheapest way to reduce it is to shorten contact. The
+#   slip-recovery study measured exactly that: slip 0.500 -> 0.348 -> 0.290
+#   while cadence rose 19.24 -> 21.47 -> 23.05 and stride fell 7.47 -> 6.73 cm.
+#   The penalty was manufacturing the chatter it was meant to fix.
+#   Three replacements, weighted against signals measured on the seed-21 10M
+#   checkpoint (4,193 stochastic steps):
+#     action_rate      ||a_t - a_t-1||^2 averages 1.45 -> weight 0.10 charges
+#                      ~0.145/step now and vanishes as chatter does.
+#                      torque_penalty_weight charges action *magnitude*, which
+#                      taxes a held stride and leaves chatter free.
+#     swing_clearance  mean lift is 5.2 mm -> weight 8.0 pays 0.042/step now
+#                      and 0.40/step at the 0.05 m target.
+#     touchdown_rate   measured cycle frequency is 9.8 Hz against a 0.45-2.5 Hz
+#                      gate -> weight 1.0 charges ~0.24/step now and 0 inside
+#                      the band.
+experiment_name: walker_reward_v2_candidate
+seed: 21
+
+environment:
+  type: walker_bullet
+  seed: 21
+  observation:
+    version: v2
+    coordinate_free: true
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    action_scale: 0.5
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  terrain:
+    preset: flat
+  reward:
+    alive_bonus: 0.10
+    forward_velocity_weight: 1.0
+    target_velocity: 0.15        # ramped to 1.0 by training.velocity_target_ramp
+    velocity_mode: clipped_linear
+    orientation_penalty_weight: 1.0
+    torque_penalty_weight: 0.02
+    fall_penalty: 2.0
+    stance_slip_penalty_weight: 0.0
+    action_rate_penalty_weight: 0.10
+    swing_clearance_weight: 8.0
+    swing_clearance_target: 0.05
+    touchdown_rate_penalty_weight: 1.0
+    max_cycle_frequency_hz: 2.5
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 10000000
+  num_envs: 24
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 10
+  learning_rate: 0.0003
+  gamma: 0.995
+  log_std_init: -1.0
+  ent_coef: 0.001
+  checkpoint_every: 2000000
+  normalize_observations: true
+  device: cpu
+  velocity_target_ramp:
+    start: 0.15
+    end: 1.0
+    ramp_steps: 3000000
+
+evaluation:
+  episodes: 20
+
+output:
+  base_dir: outputs

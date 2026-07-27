@@ -39,6 +39,9 @@ def test_reward_components_sum_to_computed_reward() -> None:
         "gait_step_progress",
         "swing_touchdown_progress",
         "stance_slip",
+        "action_rate",
+        "swing_clearance",
+        "touchdown_rate",
     }
     assert sum(components.values()) == reward.compute(**kwargs)
     assert components["fall"] == -reward.fall_penalty
@@ -123,3 +126,130 @@ def test_swing_touchdown_progress_reward_is_opt_in_and_bounded() -> None:
     )
 
     assert components["swing_touchdown_progress"] == pytest.approx(1.2)
+
+
+def test_clipped_linear_velocity_keeps_gradient_where_gaussian_vanishes() -> None:
+    """The shipped Gaussian at sigma 0.10 / target 1.0 is a needle.
+
+    Below ~0.7 m/s its reward and gradient underflow to numerical zero, so a
+    policy that is not already near target gets no velocity signal. The
+    clipped-linear mode holds a constant gradient across the whole range.
+    """
+    action = np.zeros(10, dtype=np.float32)
+    gaussian = WalkerReward(
+        forward_velocity_weight=1.0, target_velocity=1.0, velocity_sigma=0.10
+    )
+    linear = WalkerReward(
+        forward_velocity_weight=1.0, target_velocity=1.0, velocity_mode="clipped_linear"
+    )
+
+    def velocity_term(reward: WalkerReward, v: float) -> float:
+        return reward.components(
+            lin_vel_x=v, pitch_roll_penalty=0.0, action=action, alive=True
+        )["velocity"]
+
+    # Gaussian: no usable signal anywhere below target.
+    assert velocity_term(gaussian, 0.2) < 1e-10
+    assert velocity_term(gaussian, 0.6) < 1e-3
+
+    # Clipped linear: proportional credit, saturating at target.
+    assert velocity_term(linear, 0.2) == pytest.approx(0.2)
+    assert velocity_term(linear, 0.6) == pytest.approx(0.6)
+    assert velocity_term(linear, 1.0) == pytest.approx(1.0)
+    assert velocity_term(linear, 1.7) == pytest.approx(1.0)
+    # Moving backwards earns nothing rather than a negative spike.
+    assert velocity_term(linear, -0.5) == pytest.approx(0.0)
+
+
+def test_unknown_velocity_mode_is_rejected() -> None:
+    reward = WalkerReward(velocity_mode="quadratic")
+    with pytest.raises(ValueError, match="Unknown velocity_mode"):
+        reward.compute(0.5, 0.0, np.zeros(10, dtype=np.float32), alive=True)
+
+
+def test_action_rate_penalty_charges_change_not_magnitude() -> None:
+    """torque_penalty_weight taxes a held stride; this taxes chatter."""
+    reward = WalkerReward(
+        torque_penalty_weight=0.0, action_rate_penalty_weight=0.05
+    )
+    held = reward.components(
+        lin_vel_x=0.0,
+        pitch_roll_penalty=0.0,
+        action=np.full(10, 0.9, dtype=np.float32),
+        alive=True,
+        action_rate_l2=0.0,
+    )
+    chattering = reward.components(
+        lin_vel_x=0.0,
+        pitch_roll_penalty=0.0,
+        action=np.zeros(10, dtype=np.float32),
+        alive=True,
+        action_rate_l2=4.0,
+    )
+
+    assert held["action_rate"] == pytest.approx(0.0)
+    assert chattering["action_rate"] == pytest.approx(-0.2)
+
+
+def test_swing_clearance_reward_is_opt_in_and_saturates() -> None:
+    reward = WalkerReward(swing_clearance_weight=10.0, swing_clearance_target=0.05)
+    action = np.zeros(10, dtype=np.float32)
+
+    def clearance_term(height: float) -> float:
+        return reward.components(
+            lin_vel_x=0.0,
+            pitch_roll_penalty=0.0,
+            action=action,
+            alive=True,
+            swing_clearance=height,
+        )["swing_clearance"]
+
+    # The observed 0.7 mm shuffle earns almost nothing; a real step saturates.
+    assert clearance_term(0.0007) == pytest.approx(0.007)
+    assert clearance_term(0.03) == pytest.approx(0.3)
+    assert clearance_term(0.05) == pytest.approx(0.5)
+    assert clearance_term(0.20) == pytest.approx(0.5)
+    assert clearance_term(-0.01) == pytest.approx(0.0)
+
+
+def test_touchdown_rate_penalty_only_charges_contacts_faster_than_the_band() -> None:
+    reward = WalkerReward(
+        touchdown_rate_penalty_weight=1.0, max_cycle_frequency_hz=2.5
+    )
+    action = np.zeros(10, dtype=np.float32)
+    assert reward.min_touchdown_interval == pytest.approx(0.2)
+
+    def rate_term(interval: float | None) -> float:
+        return reward.components(
+            lin_vel_x=0.0,
+            pitch_roll_penalty=0.0,
+            action=action,
+            alive=True,
+            touchdown_interval=interval,
+        )["touchdown_rate"]
+
+    assert rate_term(None) == pytest.approx(0.0)      # no touchdown this step
+    assert rate_term(0.4) == pytest.approx(0.0)       # 1.25 Hz cycle: fine
+    assert rate_term(0.2) == pytest.approx(0.0)       # exactly at the band edge
+    assert rate_term(0.1) == pytest.approx(-0.5)      # 5 Hz cycle
+    # The measured 6 Hz chatter (~41 ms swings) is charged near-maximally.
+    assert rate_term(0.041) == pytest.approx(-0.795)
+
+
+def test_new_gait_terms_are_zero_by_default() -> None:
+    """Existing configs and checkpoints keep bit-for-bit reward semantics."""
+    reward = WalkerReward()
+    components = reward.components(
+        lin_vel_x=0.3,
+        pitch_roll_penalty=0.1,
+        action=np.full(10, 0.4, dtype=np.float32),
+        alive=True,
+        action_rate_l2=9.0,
+        swing_clearance=0.08,
+        touchdown_interval=0.01,
+    )
+
+    assert reward.velocity_mode == "gaussian"
+    assert components["action_rate"] == 0.0
+    assert components["swing_clearance"] == 0.0
+    assert components["touchdown_rate"] == 0.0
