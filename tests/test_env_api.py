@@ -47,9 +47,15 @@ def test_walker_env_api() -> None:
     ],
 )
 def test_walker_observation_v2_adds_foot_contacts(observation, shape) -> None:
+    sim = {"action_scale": 0.5} if shape == (45,) else {}
     env = make_env(
         "walker_bullet",
-        {"type": "walker_bullet", "seed": 1, "observation": observation},
+        {
+            "type": "walker_bullet",
+            "seed": 1,
+            "observation": observation,
+            "sim": sim,
+        },
     )
     try:
         obs, _ = env.reset(seed=1)
@@ -57,7 +63,7 @@ def test_walker_observation_v2_adds_foot_contacts(observation, shape) -> None:
         if shape == (45,):
             assert np.allclose(obs[-10:], 0.0)
             obs, *_ = env.step(np.full(10, 0.25, dtype=np.float32))
-            assert np.allclose(obs[-10:], 0.25)
+            assert np.allclose(obs[-10:], 0.125)
         else:
             assert set(obs[-2:]) <= {0.0, 1.0}
     finally:

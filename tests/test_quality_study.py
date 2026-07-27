@@ -56,6 +56,7 @@ def test_quality_study_dry_run_reports_full_plan(tmp_path: Path) -> None:
         "walker_velocity_ramp": 0,
         "walker_swing_touchdown": 0,
         "walker_slip_recovery": 0,
+        "walker_action_memory": 0,
         "arena": 18,
         "algorithms": 18,
     }
@@ -308,6 +309,200 @@ def test_walker_slip_recovery_continuation_keeps_final_target_fixed() -> None:
     assert cfg["environment"]["reward"]["target_velocity"] == 1.0
     assert cfg["environment"]["reward"]["stance_slip_penalty_clip"] == 1.25
     assert "velocity_target_ramp" not in cfg["training"]
+
+
+def test_walker_action_memory_dry_run_reports_matched_new_lineages(
+    tmp_path: Path,
+) -> None:
+    result = run_quality_study(
+        "walker-action-memory",
+        seeds=[21, 22, 23],
+        output_dir=tmp_path,
+        dry_run=True,
+    )
+
+    assert result["planned_runs"]["walker_action_memory"] == 2
+    assert "source_dir" not in result["identity"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_walker_action_memory_base_changes_only_observation_between_arms() -> None:
+    base = quality_study._action_memory_base_cfg(
+        Path("src/rl_framework/configs/experiments")
+    )
+    control = quality_study.deepcopy(base)
+    candidate = quality_study.deepcopy(base)
+    quality_study._apply_overrides(
+        control, quality_study.WALKER_ACTION_MEMORY_VARIANTS["control"]
+    )
+    quality_study._apply_overrides(
+        candidate, quality_study.WALKER_ACTION_MEMORY_VARIANTS["previous_action"]
+    )
+
+    assert control["environment"]["observation"]["include_previous_action"] is False
+    assert candidate["environment"]["observation"]["include_previous_action"] is True
+    candidate["environment"]["observation"]["include_previous_action"] = False
+    assert candidate == control
+    assert base["environment"]["reward"]["stance_slip_penalty_weight"] == 0.5
+    assert base["environment"]["reward"]["stance_slip_penalty_clip"] == pytest.approx(
+        1.3398472589562194
+    )
+
+
+def test_walker_action_memory_gate_rejects_chatter_and_accepts_real_gait() -> None:
+    passing = _diagnostic_result()
+    passing["stochastic"].update(
+        {
+            "forward_displacement_mean": 8.0,
+            "fall_rate": 0.2,
+            "peak_z_mean": 0.7,
+            "gait_stance_slip_speed_mean": 0.17,
+        }
+    )
+    chattering = quality_study.deepcopy(passing)
+    chattering["stochastic"][
+        "gait_alternating_touchdowns_per_100_steps_mean"
+    ] = 20.0
+
+    assert quality_study._walker_action_memory_gate_result(passing)[
+        "metrics_gate_passed"
+    ]
+    rejected = quality_study._walker_action_memory_gate_result(chattering)
+    assert not rejected["metrics_gate_passed"]
+    assert rejected["automatic_exploit_flags"]["contact_chatter"]
+
+    aggregate = quality_study._aggregate_walker_action_memory_results(
+        {"control": chattering, "previous_action": passing}
+    )
+    assert aggregate["objective_winner"] == "previous_action"
+
+
+def test_walker_action_memory_smoke_stays_in_phase1_below_evidence_budget(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    train_calls: list[dict] = []
+
+    def fake_train(cfg, extra_callbacks=None, resume_from=None):
+        assert resume_from is None
+        train_calls.append(cfg)
+        model = (
+            Path(cfg["output"]["base_dir"])
+            / cfg["experiment_name"]
+            / f"seed_{cfg['seed']}"
+            / "checkpoints"
+            / "final_model"
+        )
+        model.parent.mkdir(parents=True, exist_ok=True)
+        model.with_suffix(".zip").write_bytes(b"model")
+        return model
+
+    diagnostics = _diagnostic_result()
+    diagnostics["stochastic"].update(
+        {
+            "forward_displacement_mean": 8.0,
+            "fall_rate": 0.2,
+            "peak_z_mean": 0.7,
+            "gait_stance_slip_speed_mean": 0.17,
+        }
+    )
+    monkeypatch.setattr(quality_study, "train", fake_train)
+    monkeypatch.setattr(
+        quality_study,
+        "evaluate_walker_checkpoint",
+        lambda cfg, path, episodes: quality_study.deepcopy(diagnostics),
+    )
+    monkeypatch.setattr(
+        quality_study,
+        "collect_walker_fall_recovery_telemetry",
+        lambda cfg, path, episodes, render_dir: {"falls": []},
+    )
+
+    result = run_quality_study(
+        "walker-action-memory",
+        seeds=[21],
+        output_dir=tmp_path,
+        step_budget=100,
+        eval_episodes=1,
+    )
+
+    assert result["completed"] is True
+    assert len(train_calls) == 2
+    assert {
+        cfg["environment"]["observation"]["include_previous_action"]
+        for cfg in train_calls
+    } == {False, True}
+    phase1 = result["results"]["walker_action_memory"]["phase1"]
+    assert phase1["objective_winner"] == "previous_action"
+    assert phase1["screening_ready"] is False
+    assert result["results"]["walker_action_memory"]["phase2"]["status"] == "not_ready"
+
+
+def test_walker_action_memory_confirms_three_seeds_before_transfer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    train_calls: list[dict] = []
+
+    def fake_train(cfg, extra_callbacks=None, resume_from=None):
+        train_calls.append(cfg)
+        model = (
+            Path(cfg["output"]["base_dir"])
+            / cfg["experiment_name"]
+            / f"seed_{cfg['seed']}"
+            / "checkpoints"
+            / "final_model"
+        )
+        model.parent.mkdir(parents=True, exist_ok=True)
+        model.with_suffix(".zip").write_bytes(b"model")
+        return model
+
+    passing = _diagnostic_result()
+    passing["stochastic"].update(
+        {
+            "forward_displacement_mean": 8.0,
+            "fall_rate": 0.2,
+            "peak_z_mean": 0.7,
+            "gait_stance_slip_speed_mean": 0.17,
+        }
+    )
+    monkeypatch.setattr(quality_study, "WALKER_ACTION_MEMORY_SCREEN_STEPS", 100)
+    monkeypatch.setattr(quality_study, "train", fake_train)
+    monkeypatch.setattr(
+        quality_study,
+        "evaluate_walker_checkpoint",
+        lambda cfg, path, episodes: quality_study.deepcopy(passing),
+    )
+    monkeypatch.setattr(
+        quality_study,
+        "collect_walker_fall_recovery_telemetry",
+        lambda cfg, path, episodes, render_dir: {"falls": []},
+    )
+    monkeypatch.setattr(
+        quality_study,
+        "evaluate_walker_transfer_suite",
+        lambda cfg, path, episodes: {"flat": quality_study.deepcopy(passing)},
+    )
+
+    result = run_quality_study(
+        "walker-action-memory",
+        seeds=[21, 22, 23],
+        output_dir=tmp_path,
+        step_budget=100,
+        eval_episodes=20,
+        approved_variant="previous_action",
+    )
+
+    study = result["results"]["walker_action_memory"]
+    assert len(train_calls) == 4
+    assert study["phase1"]["visual_approval"]["accepted"] is True
+    assert study["phase2"]["status"] == "transfer_completed"
+    assert study["phase2"]["per_seed_gate"] == {
+        "seed_21": True,
+        "seed_22": True,
+        "seed_23": True,
+    }
+    assert set(study["phase2"]["transfer"]) == {"seed_21", "seed_22", "seed_23"}
 
 
 def test_wall_clock_callback_stops_after_budget(monkeypatch) -> None:

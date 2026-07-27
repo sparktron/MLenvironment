@@ -144,6 +144,7 @@ def _parse_args() -> argparse.Namespace:
             "walker-velocity-ramp",
             "walker-swing-touchdown",
             "walker-slip-recovery",
+            "walker-action-memory",
             "arena",
             "algorithms",
             "all",
@@ -181,7 +182,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--study-approved-variant",
         default="",
-        help="Visually reviewed Phase-1 winner approved for slip-recovery confirmation.",
+        help="Visually reviewed Phase-1 winner approved for gated confirmation.",
     )
     parser.add_argument(
         "--registry-action",

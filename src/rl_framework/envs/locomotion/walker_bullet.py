@@ -716,7 +716,9 @@ class WalkerBulletEnv(gym.Env):
             foot_positions=foot_positions,
             applied_action=applied_action,
         )
-        self._previous_action = action.copy()
+        # The next observation receives the command that actually reached the
+        # PD controller, including curriculum/action scaling and any latency.
+        self._previous_action = applied_action.copy()
         obs = self._get_obs(
             pos=pos,
             quat=quat,

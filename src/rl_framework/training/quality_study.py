@@ -233,6 +233,22 @@ WALKER_SLIP_RECOVERY_GATE: dict[str, Any] = {
     "min_forward_displacement": 5.0,
     "max_peak_z": 1.0,
 }
+# The slip-recovery screen found that a bounded 0.5 slip cost was the strongest
+# tested contact intervention, but stochastic actions still produced excessive
+# slip and contact chatter. The next isolated question is whether observing the
+# previously applied command gives PPO enough short-term state to recover and
+# sustain a real swing. Both new lineages keep the measured slip intervention
+# fixed; only the opt-in observation changes.
+WALKER_ACTION_MEMORY_VARIANTS: dict[str, dict[str, Any]] = {
+    "control": {
+        "environment.observation.include_previous_action": False,
+    },
+    "previous_action": {
+        "environment.observation.include_previous_action": True,
+    },
+}
+WALKER_ACTION_MEMORY_SLIP_CLIP = 1.3398472589562194
+WALKER_ACTION_MEMORY_SCREEN_STEPS = 10_000_000
 
 ARENA_RESOURCE_VARIANTS: dict[str, dict[str, Any]] = {
     "baseline": {},
@@ -1559,6 +1575,317 @@ def _run_walker_slip_recovery_study(
     }
 
 
+def _walker_action_memory_gate_result(
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply the frozen natural-speed, slip, and real-gait gates."""
+    metrics = result[WALKER_SLIP_RECOVERY_GATE["evaluation_mode"]]
+    criteria = {
+        "episode_length": metrics["episode_length_mean"]
+        >= WALKER_GAIT_GATE["min_episode_length"],
+        "fall_rate": metrics["fall_rate"]
+        <= WALKER_SLIP_RECOVERY_GATE["max_fall_rate"],
+        "stance_slip_speed": metrics["gait_stance_slip_speed_mean"]
+        <= WALKER_SLIP_RECOVERY_GATE["max_stance_slip_speed"],
+        "forward_displacement": metrics["forward_displacement_mean"]
+        >= WALKER_SLIP_RECOVERY_GATE["min_forward_displacement"],
+        "peak_z": metrics["peak_z_mean"]
+        < WALKER_SLIP_RECOVERY_GATE["max_peak_z"],
+        "cadence_band": (
+            WALKER_GAIT_GATE["min_alternating_touchdowns_per_100_steps"]
+            <= metrics["gait_alternating_touchdowns_per_100_steps_mean"]
+            <= WALKER_GAIT_GATE["max_alternating_touchdowns_per_100_steps"]
+        ),
+        "progress_per_touchdown": metrics[
+            "gait_progress_per_alternating_touchdown_mean"
+        ]
+        >= WALKER_GAIT_GATE["min_progress_per_alternating_touchdown"],
+        "stride_length": metrics["gait_stride_length_mean"]
+        >= WALKER_GAIT_GATE["min_stride_length"],
+        "foot_clearance": metrics["gait_foot_clearance_mean"]
+        >= WALKER_GAIT_GATE["min_foot_clearance"],
+        "flight_fraction": metrics["gait_flight_fraction_mean"]
+        <= WALKER_GAIT_GATE["max_flight_fraction"],
+        "same_foot_sequence": metrics["gait_longest_same_foot_sequence_mean"]
+        <= WALKER_GAIT_GATE["max_longest_same_foot_sequence"],
+    }
+    flags = {
+        "launch": not criteria["peak_z"],
+        "sliding": (
+            criteria["forward_displacement"] and not criteria["stance_slip_speed"]
+        ),
+        "contact_chatter": (
+            metrics["gait_alternating_touchdowns_per_100_steps_mean"]
+            > WALKER_GAIT_GATE["max_alternating_touchdowns_per_100_steps"]
+        ),
+    }
+    return {
+        "criteria": criteria,
+        "automatic_exploit_flags": flags,
+        "metrics_gate_passed": all(criteria.values()) and not any(flags.values()),
+        "visual_review_required": True,
+    }
+
+
+def _aggregate_walker_action_memory_results(
+    results: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for variant, result in results.items():
+        metrics = result["stochastic"]
+        gate = _walker_action_memory_gate_result(result)
+        rows.append(
+            {
+                "variant": variant,
+                "episode_length_mean": metrics["episode_length_mean"],
+                "fall_rate": metrics["fall_rate"],
+                "stance_slip_speed": metrics["gait_stance_slip_speed_mean"],
+                "forward_displacement": metrics["forward_displacement_mean"],
+                "peak_z": metrics["peak_z_mean"],
+                "alternating_touchdowns_per_100_steps": metrics[
+                    "gait_alternating_touchdowns_per_100_steps_mean"
+                ],
+                "progress_per_alternating_touchdown": metrics[
+                    "gait_progress_per_alternating_touchdown_mean"
+                ],
+                "stride_length": metrics["gait_stride_length_mean"],
+                "foot_clearance": metrics["gait_foot_clearance_mean"],
+                **gate,
+                "score": float(
+                    metrics["forward_displacement_mean"]
+                    - metrics["fall_rate"]
+                    - metrics["gait_stance_slip_speed_mean"]
+                    + metrics["gait_stride_length_mean"]
+                    + metrics["gait_foot_clearance_mean"]
+                ),
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            cast(bool, row["metrics_gate_passed"]),
+            cast(float, row["score"]),
+        ),
+        reverse=True,
+    )
+    candidate = next(
+        (
+            row
+            for row in rows
+            if row["variant"] == "previous_action"
+            and row["metrics_gate_passed"]
+        ),
+        None,
+    )
+    return {
+        "rankings": rows,
+        "objective_winner": "previous_action" if candidate is not None else None,
+        "advancement_gate": {
+            **WALKER_SLIP_RECOVERY_GATE,
+            **{
+                key: value
+                for key, value in WALKER_GAIT_GATE.items()
+                if key not in WALKER_SLIP_RECOVERY_GATE
+            },
+        },
+    }
+
+
+def _action_memory_base_cfg(config_dir: Path) -> dict[str, Any]:
+    cfg = _load_cfg("walker_low_velocity_candidate", config_dir)
+    cfg["environment"]["reward"].update(
+        {
+            "stance_slip_penalty_weight": 0.5,
+            "stance_slip_penalty_clip": WALKER_ACTION_MEMORY_SLIP_CLIP,
+        }
+    )
+    return cfg
+
+
+def _run_action_memory_candidate(
+    *,
+    variant: str,
+    overrides: dict[str, Any],
+    base: dict[str, Any],
+    seed: int,
+    step_budget: int,
+    eval_episodes: int,
+    output_dir: Path,
+    state: dict[str, Any],
+    state_path: Path,
+    phase: str,
+) -> dict[str, Any] | None:
+    cfg = deepcopy(base)
+    _apply_overrides(cfg, overrides)
+    cfg = _prepare_cfg(
+        cfg,
+        experiment_name=f"quality_walker_action_memory_{phase}_{variant}",
+        seed=seed,
+        step_budget=step_budget,
+        output_dir=output_dir,
+    )
+    run = _train_run(
+        f"walker_action_memory/{phase}/{variant}/seed_{seed}",
+        cfg,
+        state,
+        state_path,
+    )
+    if run.get("status") != "completed":
+        return None
+    evaluation_cfg = deepcopy(cfg)
+    evaluation_cfg["environment"]["reward"]["target_velocity"] = 1.0
+    if "diagnostics" not in run:
+        run["diagnostics"] = evaluate_walker_checkpoint(
+            evaluation_cfg,
+            run["model_path"],
+            episodes=eval_episodes,
+        )
+        _atomic_json_write(state_path, state)
+    if "fall_telemetry" not in run:
+        run["fall_telemetry"] = collect_walker_fall_recovery_telemetry(
+            evaluation_cfg,
+            run["model_path"],
+            episodes=5,
+            render_dir=output_dir / "videos" / phase / variant / f"seed_{seed}",
+        )
+        _atomic_json_write(state_path, state)
+    return run
+
+
+def _run_walker_action_memory_study(
+    *,
+    seeds: list[int],
+    step_budget: int,
+    eval_episodes: int,
+    config_dir: Path,
+    output_dir: Path,
+    state: dict[str, Any],
+    state_path: Path,
+    approved_variant: str | None,
+) -> dict[str, Any]:
+    """Train checkpoint-incompatible observation arms as matched new lineages."""
+    phase1_seed = 21
+    if phase1_seed not in seeds:
+        raise ValueError("walker-action-memory Phase 1 requires seed 21")
+    base = _action_memory_base_cfg(config_dir)
+    phase1_results: dict[str, dict[str, Any]] = {}
+    for variant, overrides in WALKER_ACTION_MEMORY_VARIANTS.items():
+        run = _run_action_memory_candidate(
+            variant=variant,
+            overrides=overrides,
+            base=base,
+            seed=phase1_seed,
+            step_budget=step_budget,
+            eval_episodes=eval_episodes,
+            output_dir=output_dir,
+            state=state,
+            state_path=state_path,
+            phase="phase1",
+        )
+        if run is not None:
+            phase1_results[variant] = run["diagnostics"]
+
+    phase1 = _aggregate_walker_action_memory_results(phase1_results)
+    screening_ready = (
+        step_budget >= WALKER_ACTION_MEMORY_SCREEN_STEPS
+        and eval_episodes >= 20
+        and len(phase1_results) == len(WALKER_ACTION_MEMORY_VARIANTS)
+    )
+    objective_winner = phase1["objective_winner"]
+    required_confirmation_seeds = {21, 22, 23}
+    has_confirmation_seeds = required_confirmation_seeds.issubset(seeds)
+    phase1["screening_ready"] = screening_ready
+    phase1["visual_approval"] = {
+        "required": True,
+        "approved_variant": approved_variant,
+        "accepted": bool(
+            screening_ready
+            and objective_winner is not None
+            and approved_variant == objective_winner
+        ),
+    }
+
+    phase2: dict[str, Any] = {
+        "status": "not_ready",
+        "reason": (
+            "The matched new-lineage screen has not reached 10M steps per arm."
+            if not screening_ready
+            else (
+                "Confirmation requires seeds 21, 22, and 23."
+                if not has_confirmation_seeds
+                else (
+                    "Phase 1 did not pass every frozen locomotion and gait gate."
+                    if objective_winner is None
+                    else "Review the five stochastic renders and approve previous_action."
+                )
+            )
+        ),
+    }
+    if (
+        screening_ready
+        and has_confirmation_seeds
+        and objective_winner == "previous_action"
+        and approved_variant == objective_winner
+    ):
+        confirmation: dict[str, dict[str, Any]] = {
+            f"seed_{phase1_seed}": phase1_results[objective_winner]
+        }
+        for seed in seeds:
+            if seed == phase1_seed:
+                continue
+            run = _run_action_memory_candidate(
+                variant=objective_winner,
+                overrides=WALKER_ACTION_MEMORY_VARIANTS[objective_winner],
+                base=base,
+                seed=seed,
+                step_budget=WALKER_ACTION_MEMORY_SCREEN_STEPS,
+                eval_episodes=eval_episodes,
+                output_dir=output_dir,
+                state=state,
+                state_path=state_path,
+                phase="phase2_confirmation",
+            )
+            if run is not None:
+                confirmation[f"seed_{seed}"] = run["diagnostics"]
+        per_seed_gate = {
+            seed_label: _walker_action_memory_gate_result(result)[
+                "metrics_gate_passed"
+            ]
+            for seed_label, result in confirmation.items()
+        }
+        phase2 = {
+            "status": "confirmation_failed",
+            "winner": objective_winner,
+            "per_seed_gate": per_seed_gate,
+            "confirmation": confirmation,
+        }
+        if len(confirmation) == len(seeds) and all(per_seed_gate.values()):
+            transfer: dict[str, Any] = {}
+            for seed in seeds:
+                phase = (
+                    "phase1" if seed == phase1_seed else "phase2_confirmation"
+                )
+                run = state["runs"][
+                    f"walker_action_memory/{phase}/{objective_winner}/seed_{seed}"
+                ]
+                evaluation_cfg = deepcopy(run["config"])
+                evaluation_cfg["environment"]["reward"]["target_velocity"] = 1.0
+                transfer[f"seed_{seed}"] = evaluate_walker_transfer_suite(
+                    evaluation_cfg,
+                    run["model_path"],
+                    episodes=eval_episodes,
+                )
+            phase2.update({"status": "transfer_completed", "transfer": transfer})
+    return {
+        "phase1": phase1,
+        "phase2": phase2,
+        "new_lineage_reason": (
+            "Adding previous applied action changes the observation from 35 to "
+            "45 values and is checkpoint-incompatible."
+        ),
+        "screen_budget_steps": WALKER_ACTION_MEMORY_SCREEN_STEPS,
+    }
+
+
 def _relabel_tournament(
     result: dict[str, Any], labels_by_path: dict[str, str]
 ) -> dict[str, Any]:
@@ -2000,6 +2327,7 @@ def run_quality_study(
         "walker-velocity-ramp",
         "walker-swing-touchdown",
         "walker-slip-recovery",
+        "walker-action-memory",
         "arena",
         "algorithms",
     }
@@ -2051,6 +2379,11 @@ def run_quality_study(
             "walker_slip_recovery": (
                 len(WALKER_SLIP_RECOVERY_VARIANTS)
                 if "walker-slip-recovery" in studies
+                else 0
+            ),
+            "walker_action_memory": (
+                len(WALKER_ACTION_MEMORY_VARIANTS)
+                if "walker-action-memory" in studies
                 else 0
             ),
             "arena": (
@@ -2134,6 +2467,19 @@ def run_quality_study(
                 eval_episodes=eval_episodes,
                 config_dir=config_path,
                 source_dir=Path(source_dir),
+                output_dir=output,
+                state=state,
+                state_path=state_path,
+                approved_variant=approved_variant,
+            )
+        )
+    if "walker-action-memory" in studies:
+        state["results"]["walker_action_memory"] = (
+            _run_walker_action_memory_study(
+                seeds=seeds,
+                step_budget=step_budget or WALKER_ACTION_MEMORY_SCREEN_STEPS,
+                eval_episodes=eval_episodes,
+                config_dir=config_path,
                 output_dir=output,
                 state=state,
                 state_path=state_path,
