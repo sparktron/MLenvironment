@@ -24,6 +24,14 @@ def test_walker_env_api() -> None:
     assert isinstance(terminated, bool)
     assert isinstance(truncated, bool)
     assert isinstance(info, dict)
+    assert len(info["right_foot_tangential_velocity"]) == 2
+    assert len(info["left_foot_tangential_velocity"]) == 2
+    assert info["right_foot_normal_force"] >= 0.0
+    assert info["left_foot_normal_force"] >= 0.0
+    assert info["action_delta_l2"] >= 0.0
+    assert info["target_velocity"] - info["lin_vel_x"] == pytest.approx(
+        info["velocity_error"]
+    )
     env.close()
 
 

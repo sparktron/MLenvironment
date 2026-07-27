@@ -91,6 +91,23 @@ def test_gait_progress_is_positive_bounded_and_slip_is_penalized() -> None:
     assert backwards["gait_step_progress"] == 0.0
 
 
+def test_stance_slip_penalty_can_clip_contact_impulse_outliers() -> None:
+    reward = WalkerReward(
+        stance_slip_penalty_weight=0.5,
+        stance_slip_penalty_clip=0.8,
+    )
+
+    components = reward.components(
+        lin_vel_x=0.0,
+        pitch_roll_penalty=0.0,
+        action=np.zeros(10, dtype=np.float32),
+        alive=True,
+        stance_slip_speed=3.0,
+    )
+
+    assert components["stance_slip"] == pytest.approx(-0.4)
+
+
 def test_swing_touchdown_progress_reward_is_opt_in_and_bounded() -> None:
     reward = WalkerReward(
         swing_touchdown_progress_weight=40.0,

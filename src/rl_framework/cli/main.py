@@ -143,6 +143,7 @@ def _parse_args() -> argparse.Namespace:
             "walker-gait",
             "walker-velocity-ramp",
             "walker-swing-touchdown",
+            "walker-slip-recovery",
             "arena",
             "algorithms",
             "all",
@@ -176,6 +177,11 @@ def _parse_args() -> argparse.Namespace:
         "--study-source-dir",
         default="outputs/walker_stochastic_balance_candidate",
         help="Seed directories containing continuation checkpoints for walker studies.",
+    )
+    parser.add_argument(
+        "--study-approved-variant",
+        default="",
+        help="Visually reviewed Phase-1 winner approved for slip-recovery confirmation.",
     )
     parser.add_argument(
         "--registry-action",
@@ -479,6 +485,7 @@ def main() -> None:
             wall_clock_seconds=args.study_wall_clock_seconds,
             eval_episodes=args.study_eval_episodes,
             source_dir=args.study_source_dir,
+            approved_variant=args.study_approved_variant or None,
             resume=args.resume_incomplete,
             dry_run=args.dry_run,
         )

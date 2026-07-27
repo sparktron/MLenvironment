@@ -315,6 +315,7 @@ def test_quality_study_cli_dry_run_json(monkeypatch, capsys, tmp_path):
         "walker_gait": 0,
         "walker_velocity_ramp": 0,
         "walker_swing_touchdown": 0,
+        "walker_slip_recovery": 0,
         "arena": 0,
         "algorithms": 18,
     }

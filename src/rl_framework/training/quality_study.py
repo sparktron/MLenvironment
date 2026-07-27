@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
@@ -20,8 +21,11 @@ from stable_baselines3.common.callbacks import BaseCallback
 from rl_framework.training.arena_tournament import run_tournament
 from rl_framework.training.sb3_runner import train
 from rl_framework.training.walker_diagnostics import (
+    calibrate_walker_slip_thresholds,
+    collect_walker_fall_recovery_telemetry,
     evaluate_walker_checkpoint,
     evaluate_walker_transfer_suite,
+    summarize_walker_fall_windows,
 )
 from rl_framework.training.velocity_target_ramp_callback import (
     VelocityTargetRampCallback,
@@ -203,6 +207,31 @@ WALKER_SWING_TOUCHDOWN_VARIANTS: dict[str, dict[str, Any]] = {
 WALKER_SWING_TOUCHDOWN_GATE: dict[str, Any] = {
     **WALKER_GAIT_GATE,
     "min_displacement_improvement": 0.25,
+}
+WALKER_SLIP_RECOVERY_VARIANTS: dict[str, dict[str, Any]] = {
+    "control": {},
+    "slip_cost_025": {
+        "environment.reward.stance_slip_penalty_weight": 0.25,
+    },
+    "slip_cost_050": {
+        "environment.reward.stance_slip_penalty_weight": 0.5,
+    },
+}
+WALKER_CONTACT_DAMPING_VARIANTS: dict[str, dict[str, Any]] = {
+    "contact_damping_075": {
+        "environment.sim.control.velocity_gain": 0.75,
+    },
+    "contact_damping_050": {
+        "environment.sim.control.velocity_gain": 0.5,
+    },
+}
+WALKER_RECOVERY_NOISE_MULTIPLIER = 2.0
+WALKER_SLIP_RECOVERY_GATE: dict[str, Any] = {
+    "evaluation_mode": "stochastic",
+    "max_fall_rate": 0.30,
+    "max_stance_slip_speed": 0.18,
+    "min_forward_displacement": 5.0,
+    "max_peak_z": 1.0,
 }
 
 ARENA_RESOURCE_VARIANTS: dict[str, dict[str, Any]] = {
@@ -1124,6 +1153,412 @@ def _run_walker_swing_touchdown_study(
     return aggregate
 
 
+def _walker_slip_recovery_gate_result(
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    metrics = result[WALKER_SLIP_RECOVERY_GATE["evaluation_mode"]]
+    flags = {
+        "launch": metrics["peak_z_mean"]
+        >= WALKER_SLIP_RECOVERY_GATE["max_peak_z"],
+        "sliding": (
+            metrics["forward_displacement_mean"]
+            >= WALKER_SLIP_RECOVERY_GATE["min_forward_displacement"]
+            and metrics["gait_stance_slip_speed_mean"]
+            > WALKER_SLIP_RECOVERY_GATE["max_stance_slip_speed"]
+        ),
+        "contact_chatter": (
+            metrics["gait_alternating_touchdowns_per_100_steps_mean"]
+            > WALKER_GAIT_GATE["max_alternating_touchdowns_per_100_steps"]
+        ),
+    }
+    criteria = {
+        "fall_rate": metrics["fall_rate"]
+        <= WALKER_SLIP_RECOVERY_GATE["max_fall_rate"],
+        "stance_slip_speed": metrics["gait_stance_slip_speed_mean"]
+        <= WALKER_SLIP_RECOVERY_GATE["max_stance_slip_speed"],
+        "forward_displacement": metrics["forward_displacement_mean"]
+        >= WALKER_SLIP_RECOVERY_GATE["min_forward_displacement"],
+        "peak_z": metrics["peak_z_mean"]
+        < WALKER_SLIP_RECOVERY_GATE["max_peak_z"],
+        "automatic_exploit_screen": not any(flags.values()),
+    }
+    return {
+        "criteria": criteria,
+        "automatic_exploit_flags": flags,
+        "metrics_gate_passed": all(criteria.values()),
+        "slip_gate_passed": criteria["stance_slip_speed"],
+        "visual_review_required": True,
+    }
+
+
+def _aggregate_walker_slip_recovery_results(
+    results: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    rows = []
+    for variant, result in results.items():
+        metrics = result["stochastic"]
+        gate = _walker_slip_recovery_gate_result(result)
+        rows.append(
+            {
+                "variant": variant,
+                "episode_length_mean": metrics["episode_length_mean"],
+                "fall_rate": metrics["fall_rate"],
+                "stance_slip_speed": metrics["gait_stance_slip_speed_mean"],
+                "forward_displacement": metrics["forward_displacement_mean"],
+                "peak_z": metrics["peak_z_mean"],
+                "stride_length": metrics["gait_stride_length_mean"],
+                "alternating_touchdowns_per_100_steps": metrics[
+                    "gait_alternating_touchdowns_per_100_steps_mean"
+                ],
+                **gate,
+                "score": float(
+                    metrics["forward_displacement_mean"]
+                    - metrics["fall_rate"]
+                    - metrics["gait_stance_slip_speed_mean"]
+                ),
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            cast(bool, row["metrics_gate_passed"]),
+            cast(float, row["score"]),
+        ),
+        reverse=True,
+    )
+    passing_candidates = [
+        row["variant"]
+        for row in rows
+        if row["variant"] != "control" and row["metrics_gate_passed"]
+    ]
+    return {
+        "rankings": rows,
+        "objective_winner": (
+            passing_candidates[0] if len(passing_candidates) == 1 else None
+        ),
+        "passing_candidates": passing_candidates,
+        "advancement_gate": WALKER_SLIP_RECOVERY_GATE,
+    }
+
+
+def _phase0_slip_recovery_telemetry(
+    *,
+    seeds: list[int],
+    config_dir: Path,
+    source_dir: Path,
+    output_dir: Path,
+    state: dict[str, Any],
+    state_path: Path,
+) -> dict[str, Any]:
+    analyses = state.setdefault("analyses", {})
+    reports: dict[str, dict[str, Any]] = {}
+    for seed in seeds:
+        key = f"walker_slip_recovery/phase0/seed_{seed}"
+        source_model = source_dir / f"seed_{seed}" / "checkpoints" / "final_model.zip"
+        if not source_model.is_file():
+            raise FileNotFoundError(
+                f"Walker slip-recovery source checkpoint not found: {source_model}"
+            )
+        report = analyses.get(key)
+        if report is None:
+            cfg = _load_cfg("walker_low_velocity_candidate", config_dir)
+            cfg["seed"] = seed
+            cfg["environment"]["seed"] = seed
+            report = collect_walker_fall_recovery_telemetry(
+                cfg,
+                source_model,
+                episodes=5,
+                render_dir=output_dir / "videos" / "phase0" / f"seed_{seed}",
+            )
+            analyses[key] = report
+            _atomic_json_write(state_path, state)
+        reports[f"seed_{seed}"] = report
+
+    contact_speeds = [
+        value
+        for report in reports.values()
+        for value in report["calibration_samples"]["contact_slip_speeds"]
+    ]
+    touchdown_forces = [
+        value
+        for report in reports.values()
+        for value in report["calibration_samples"]["touchdown_normal_forces"]
+    ]
+    thresholds = calibrate_walker_slip_thresholds(contact_speeds, touchdown_forces)
+    cause_counts: Counter[str] = Counter()
+    pooled_reports = {}
+    for seed_label, report in reports.items():
+        pooled = summarize_walker_fall_windows(
+            [
+                {
+                    "episode": fall["episode"],
+                    "termination_reason": fall["termination_reason"],
+                    "window": fall["window"],
+                }
+                for fall in report["falls"]
+            ],
+            control_timestep=float(report["control_timestep"]),
+            thresholds=thresholds,
+        )
+        cause_counts.update(pooled["cause_counts"])
+        pooled_reports[seed_label] = {
+            **report,
+            "thresholds": thresholds,
+            **pooled,
+        }
+    fall_count = sum(cause_counts.values())
+    dominant = (
+        cause_counts.most_common(1)[0][0] if cause_counts else "no_observed_falls"
+    )
+    return {
+        "thresholds": thresholds,
+        "fall_count": fall_count,
+        "cause_counts": dict(sorted(cause_counts.items())),
+        "dominant_mechanism": dominant,
+        "contact_damping_enabled": (
+            fall_count > 0
+            and cause_counts["touchdown_overshoot"]
+            == max(cause_counts.values())
+        ),
+        "seed_reports": pooled_reports,
+    }
+
+
+def _slip_recovery_base_cfg(
+    config_dir: Path,
+    slip_clip: float,
+) -> dict[str, Any]:
+    cfg = _load_cfg("walker_low_velocity_candidate", config_dir)
+    cfg["environment"]["reward"]["target_velocity"] = 1.0
+    cfg["environment"]["reward"]["stance_slip_penalty_weight"] = 0.0
+    cfg["environment"]["reward"]["stance_slip_penalty_clip"] = slip_clip
+    # The source checkpoints have already completed the 0.15→1.0 ramp.
+    # Re-running that callback on resume would silently change the fixed
+    # continuation back to a low-speed target.
+    cfg["training"].pop("velocity_target_ramp", None)
+    return cfg
+
+
+def _run_slip_recovery_candidate(
+    *,
+    variant: str,
+    overrides: dict[str, Any],
+    base: dict[str, Any],
+    seed: int,
+    step_budget: int,
+    eval_episodes: int,
+    source_model: Path,
+    output_dir: Path,
+    state: dict[str, Any],
+    state_path: Path,
+    phase: str,
+) -> dict[str, Any] | None:
+    cfg = deepcopy(base)
+    _apply_overrides(cfg, overrides)
+    cfg = _prepare_cfg(
+        cfg,
+        experiment_name=f"quality_walker_slip_recovery_{phase}_{variant}",
+        seed=seed,
+        step_budget=step_budget,
+        output_dir=output_dir,
+    )
+    run = _train_run(
+        f"walker_slip_recovery/{phase}/{variant}/seed_{seed}",
+        cfg,
+        state,
+        state_path,
+        resume_from=source_model,
+    )
+    if run.get("status") != "completed":
+        return None
+    if "diagnostics" not in run:
+        run["diagnostics"] = evaluate_walker_checkpoint(
+            cfg,
+            run["model_path"],
+            episodes=eval_episodes,
+        )
+        _atomic_json_write(state_path, state)
+    if "fall_telemetry" not in run:
+        run["fall_telemetry"] = collect_walker_fall_recovery_telemetry(
+            cfg,
+            run["model_path"],
+            episodes=5,
+            render_dir=output_dir / "videos" / phase / variant / f"seed_{seed}",
+        )
+        _atomic_json_write(state_path, state)
+    return run
+
+
+def _run_walker_slip_recovery_study(
+    *,
+    seeds: list[int],
+    step_budget: int,
+    eval_episodes: int,
+    config_dir: Path,
+    source_dir: Path,
+    output_dir: Path,
+    state: dict[str, Any],
+    state_path: Path,
+    approved_variant: str | None,
+) -> dict[str, Any]:
+    phase0 = _phase0_slip_recovery_telemetry(
+        seeds=seeds,
+        config_dir=config_dir,
+        source_dir=source_dir,
+        output_dir=output_dir,
+        state=state,
+        state_path=state_path,
+    )
+    base = _slip_recovery_base_cfg(
+        config_dir,
+        float(phase0["thresholds"]["stance_slip_penalty_clip"]),
+    )
+    phase1_seed = 21
+    if phase1_seed not in seeds:
+        raise ValueError("walker-slip-recovery Phase 1 requires seed 21")
+    source_model = (
+        source_dir / f"seed_{phase1_seed}" / "checkpoints" / "final_model.zip"
+    )
+    variants = dict(WALKER_SLIP_RECOVERY_VARIANTS)
+    if phase0["contact_damping_enabled"]:
+        variants.update(WALKER_CONTACT_DAMPING_VARIANTS)
+
+    phase1_results: dict[str, dict[str, Any]] = {}
+    variant_overrides = dict(variants)
+    for variant, overrides in variants.items():
+        run = _run_slip_recovery_candidate(
+            variant=variant,
+            overrides=overrides,
+            base=base,
+            seed=phase1_seed,
+            step_budget=step_budget,
+            eval_episodes=eval_episodes,
+            source_model=source_model,
+            output_dir=output_dir,
+            state=state,
+            state_path=state_path,
+            phase="phase1",
+        )
+        if run is not None:
+            phase1_results[variant] = run["diagnostics"]
+
+    initial_aggregate = _aggregate_walker_slip_recovery_results(phase1_results)
+    slip_holding = [
+        row
+        for row in initial_aggregate["rankings"]
+        if row["variant"] != "control" and row["slip_gate_passed"]
+    ]
+    if slip_holding:
+        preceding = slip_holding[0]
+        preceding_variant = cast(str, preceding["variant"])
+        preceding_run = state["runs"][
+            f"walker_slip_recovery/phase1/{preceding_variant}/seed_{phase1_seed}"
+        ]
+        reset_cfg = base["environment"].get("reset_randomization", {})
+        recovery_variant = f"{preceding_variant}_recovery_noise_2x"
+        recovery_overrides = {
+            **variant_overrides[preceding_variant],
+            "environment.reset_randomization.position_xy_noise": (
+                float(reset_cfg.get("position_xy_noise", 0.02))
+                * WALKER_RECOVERY_NOISE_MULTIPLIER
+            ),
+            "environment.reset_randomization.yaw_noise": (
+                float(reset_cfg.get("yaw_noise", 0.08))
+                * WALKER_RECOVERY_NOISE_MULTIPLIER
+            ),
+        }
+        variant_overrides[recovery_variant] = recovery_overrides
+        run = _run_slip_recovery_candidate(
+            variant=recovery_variant,
+            overrides=recovery_overrides,
+            base=base,
+            seed=phase1_seed,
+            step_budget=step_budget,
+            eval_episodes=eval_episodes,
+            source_model=Path(preceding_run["model_path"]),
+            output_dir=output_dir,
+            state=state,
+            state_path=state_path,
+            phase="phase1_recovery",
+        )
+        if run is not None:
+            phase1_results[recovery_variant] = run["diagnostics"]
+
+    phase1 = _aggregate_walker_slip_recovery_results(phase1_results)
+    objective_winner = phase1["objective_winner"]
+    phase1["visual_approval"] = {
+        "required": True,
+        "approved_variant": approved_variant,
+        "accepted": bool(
+            objective_winner is not None and approved_variant == objective_winner
+        ),
+    }
+    phase2: dict[str, Any] = {
+        "status": "not_ready",
+        "reason": (
+            "Phase 1 did not produce exactly one objective winner."
+            if objective_winner is None
+            else "Review the five stochastic renders and approve the objective winner."
+        ),
+    }
+    if objective_winner is not None and approved_variant == objective_winner:
+        confirmation: dict[str, dict[str, Any]] = {}
+        winner_overrides = variant_overrides[objective_winner]
+        for seed in seeds:
+            seed_source = source_dir / f"seed_{seed}" / "checkpoints" / "final_model.zip"
+            run = _run_slip_recovery_candidate(
+                variant=objective_winner,
+                overrides=winner_overrides,
+                base=base,
+                seed=seed,
+                step_budget=3_000_000,
+                eval_episodes=eval_episodes,
+                source_model=seed_source,
+                output_dir=output_dir,
+                state=state,
+                state_path=state_path,
+                phase="phase2_confirmation",
+            )
+            if run is not None:
+                confirmation[f"seed_{seed}"] = run["diagnostics"]
+        per_seed_gate = {
+            seed_label: _walker_slip_recovery_gate_result(result)[
+                "metrics_gate_passed"
+            ]
+            for seed_label, result in confirmation.items()
+        }
+        phase2 = {
+            "status": "confirmation_failed",
+            "winner": objective_winner,
+            "per_seed_gate": per_seed_gate,
+            "confirmation": confirmation,
+        }
+        if len(confirmation) == len(seeds) and all(per_seed_gate.values()):
+            transfer = {}
+            for seed in seeds:
+                run = state["runs"][
+                    "walker_slip_recovery/phase2_confirmation/"
+                    f"{objective_winner}/seed_{seed}"
+                ]
+                transfer[f"seed_{seed}"] = evaluate_walker_transfer_suite(
+                    run["config"],
+                    run["model_path"],
+                    episodes=eval_episodes,
+                )
+            phase2.update(
+                {
+                    "status": "transfer_completed",
+                    "transfer": transfer,
+                }
+            )
+    return {
+        "phase0": phase0,
+        "phase1": phase1,
+        "phase2": phase2,
+        "screening_ready": step_budget >= 1_000_000 and eval_episodes >= 20,
+        "confirmation_budget_steps": 3_000_000,
+    }
+
+
 def _relabel_tournament(
     result: dict[str, Any], labels_by_path: dict[str, str]
 ) -> dict[str, Any]:
@@ -1552,6 +1987,7 @@ def run_quality_study(
     wall_clock_seconds: float = 900.0,
     eval_episodes: int = 20,
     source_dir: str | Path = "outputs/walker_stochastic_balance_candidate",
+    approved_variant: str | None = None,
     resume: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
@@ -1563,6 +1999,7 @@ def run_quality_study(
         "walker-gait",
         "walker-velocity-ramp",
         "walker-swing-touchdown",
+        "walker-slip-recovery",
         "arena",
         "algorithms",
     }
@@ -1584,6 +2021,7 @@ def run_quality_study(
         "walker-gait",
         "walker-velocity-ramp",
         "walker-swing-touchdown",
+        "walker-slip-recovery",
     } & set(studies):
         identity["source_dir"] = str(Path(source_dir))
     plan = {
@@ -1608,6 +2046,11 @@ def run_quality_study(
             "walker_swing_touchdown": (
                 len(WALKER_SWING_TOUCHDOWN_VARIANTS) * len(seeds)
                 if "walker-swing-touchdown" in studies
+                else 0
+            ),
+            "walker_slip_recovery": (
+                len(WALKER_SLIP_RECOVERY_VARIANTS)
+                if "walker-slip-recovery" in studies
                 else 0
             ),
             "arena": (
@@ -1682,6 +2125,20 @@ def run_quality_study(
             output_dir=output,
             state=state,
             state_path=state_path,
+        )
+    if "walker-slip-recovery" in studies:
+        state["results"]["walker_slip_recovery"] = (
+            _run_walker_slip_recovery_study(
+                seeds=seeds,
+                step_budget=step_budget or 1_000_000,
+                eval_episodes=eval_episodes,
+                config_dir=config_path,
+                source_dir=Path(source_dir),
+                output_dir=output,
+                state=state,
+                state_path=state_path,
+                approved_variant=approved_variant,
+            )
         )
     if "arena" in studies:
         state["results"]["arena"] = _run_arena_study(

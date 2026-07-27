@@ -323,6 +323,13 @@ def get_schema():
                         "min": 0,
                         "max": 20,
                     },
+                    "stance_slip_penalty_clip": {
+                        "value": 0.0,
+                        "type": "float",
+                        "desc": "Optional cap on penalized stance slip speed; 0 is unbounded",
+                        "min": 0,
+                        "max": 10,
+                    },
                 },
                 "gait": {
                     "touchdown_debounce_steps": {

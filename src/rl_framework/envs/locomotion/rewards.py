@@ -39,6 +39,9 @@ class WalkerReward:
     swing_touchdown_progress_weight: float = 0.0
     swing_touchdown_progress_clip: float = 0.25
     stance_slip_penalty_weight: float = 0.0
+    # Zero preserves the original unbounded penalty. Positive values cap
+    # contact-impulse outliers without changing the measured slip telemetry.
+    stance_slip_penalty_clip: float = 0.0
 
     def compute(
         self,
@@ -102,9 +105,10 @@ class WalkerReward:
         swing_touchdown_progress_reward = (
             self.swing_touchdown_progress_weight * clipped_sustained_swing_progress
         )
-        stance_slip_penalty = -self.stance_slip_penalty_weight * max(
-            float(stance_slip_speed), 0.0
-        )
+        penalized_slip = max(float(stance_slip_speed), 0.0)
+        if self.stance_slip_penalty_clip > 0.0:
+            penalized_slip = min(penalized_slip, self.stance_slip_penalty_clip)
+        stance_slip_penalty = -self.stance_slip_penalty_weight * penalized_slip
         return {
             "alive": float(alive_reward),
             "velocity": float(velocity_reward),

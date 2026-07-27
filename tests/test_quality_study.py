@@ -55,6 +55,7 @@ def test_quality_study_dry_run_reports_full_plan(tmp_path: Path) -> None:
         "walker_gait": 0,
         "walker_velocity_ramp": 0,
         "walker_swing_touchdown": 0,
+        "walker_slip_recovery": 0,
         "arena": 18,
         "algorithms": 18,
     }
@@ -250,6 +251,63 @@ def test_walker_velocity_ramp_requires_frozen_gates_and_control_improvement() ->
     assert ramp["displacement_improvement_over_control"] == pytest.approx(0.3)
     assert ramp["gate_passed"] is True
     assert aggregate["promoted_variant"] == "ramp_to_100"
+
+
+def test_walker_slip_recovery_dry_run_reports_conditional_screen(
+    tmp_path: Path,
+) -> None:
+    result = run_quality_study(
+        "walker-slip-recovery",
+        seeds=[21, 22, 23],
+        output_dir=tmp_path,
+        source_dir=tmp_path / "source",
+        dry_run=True,
+    )
+
+    assert result["planned_runs"]["walker_slip_recovery"] == 3
+    assert result["identity"]["source_dir"] == str(tmp_path / "source")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_walker_slip_recovery_gate_rejects_sliding_and_selects_sole_winner() -> None:
+    control = _diagnostic_result()
+    control["stochastic"] = {
+        **control["stochastic"],
+        "fall_rate": 0.4,
+        "forward_displacement_mean": 6.0,
+        "gait_stance_slip_speed_mean": 0.4,
+    }
+    candidate = _diagnostic_result()
+    candidate["stochastic"] = {
+        **candidate["stochastic"],
+        "fall_rate": 0.2,
+        "forward_displacement_mean": 6.0,
+        "gait_stance_slip_speed_mean": 0.15,
+        "peak_z_mean": 0.8,
+        "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+    }
+
+    result = quality_study._aggregate_walker_slip_recovery_results(
+        {"control": control, "slip_cost_025": candidate}
+    )
+
+    assert result["objective_winner"] == "slip_cost_025"
+    control_row = next(
+        row for row in result["rankings"] if row["variant"] == "control"
+    )
+    assert control_row["automatic_exploit_flags"]["sliding"] is True
+    assert control_row["metrics_gate_passed"] is False
+
+
+def test_walker_slip_recovery_continuation_keeps_final_target_fixed() -> None:
+    cfg = quality_study._slip_recovery_base_cfg(
+        Path("src/rl_framework/configs/experiments"),
+        1.25,
+    )
+
+    assert cfg["environment"]["reward"]["target_velocity"] == 1.0
+    assert cfg["environment"]["reward"]["stance_slip_penalty_clip"] == 1.25
+    assert "velocity_target_ramp" not in cfg["training"]
 
 
 def test_wall_clock_callback_stops_after_budget(monkeypatch) -> None:

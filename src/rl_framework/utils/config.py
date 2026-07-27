@@ -288,6 +288,7 @@ def _validate_env_specific(cfg: dict[str, Any]) -> None:
             "swing_touchdown_progress_weight",
             "swing_touchdown_progress_clip",
             "stance_slip_penalty_weight",
+            "stance_slip_penalty_clip",
         ):
             if key in reward:
                 val = reward[key]

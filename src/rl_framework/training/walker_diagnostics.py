@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from collections import Counter, deque
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import gymnasium as gym
 import numpy as np
 from stable_baselines3 import PPO, SAC, TD3
-from stable_baselines3.common.vec_env import VecEnv, VecNormalize
+from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, VecNormalize
 
+from rl_framework.envs.registry import make_env
 from rl_framework.training.evaluation_workers import (
+    EpisodeSeedWrapper,
     episode_quotas,
     make_seeded_vec_env,
     resolve_evaluation_workers,
@@ -483,6 +487,383 @@ def collect_walker_stance_phase_telemetry(
             "duration": correlation(2),
             "slip_speed": correlation(3),
         },
+    }
+
+
+def _numeric_summary(values: list[float]) -> dict[str, float]:
+    data = np.asarray(values, dtype=np.float64)
+    if not len(data):
+        return {
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0,
+            "max": 0.0,
+        }
+    return {
+        "mean": float(np.mean(data)),
+        "p50": float(np.quantile(data, 0.50)),
+        "p90": float(np.quantile(data, 0.90)),
+        "max": float(np.max(data)),
+    }
+
+
+def calibrate_walker_slip_thresholds(
+    contact_slip_speeds: list[float],
+    touchdown_normal_forces: list[float],
+) -> dict[str, Any]:
+    """Calibrate robust caps from pooled stochastic Phase-0 telemetry."""
+    slip = np.asarray(contact_slip_speeds, dtype=np.float64)
+    force = np.asarray(touchdown_normal_forces, dtype=np.float64)
+    return {
+        "stance_slip_penalty_clip": (
+            float(np.quantile(slip, 0.90)) if len(slip) else 0.0
+        ),
+        "touchdown_normal_force_threshold": (
+            float(np.quantile(force, 0.90)) if len(force) else 0.0
+        ),
+        "method": {
+            "stance_slip_penalty_clip": "pooled contact-speed p90",
+            "touchdown_normal_force_threshold": "pooled touchdown-force p90",
+        },
+        "contact_sample_count": int(len(slip)),
+        "touchdown_sample_count": int(len(force)),
+    }
+
+
+def _fall_midstance_samples(window: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    for side in ("right", "left"):
+        spans: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
+        for row in window:
+            foot = row[side]
+            if foot["contact"]:
+                current.append(row)
+            elif current:
+                spans.append(current)
+                current = []
+        if current:
+            spans.append(current)
+        for span in spans:
+            midpoint = span[len(span) // 2]
+            samples.append(
+                {
+                    "side": side,
+                    "step": midpoint["step"],
+                    "time_to_fall_seconds": midpoint["time_to_fall_seconds"],
+                    "tangential_velocity": midpoint[side]["tangential_velocity"],
+                    "tangential_speed": midpoint[side]["tangential_speed"],
+                    "normal_force": midpoint[side]["normal_force"],
+                }
+            )
+    return samples
+
+
+def classify_walker_fall_window(
+    window: list[dict[str, Any]],
+    *,
+    control_timestep: float,
+    slip_threshold: float,
+    touchdown_force_threshold: float,
+) -> str:
+    """Assign one mutually exclusive, telemetry-backed fall mechanism."""
+    if not window:
+        return "recovery_failure"
+    recent_steps = max(1, int(round(0.20 / control_timestep)))
+    recent = window[-recent_steps:]
+    for row in recent:
+        for side in ("right", "left"):
+            foot = row[side]
+            if foot["touchdown"] and (
+                foot["tangential_speed"] >= slip_threshold
+                or (
+                    touchdown_force_threshold > 0.0
+                    and foot["normal_force"] >= touchdown_force_threshold
+                )
+            ):
+                return "touchdown_overshoot"
+    for row in recent:
+        for side in ("right", "left"):
+            foot = row[side]
+            stance_age = foot.get("stance_age_steps")
+            if (
+                foot["contact"]
+                and isinstance(stance_age, int)
+                and stance_age >= recent_steps
+                and foot["tangential_speed"] >= slip_threshold
+            ):
+                return "late_stance_push_off"
+    return "recovery_failure"
+
+
+def summarize_walker_fall_windows(
+    fall_windows: list[dict[str, Any]],
+    *,
+    control_timestep: float,
+    thresholds: dict[str, Any],
+) -> dict[str, Any]:
+    """Classify falls and summarize the requested half-second mechanisms."""
+    slip_threshold = float(thresholds["stance_slip_penalty_clip"])
+    force_threshold = float(thresholds["touchdown_normal_force_threshold"])
+    cause_counts: Counter[str] = Counter()
+    falls = []
+    for fall in fall_windows:
+        window = fall["window"]
+        cause = classify_walker_fall_window(
+            window,
+            control_timestep=control_timestep,
+            slip_threshold=slip_threshold,
+            touchdown_force_threshold=force_threshold,
+        )
+        cause_counts[cause] += 1
+        touchdown_samples = [
+            {
+                "side": side,
+                "step": row["step"],
+                "time_to_fall_seconds": row["time_to_fall_seconds"],
+                "tangential_velocity": row[side]["tangential_velocity"],
+                "tangential_speed": row[side]["tangential_speed"],
+                "normal_force": row[side]["normal_force"],
+            }
+            for row in window
+            for side in ("right", "left")
+            if row[side]["touchdown"]
+        ]
+        midstance_samples = _fall_midstance_samples(window)
+        falls.append(
+            {
+                **fall,
+                "cause": cause,
+                "touchdown_samples": touchdown_samples,
+                "midstance_samples": midstance_samples,
+                "window_summary": {
+                    "normal_contact_force": _numeric_summary(
+                        [
+                            row[side]["normal_force"]
+                            for row in window
+                            for side in ("right", "left")
+                            if row[side]["contact"]
+                        ]
+                    ),
+                    "tangential_slip_speed": _numeric_summary(
+                        [
+                            row[side]["tangential_speed"]
+                            for row in window
+                            for side in ("right", "left")
+                            if row[side]["contact"]
+                        ]
+                    ),
+                    "slip_direction_mean": [
+                        float(
+                            np.mean(
+                                [
+                                    row[side]["tangential_velocity"][axis]
+                                    for row in window
+                                    for side in ("right", "left")
+                                    if row[side]["contact"]
+                                ]
+                                or [0.0]
+                            )
+                        )
+                        for axis in (0, 1)
+                    ],
+                    "absolute_roll": _numeric_summary(
+                        [abs(float(row["roll"])) for row in window]
+                    ),
+                    "absolute_pitch": _numeric_summary(
+                        [abs(float(row["pitch"])) for row in window]
+                    ),
+                    "action_delta_l2": _numeric_summary(
+                        [float(row["action_delta_l2"]) for row in window]
+                    ),
+                    "achieved_velocity": _numeric_summary(
+                        [float(row["achieved_velocity"]) for row in window]
+                    ),
+                    "absolute_velocity_error": _numeric_summary(
+                        [abs(float(row["velocity_error"])) for row in window]
+                    ),
+                },
+            }
+        )
+    total = max(len(falls), 1)
+    return {
+        "fall_count": len(falls),
+        "cause_counts": dict(sorted(cause_counts.items())),
+        "cause_rates": {
+            cause: count / total for cause, count in sorted(cause_counts.items())
+        },
+        "falls": falls,
+    }
+
+
+def _fall_telemetry_env(
+    cfg: dict[str, Any],
+    model_path: Path,
+    render_dir: str | Path | None,
+) -> VecEnv:
+    if render_dir is None:
+        return _evaluation_env(cfg, model_path, 1)
+
+    env_cfg = deepcopy(cfg["environment"])
+    env_cfg["render_mode"] = "rgb_array"
+    raw_env = make_env("walker_bullet", env_cfg)
+    seeded_env: gym.Env = EpisodeSeedWrapper(raw_env, 0, 1)
+    vec_env: VecEnv = DummyVecEnv([lambda: seeded_env])
+    sidecar = find_vecnormalize_path_for_model(model_path)
+    if sidecar is not None:
+        vec_env = VecNormalize.load(str(sidecar), vec_env)
+        vec_env.training = False
+        vec_env.norm_reward = False
+    return vec_env
+
+
+def collect_walker_fall_recovery_telemetry(
+    cfg: dict[str, Any],
+    model_path: str | Path,
+    *,
+    episodes: int = 5,
+    window_seconds: float = 0.5,
+    render_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Record stochastic pre-fall windows and calibration samples."""
+    if cfg.get("environment", {}).get("type") != "walker_bullet":
+        raise ValueError("walker diagnostics require environment.type=walker_bullet")
+    if episodes <= 0 or window_seconds <= 0.0:
+        raise ValueError("episodes and window_seconds must be positive")
+    path = model_zip_path(model_path)
+    model = _model_class(cfg).load(str(path), device="cpu")
+    sim = cfg["environment"].get("sim", {})
+    control_timestep = float(sim.get("timestep", 1.0 / 240.0)) * int(
+        sim.get("frame_skip", 4)
+    )
+    window_steps = max(1, int(round(window_seconds / control_timestep)))
+    vec_env = _fall_telemetry_env(cfg, path, render_dir)
+    fall_windows: list[dict[str, Any]] = []
+    contact_slip_speeds: list[float] = []
+    touchdown_normal_forces: list[float] = []
+    completed = 0
+    episode_step = 0
+    stance_ages: list[int | None] = [None, None]
+    history: deque[dict[str, Any]] = deque(maxlen=window_steps)
+    rendered_paths: list[str] = []
+    render_frames: list[Any] = []
+    render_stride = max(1, int(round((1.0 / control_timestep) / 20.0)))
+    try:
+        vec_env.env_method("set_episode_seed_base", int(cfg.get("seed", 0)))
+        obs = vec_env.reset()
+        while completed < episodes:
+            action, _ = model.predict(obs, deterministic=False)
+            obs, _, dones, infos = vec_env.step(action)
+            episode_step += 1
+            info = infos[0]
+            if render_dir is not None and (episode_step - 1) % render_stride == 0:
+                from PIL import Image
+
+                frame = vec_env.get_images()[0]
+                if frame is not None:
+                    render_frames.append(
+                        Image.fromarray(frame).resize((320, 240), Image.Resampling.BILINEAR)
+                    )
+            row: dict[str, Any] = {
+                "step": episode_step,
+                "roll": float(info.get("roll", 0.0)),
+                "pitch": float(info.get("pitch", 0.0)),
+                "action_delta_l2": float(info.get("action_delta_l2", 0.0)),
+                "target_velocity": float(info.get("target_velocity", 0.0)),
+                "achieved_velocity": float(info.get("lin_vel_x", 0.0)),
+                "velocity_error": float(info.get("velocity_error", 0.0)),
+            }
+            for side_index, side in enumerate(("right", "left")):
+                contact = bool(info.get(f"{side}_foot_contact", False))
+                touchdown = bool(info.get(f"{side}_foot_touchdown", False))
+                if contact:
+                    stance_ages[side_index] = (
+                        0
+                        if touchdown or stance_ages[side_index] is None
+                        else stance_ages[side_index] + 1
+                    )
+                else:
+                    stance_ages[side_index] = None
+                velocity = info.get(
+                    f"{side}_foot_tangential_velocity", (0.0, 0.0)
+                )
+                velocity_pair = [float(velocity[0]), float(velocity[1])]
+                speed = float(np.linalg.norm(velocity_pair))
+                normal_force = float(info.get(f"{side}_foot_normal_force", 0.0))
+                row[side] = {
+                    "contact": contact,
+                    "touchdown": touchdown,
+                    "stance_age_steps": stance_ages[side_index],
+                    "tangential_velocity": velocity_pair,
+                    "tangential_speed": speed,
+                    "normal_force": normal_force,
+                }
+                if contact:
+                    contact_slip_speeds.append(speed)
+                if touchdown:
+                    touchdown_normal_forces.append(normal_force)
+            history.append(row)
+            if not bool(dones[0]):
+                continue
+            reason = info.get("termination_reason")
+            fell = reason != "time_limit"
+            if fell:
+                window = [dict(sample) for sample in history]
+                final_step = window[-1]["step"] if window else episode_step
+                for sample in window:
+                    sample["time_to_fall_seconds"] = (
+                        final_step - sample["step"]
+                    ) * control_timestep
+                fall_windows.append(
+                    {
+                        "episode": completed,
+                        "termination_reason": reason,
+                        "window": window,
+                    }
+                )
+            if render_dir is not None and render_frames:
+                render_path = (
+                    Path(render_dir) / f"stochastic-episode-{completed:03d}.gif"
+                )
+                render_path.parent.mkdir(parents=True, exist_ok=True)
+                render_frames[0].save(
+                    render_path,
+                    save_all=True,
+                    append_images=render_frames[1:],
+                    duration=max(int(1000 * control_timestep * render_stride), 20),
+                    loop=0,
+                    optimize=False,
+                )
+                rendered_paths.append(str(render_path))
+            completed += 1
+            episode_step = 0
+            stance_ages = [None, None]
+            history.clear()
+            render_frames = []
+    finally:
+        vec_env.close()
+
+    thresholds = calibrate_walker_slip_thresholds(
+        contact_slip_speeds, touchdown_normal_forces
+    )
+    summary = summarize_walker_fall_windows(
+        fall_windows,
+        control_timestep=control_timestep,
+        thresholds=thresholds,
+    )
+    return {
+        "model_path": str(path),
+        "episodes": episodes,
+        "window_seconds": window_seconds,
+        "window_steps": window_steps,
+        "control_timestep": control_timestep,
+        "thresholds": thresholds,
+        "calibration_samples": {
+            "contact_slip_speeds": contact_slip_speeds,
+            "touchdown_normal_forces": touchdown_normal_forces,
+        },
+        "render_paths": rendered_paths,
+        **summary,
     }
 
 

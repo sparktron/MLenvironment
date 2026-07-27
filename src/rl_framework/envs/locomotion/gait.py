@@ -14,6 +14,7 @@ class GaitStep:
     valid_alternating_touchdown: bool
     alternating_step_progress: float
     stance_slip_speed: float
+    action_delta_l2: float
     touchdown_swing_duration: float | None
     touchdown_swing_clearance: float | None
     touchdown_side: int | None
@@ -147,7 +148,8 @@ class WalkerGaitTracker:
         action = np.asarray(applied_action, dtype=np.float32)
         if self._previous_action is None or self._previous_action.shape != action.shape:
             self._previous_action = np.zeros_like(action)
-        self._action_delta_sum += float(np.linalg.norm(action - self._previous_action))
+        action_delta_l2 = float(np.linalg.norm(action - self._previous_action))
+        self._action_delta_sum += action_delta_l2
         self._previous_action = action.copy()
 
         accepted_touchdowns: list[int] = []
@@ -271,6 +273,7 @@ class WalkerGaitTracker:
             valid_alternating_touchdown=alternating,
             alternating_step_progress=progress if alternating else 0.0,
             stance_slip_speed=stance_slip_speed,
+            action_delta_l2=action_delta_l2,
             touchdown_swing_duration=touchdown_swing_duration,
             touchdown_swing_clearance=touchdown_swing_clearance,
             touchdown_side=touchdown_side,

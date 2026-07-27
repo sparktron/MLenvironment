@@ -470,7 +470,16 @@ class WalkerBulletEnv(gym.Env):
         return contacts[0], contacts[1]
 
     def _foot_slip_speeds(self) -> tuple[float, float]:
-        speeds = []
+        velocities = self._foot_tangential_velocities()
+        return (
+            float(np.linalg.norm(velocities[0])),
+            float(np.linalg.norm(velocities[1])),
+        )
+
+    def _foot_tangential_velocities(
+        self,
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
+        velocities = []
         for link in (2, 5):
             state = p.getLinkState(
                 self.robot_id,
@@ -484,8 +493,25 @@ class WalkerBulletEnv(gym.Env):
                 posinf=1e6,
                 neginf=-1e6,
             )
-            speeds.append(float(np.linalg.norm(velocity[:2])))
-        return speeds[0], speeds[1]
+            velocities.append((float(velocity[0]), float(velocity[1])))
+        return velocities[0], velocities[1]
+
+    def _foot_normal_forces(self) -> tuple[float, float]:
+        """Return total supporting-surface normal force for each foot."""
+        support_body_ids = {self.plane_id, *self._terrain_body_ids}
+        forces = []
+        for link in (2, 5):
+            force = sum(
+                float(contact[9])
+                for contact in p.getContactPoints(
+                    bodyA=self.robot_id,
+                    linkIndexA=link,
+                    physicsClientId=self._connection,
+                )
+                if contact[2] in support_body_ids
+            )
+            forces.append(force if np.isfinite(force) else 0.0)
+        return forces[0], forces[1]
 
     def _foot_positions(self) -> tuple[tuple[float, float], tuple[float, float]]:
         """Return sagittal foot positions used for stride/swing telemetry."""
@@ -675,7 +701,12 @@ class WalkerBulletEnv(gym.Env):
             ang_vel = tuple(np.nan_to_num(ang_vel, nan=0.0, posinf=1e6, neginf=-1e6))
 
         foot_contacts = self._foot_contacts()
-        foot_slip_speeds = self._foot_slip_speeds()
+        foot_tangential_velocities = self._foot_tangential_velocities()
+        foot_slip_speeds = (
+            float(np.linalg.norm(foot_tangential_velocities[0])),
+            float(np.linalg.norm(foot_tangential_velocities[1])),
+        )
+        foot_normal_forces = self._foot_normal_forces()
         foot_positions = self._foot_positions()
         gait_step = self._gait_tracker.update(
             step=self.step_count,
@@ -768,6 +799,13 @@ class WalkerBulletEnv(gym.Env):
             "gait_step_progress": gait_step.alternating_step_progress,
             "sustained_swing_progress": gait_step.sustained_swing_progress,
             "stance_slip_speed": gait_step.stance_slip_speed,
+            "action_delta_l2": gait_step.action_delta_l2,
+            "target_velocity": self.reward_fn.target_velocity,
+            "velocity_error": self.reward_fn.target_velocity - float(lin_vel[0]),
+            "right_foot_tangential_velocity": foot_tangential_velocities[0],
+            "left_foot_tangential_velocity": foot_tangential_velocities[1],
+            "right_foot_normal_force": foot_normal_forces[0],
+            "left_foot_normal_force": foot_normal_forces[1],
             "swing_touchdown_event": (
                 {
                     "duration": gait_step.touchdown_swing_duration,
