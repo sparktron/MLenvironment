@@ -227,6 +227,33 @@ Generated checkpoints and detailed reports live under ignored `outputs/`
 directories; the repeatable command, study definitions, and interpretation are
 the durable project record.
 
+## Walker Slip/Recovery Study — 2026-07-27
+
+The conditional workflow is:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
+  --study walker-slip-recovery --seeds 21,22,23 \
+  --study-step-budget 1000000 --study-eval-episodes 20 \
+  --study-source-dir outputs/walker_low_velocity_candidate \
+  --study-output-dir outputs/quality_studies_walker_slip_recovery_20260727
+```
+
+Phase 0 always measures five stochastic rollouts per source seed and calibrates
+the reward clip from pooled contact telemetry. Phase 1 always runs the fixed
+seed-21 continuation and slip weights 0.25/0.5. It runs PD damping only when
+touchdown overshoot is the dominant measured fall cause, and increased reset
+noise only after a candidate holds the 0.18 m/s slip gate. A sole winner must
+also pass the fall, displacement, height, and exploit screens; after visual
+review, pass `--study-approved-variant <name> --resume-incomplete` to authorize
+the seeds 21–23 × 3M confirmation. Transfer runs only after every seed passes.
+
+The completed run observed five recovery failures and one touchdown overshoot,
+so damping was skipped. Slip weights 0.25 and 0.5 reduced stochastic slip from
+0.500 m/s to 0.348 and 0.290 m/s, but missed the 0.18 m/s gate and retained
+19–23 alternating touchdowns per 100 steps with sub-7 cm candidate strides.
+No candidate advanced.
+
 ## Promotion-Scale Run — 2026-07-25
 
 The requested walker and arena evidence budgets completed successfully. The

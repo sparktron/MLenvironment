@@ -440,9 +440,13 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-stud
 ```
 
 `--study` also accepts `walker`, `walker-velocity`, `walker-gait`,
-`walker-velocity-ramp`, `arena`, or `algorithms`.
+`walker-velocity-ramp`, `walker-swing-touchdown`, `walker-slip-recovery`,
+`arena`, or `algorithms`.
 The `walker-velocity` study resumes seed-matched balance checkpoints from
-`--study-source-dir`. The default promotion budgets are 750k walker steps,
+`--study-source-dir`. `walker-slip-recovery` uses the final natural-velocity
+checkpoint directory, runs its conditional 1M screens, and requires
+`--study-approved-variant <name>` before a sole objective winner may enter
+three-seed confirmation. The default promotion budgets are 750k walker steps,
 150k walker-velocity continuation steps, 30k arena steps, and 500k algorithm
 steps plus a 900-second wall-clock comparison. Override them with
 `--study-step-budget`, `--study-wall-clock-seconds`, and
@@ -592,6 +596,16 @@ not yet reliable walking: stance slip was 0.41–0.57 m/s, and seed 23 fell in
 60% of stochastic rollouts. The next evaluation phase isolates slip/recovery
 mechanisms before adding more speed or reward variants.
 
+The slip/recovery phase then pooled five stochastic rollouts from each final
+seed and recorded every 0.5 s pre-fall window. Five of six falls were recovery
+failures; only one was touchdown overshoot, so the conditional PD-damping
+screen was not run. Seed-21 1M slip weights 0.25 and 0.5 reduced stochastic
+slip from 0.500 m/s to 0.348 and 0.290 m/s, respectively, but both missed the
+0.18 m/s gate. All three policies still produced 19–23 alternating touchdowns
+per 100 steps with 6.7–7.5 cm strides, and the renders confirmed short-stride
+contact chatter. No candidate advanced to recovery-noise, three-seed
+confirmation, or transfer testing.
+
 The follow-up seed-21 50k sustained-swing touchdown screen calibrated its
 thresholds from 3,155 individual stochastic touchdown events—not episode
 means—on the fixed-target control: 50 ms airborne duration and 0.5 mm clearance
@@ -658,6 +672,7 @@ environment:
     gait_step_progress_weight: 0.0   # Opt-in alternating-touchdown progress
     gait_step_progress_clip: 0.25    # Max credited progress per event (m)
     stance_slip_penalty_weight: 0.0  # Opt-in contacting-foot slip penalty
+    stance_slip_penalty_clip: 0.0    # Optional slip cap; 0 keeps it unbounded
 
   gait:
     touchdown_debounce_steps: 3      # Per-foot event debounce

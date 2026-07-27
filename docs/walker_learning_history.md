@@ -513,6 +513,55 @@ advance only candidates meeting ≤30% falls and ≤0.18 m/s slip to seeds 21–
 3M; and (4) require all existing gait floors before transfer testing. Artifacts:
 `outputs/walker_low_velocity_candidate/seed_{21,22,23}/scale_evaluation_1ms.json`.
 
+## 2026-07-27 — Slip And Recovery Mechanism Evaluation
+
+**Question:** are high-speed falls primarily touchdown overshoot, late-stance
+push-off, or recovery failure, and can a bounded stance-slip cost fix the
+measured mechanism without sacrificing 1.0 m/s locomotion?
+
+**Source and constants:** the final seeds 21–23 10M natural-velocity
+checkpoints. Phase 0 used five stochastic rollouts per seed with no training
+changes. Phase 1 resumed the seed-21 checkpoint for a fixed 1M continuation,
+kept the 1.0 m/s target, reward economics, action scale, gamma, and exploration
+fixed, and compared only slip weights 0.25 and 0.5. Each final policy received
+20 deterministic, 20 stochastic, and five rendered stochastic episodes.
+
+**Mechanism measurement:** the 0.5 s before each fall retained per-foot
+tangential velocity at touchdown and mid-stance, normal force, slip direction,
+torso roll/pitch, action delta, and target/achieved velocity. Across 7,144
+contact samples and 2,839 touchdowns, pooled p90 slip was 1.3398 m/s and
+touchdown-force p90 was 1,452.4 N. Five of six falls were classified as recovery
+failure and one as touchdown overshoot; none was late-stance push-off.
+
+**Observed result:**
+
+| Variant | Det. falls / slip | Stoch. falls / slip | Stoch. displacement | Cadence / stride |
+|---|---:|---:|---:|---:|
+| control | 15% / 0.487 m/s | 20% / 0.500 m/s | 11.20 m | 19.24 / 7.47 cm |
+| slip 0.25 | 15% / 0.278 m/s | 15% / 0.348 m/s | 11.28 m | 21.47 / 6.91 cm |
+| slip 0.5 | 5% / 0.182 m/s | 25% / 0.290 m/s | 10.85 m | 23.05 / 6.73 cm |
+
+**Visual check:** all 15 Phase-1 renders retained rapid, short-stride foot
+contacts. They showed no launch, but confirmed the same contact-chatter/shuffle
+pathology and included six sampled falls. Paths:
+`outputs/quality_studies_walker_slip_recovery_20260727/videos/phase1`.
+
+**What worked:** both slip weights materially reduced measured slip without
+destroying displacement or height safety. The bounded reward used the
+measurement-derived p90 rather than an invented clip.
+
+**What failed:** neither candidate reached the frozen stochastic 0.18 m/s slip
+gate. The larger weight lowered deterministic slip to 0.182 m/s but did not
+transfer that control to stochastic actions, and both weights increased contact
+cadence while shortening stride.
+
+**Decision:** reject both candidates. Touchdown overshoot was not dominant, so
+do not run PD damping. No candidate held the slip gate, so do not run increased
+reset noise, three-seed confirmation, or transfer. The next proposal must
+address recovery state sensitivity and the short-stride/contact-chatter
+mechanism without loosening the gates. Artifacts:
+`outputs/quality_studies_walker_slip_recovery_20260727`.
+
 ## 2026-07-26 — Reward Economics And Natural-Velocity Ramp
 
 **Question:** can reducing survival/fall distortion and ramping from 0.15 to

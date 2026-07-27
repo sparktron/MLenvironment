@@ -50,7 +50,12 @@ checkpoints and compares tighter velocity-reward distributions with a per-seed
 locomotion gate. `quality-study --study walker-gait` continues the strongest
 velocity checkpoints with a zero-weight control and calibrated alternating-step
 progress / stance-slip ablations; it requires both behavior and gait structure
-to pass independently for every seed. The arena matrix first runs
+to pass independently for every seed.
+`quality-study --study walker-slip-recovery` evaluates the final 10M natural-
+velocity checkpoints, pools half-second pre-fall contact telemetry, and runs
+only the one-factor branches justified by the measured fall mechanism. Its
+conditional three-seed confirmation requires an explicitly visually approved
+sole winner. The arena matrix first runs
 resource tournaments, then evaluates
 feasible combat (`attack_range: 0.4`, `attack_cost: 0.02`) with and without
 approach shaping; native-regime measurements are kept separate from

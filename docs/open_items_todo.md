@@ -111,6 +111,16 @@ must record both successful changes and failed hypotheses there.
   fall rate was 60%. Do not add a faster target. First evaluate slip/recovery
   mechanisms with a fixed baseline, one-seed 1M screens, then three-seed 3M
   confirmation only if every screen meets the existing fall/slip limits.
+- (2026-07-27) The slip/recovery evaluation completed. Phase 0 recorded six
+  falls across 15 stochastic renders: five recovery failures and one touchdown
+  overshoot. The pooled p90 clip was 1.3398 m/s, so touchdown overshoot did not
+  justify the conditional damping screen. Seed-21 1M slip weights 0.25 and 0.5
+  reduced stochastic slip from 0.500 m/s to 0.348 and 0.290 m/s, but neither
+  reached 0.18 m/s. Cadence remained 19–23 alternating touchdowns per 100 steps
+  with 6.7–7.5 cm strides, and renders confirmed contact chatter. Do not run
+  recovery-noise, Phase 2, transfer, or competing speed/algorithm variants from
+  these checkpoints. The next proposal must target longer swing/stride and
+  recovery state sensitivity without relaxing the frozen gates.
 - (2026-07-27) Corrected the walker observation documentation: coordinate-free
   v2 has 35 values including two foot contacts, not the old position-based
   layout. Previous applied action is now available as an opt-in 10-D v2
