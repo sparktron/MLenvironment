@@ -254,6 +254,39 @@ so damping was skipped. Slip weights 0.25 and 0.5 reduced stochastic slip from
 19–23 alternating touchdowns per 100 steps with sub-7 cm candidate strides.
 No candidate advanced.
 
+## Walker Action-Memory Study — 2026-07-27
+
+The slip/recovery result blocks its own Phase 2, so the next comparison starts
+checkpoint-incompatible lineages rather than promoting a failed checkpoint:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
+  --study walker-action-memory --seeds 21,22,23 \
+  --study-step-budget 10000000 --study-eval-episodes 20 \
+  --study-output-dir outputs/quality_studies_walker_action_memory_20260727
+```
+
+The seed-21 control retains the 35-D coordinate-free v2 observation; the only
+candidate appends the 10-D action that actually reached PD control on the
+preceding step. Both train from scratch with the same 0.15→1.0 m/s ramp,
+bounded 0.5 slip cost, PPO settings, randomization, and physics. This avoids
+pretending a 35-D checkpoint can be resumed into a 45-D policy.
+
+Advancement requires 10M steps per arm, 20 deterministic and stochastic final
+episodes, five stochastic renders, and every existing natural-speed and
+real-gait gate: at least 600 mean episode steps, at most 30% falls and 0.18 m/s
+stance slip, at least 5 m displacement, peak height below 1 m, cadence 1.5–8.5
+alternating touchdowns per 100 steps, stride at least 0.10 m, clearance at
+least 0.02 m, progress at least 0.05 m per alternating touchdown, flight at
+most 60%, and same-foot sequence at most five. Only a passing, visually
+approved `previous_action` arm may run seeds 22–23 at 10M and then transfer.
+
+A 2,400-step seed-21 functional smoke completed both observation shapes,
+evaluation, telemetry, GIF output, reporting, and the non-advancement path.
+Both policies were untrained and fell in their sampled stochastic episode, as
+expected. The smoke is implementation validation, not candidate evidence.
+Artifacts: `outputs/quality_studies_walker_action_memory_smoke_20260727`.
+
 ## Promotion-Scale Run — 2026-07-25
 
 The requested walker and arena evidence budgets completed successfully. The

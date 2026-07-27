@@ -441,14 +441,17 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-stud
 
 `--study` also accepts `walker`, `walker-velocity`, `walker-gait`,
 `walker-velocity-ramp`, `walker-swing-touchdown`, `walker-slip-recovery`,
-`arena`, or `algorithms`.
+`walker-action-memory`, `arena`, or `algorithms`.
 The `walker-velocity` study resumes seed-matched balance checkpoints from
 `--study-source-dir`. `walker-slip-recovery` uses the final natural-velocity
 checkpoint directory, runs its conditional 1M screens, and requires
 `--study-approved-variant <name>` before a sole objective winner may enter
-three-seed confirmation. The default promotion budgets are 750k walker steps,
-150k walker-velocity continuation steps, 30k arena steps, and 500k algorithm
-steps plus a 900-second wall-clock comparison. Override them with
+three-seed confirmation. `walker-action-memory` trains matched 35-D control and
+45-D previous-action policies as new lineages; its default seed-21 screen is
+10M steps per arm because the observation shapes are checkpoint-incompatible.
+The default promotion budgets are 750k walker steps, 150k walker-velocity
+continuation steps, 30k arena steps, and 500k algorithm steps plus a 900-second
+wall-clock comparison. Override them with
 `--study-step-budget`, `--study-wall-clock-seconds`, and
 `--study-eval-episodes`; use
 `--resume-incomplete` to continue from `state.json`. Results are written to
@@ -605,6 +608,16 @@ slip from 0.500 m/s to 0.348 and 0.290 m/s, respectively, but both missed the
 per 100 steps with 6.7–7.5 cm strides, and the renders confirmed short-stride
 contact chatter. No candidate advanced to recovery-noise, three-seed
 confirmation, or transfer testing.
+
+The next gated workflow, `walker-action-memory`, keeps the strongest measured
+bounded slip intervention fixed and varies only whether the policy observes
+the 10-D command applied on the preceding control step. Both arms train from
+scratch under the same natural-velocity ramp. The candidate must pass the
+unchanged fall, slip, displacement, height, cadence, stride, clearance,
+touchdown-progress, flight, and same-foot-sequence limits at 10M steps before
+visual approval can unlock seeds 22–23 and transfer. A 2,400-step functional
+smoke completed both arms and correctly remained non-advancing; it is not
+learning evidence.
 
 The follow-up seed-21 50k sustained-swing touchdown screen calibrated its
 thresholds from 3,155 individual stochastic touchdown events—not episode

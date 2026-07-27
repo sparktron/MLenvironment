@@ -82,3 +82,9 @@ pathology and sampled six falls. No candidate held the slip gate, so reset-noise
 recovery testing, three-seed confirmation, and transfer evaluation were not
 run. Artifacts:
 `outputs/quality_studies_walker_slip_recovery_20260727`.
+
+Because this plan produced no Phase-1 winner, its Phase 2 remains closed. The
+implemented next evaluation is the matched, checkpoint-incompatible
+[`walker action-memory plan`](2026-07-27-walker-action-memory-evaluation.md);
+it tests recovery state awareness without promoting either rejected slip
+checkpoint or relaxing the frozen gait gates.

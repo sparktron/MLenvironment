@@ -1,6 +1,6 @@
 # Development Roadmap
 
-Last updated: 2026-07-26
+Last updated: 2026-07-27
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
@@ -125,6 +125,13 @@ must record both successful changes and failed hypotheses there.
   v2 has 35 values including two foot contacts, not the old position-based
   layout. Previous applied action is now available as an opt-in 10-D v2
   extension (45 values total); enable it only for a new training lineage.
+- (2026-07-27) Implemented that new-lineage evaluation as
+  `walker-action-memory`. It holds the bounded 0.5 slip intervention and all
+  natural-speed/gait gates fixed while comparing matched seed-21 35-D control
+  and 45-D previous-action policies from scratch. A 2,400-step smoke completed
+  both arms but is deliberately ineligible for advancement. Run the full 10M
+  screen; only a metrics-passing and visually approved candidate may proceed
+  to seeds 22–23 and transfer.
 - Run the feasible-combat arena candidates at a short one-seed budget. Advance
   to three seeds × 30k only when attack hits/damage are nonzero and timeout
   falls below 90%; the report now enforces those thresholds.

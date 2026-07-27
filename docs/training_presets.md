@@ -55,7 +55,12 @@ to pass independently for every seed.
 velocity checkpoints, pools half-second pre-fall contact telemetry, and runs
 only the one-factor branches justified by the measured fall mechanism. Its
 conditional three-seed confirmation requires an explicitly visually approved
-sole winner. The arena matrix first runs
+sole winner. When that study produces no winner,
+`quality-study --study walker-action-memory` starts matched new lineages with
+and without the opt-in previous applied action. Both arms keep the bounded 0.5
+slip cost and the natural-velocity schedule fixed; a 10M seed-21 screen must
+pass every frozen locomotion and real-gait gate before visual approval and
+seeds 22–23 confirmation. The arena matrix first runs
 resource tournaments, then evaluates
 feasible combat (`attack_range: 0.4`, `attack_cost: 0.02`) with and without
 approach shaping; native-regime measurements are kept separate from

@@ -581,6 +581,40 @@ achieved 7.70 m displacement, but only 594 mean steps, a 40% fall rate, and
 fails the frozen 30% fall and 0.18 m/s slip limits. Artifacts:
 `outputs/quality_studies_walker_velocity_ramp_3m_20260726`.
 
+## 2026-07-27 — Action-Memory Evaluation Implementation
+
+**Question:** can short-term action context make the stochastic policy less
+state-sensitive during recovery and replace rapid contact chatter with longer
+swings and strides?
+
+**Source and change:** the previous 35-D checkpoints cannot be resumed after an
+observation-shape change. The new `walker-action-memory` study therefore trains
+matched seed-21 lineages from scratch: a 35-D coordinate-free v2 control and a
+45-D candidate that appends the command actually applied to PD control on the
+preceding step.
+
+**Constants:** both arms retain the 0.15→1.0 m/s ramp, PPO settings, physics,
+randomization, bounded 0.5 stance-slip intervention with its measured 1.3398
+m/s clip, and every frozen fall/slip/displacement/height and real-gait gate.
+There is no new reward term.
+
+**Budget and decision rule:** the screen requires 10M steps per arm, 20
+deterministic and stochastic episodes, and five stochastic renders. The
+candidate advances only if every metrics gate passes and the renders receive
+explicit approval. Confirmation trains seeds 22–23 at 10M; transfer remains
+conditional on all three seeds.
+
+**Implementation validation:** a 2,400-step smoke completed both observation
+shapes, training, evaluation, fall telemetry, GIF rendering, report writing,
+and the non-advancement path. Both sampled stochastic episodes fell and neither
+arm met locomotion gates, which is expected at 0.024% of the evidence budget.
+
+**Decision:** the workflow is ready, but no learning claim or candidate
+selection follows from the smoke. Run the full seed-21 screen before deciding
+whether previous-action context addresses recovery or gait structure.
+Artifacts:
+`outputs/quality_studies_walker_action_memory_smoke_20260727`.
+
 ## How To Append A Future Entry
 
 Do not rewrite an old failure to make a later result look inevitable. Add a
