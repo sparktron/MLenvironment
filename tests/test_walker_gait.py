@@ -234,3 +234,46 @@ def test_simultaneous_landing_reports_one_interval_not_a_spurious_zero() -> None
     assert step.right_touchdown and step.left_touchdown
     # Measured from step 1, not 0.0 for whichever foot is processed second.
     assert step.touchdown_interval == pytest.approx(6 / 60)
+
+
+def test_in_flight_and_contact_duty_imbalance_track_support_state() -> None:
+    tracker = WalkerGaitTracker(touchdown_debounce_steps=1, control_timestep=1 / 60)
+    tracker.reset(initial_contacts=(True, True), action_size=10)
+
+    # Both feet down: grounded, and double support cancels in the imbalance.
+    step = _update(tracker, step=1, contacts=(True, True), x=0.0)
+    assert step.in_flight is False
+    assert step.contact_duty_imbalance == pytest.approx(0.0)
+
+    # Airborne.
+    step = _update(tracker, step=2, contacts=(False, False), x=0.0)
+    assert step.in_flight is True
+
+    # Three right-only steps against one left-only: 4 vs 2 stance steps
+    # (the initial double-support step counts for both legs).
+    for n in (3, 4, 5):
+        step = _update(tracker, step=n, contacts=(True, False), x=0.0)
+    assert step.in_flight is False
+    assert step.contact_duty_imbalance == pytest.approx(3 / 5)
+
+    step = _update(tracker, step=6, contacts=(False, True), x=0.0)
+    assert step.contact_duty_imbalance == pytest.approx(2 / 6)
+
+
+def test_contact_duty_imbalance_is_zero_for_a_symmetric_gait() -> None:
+    tracker = WalkerGaitTracker(touchdown_debounce_steps=1, control_timestep=1 / 60)
+    tracker.reset(initial_contacts=(False, False), action_size=10)
+
+    step = None
+    for cycle in range(4):
+        for n in range(2):
+            step = _update(
+                tracker, step=cycle * 4 + n, contacts=(True, False), x=0.0
+            )
+        for n in range(2, 4):
+            step = _update(
+                tracker, step=cycle * 4 + n, contacts=(False, True), x=0.0
+            )
+
+    assert step is not None
+    assert step.contact_duty_imbalance == pytest.approx(0.0)

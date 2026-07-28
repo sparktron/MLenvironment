@@ -336,6 +336,8 @@ class WalkerMetricsCallback(BaseCallback):
         "reward_action_rate_mean": "reward_action_rate_mean",
         "reward_swing_clearance_mean": "reward_swing_clearance_mean",
         "reward_touchdown_rate_mean": "reward_touchdown_rate_mean",
+        "reward_flight_mean": "reward_flight_mean",
+        "reward_gait_symmetry_mean": "reward_gait_symmetry_mean",
         "gait_right_only_fraction": "gait_right_only_fraction",
         "gait_left_only_fraction": "gait_left_only_fraction",
         "gait_double_support_fraction": "gait_double_support_fraction",

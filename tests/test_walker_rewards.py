@@ -42,6 +42,8 @@ def test_reward_components_sum_to_computed_reward() -> None:
         "action_rate",
         "swing_clearance",
         "touchdown_rate",
+        "flight",
+        "gait_symmetry",
     }
     assert sum(components.values()) == reward.compute(**kwargs)
     assert components["fall"] == -reward.fall_penalty
@@ -247,9 +249,58 @@ def test_new_gait_terms_are_zero_by_default() -> None:
         action_rate_l2=9.0,
         swing_clearance=0.08,
         touchdown_interval=0.01,
+        in_flight=True,
+        contact_duty_imbalance=0.9,
     )
 
     assert reward.velocity_mode == "gaussian"
     assert components["action_rate"] == 0.0
     assert components["swing_clearance"] == 0.0
     assert components["touchdown_rate"] == 0.0
+    assert components["flight"] == 0.0
+    assert components["gait_symmetry"] == 0.0
+
+
+def test_flight_penalty_distinguishes_a_walk_from_a_run() -> None:
+    """Nothing else in the reward tells a walk from a bound.
+
+    The 10M reward_v2 candidate reached 0.41 m strides and 63 mm clearance
+    while spending 54% of steps airborne with 0.7% double support -- it
+    satisfied every stride and clearance term by running.
+    """
+    reward = WalkerReward(flight_penalty_weight=0.5)
+    action = np.zeros(10, dtype=np.float32)
+
+    def total(in_flight: bool) -> float:
+        return reward.components(
+            lin_vel_x=1.0,
+            pitch_roll_penalty=0.0,
+            action=action,
+            alive=True,
+            in_flight=in_flight,
+        )["flight"]
+
+    assert total(in_flight=False) == pytest.approx(0.0)
+    assert total(in_flight=True) == pytest.approx(-0.5)
+
+
+def test_gait_symmetry_penalty_scales_with_duty_imbalance() -> None:
+    reward = WalkerReward(gait_symmetry_penalty_weight=0.5)
+    action = np.zeros(10, dtype=np.float32)
+
+    def symmetry(imbalance: float) -> float:
+        return reward.components(
+            lin_vel_x=1.0,
+            pitch_roll_penalty=0.0,
+            action=action,
+            alive=True,
+            contact_duty_imbalance=imbalance,
+        )["gait_symmetry"]
+
+    assert symmetry(0.0) == pytest.approx(0.0)
+    # The measured candidate ran 30.7% right / 16.0% left -> 0.315 imbalance.
+    assert symmetry(0.315) == pytest.approx(-0.1575)
+    assert symmetry(1.0) == pytest.approx(-0.5)
+    # Out-of-range inputs are clamped rather than extrapolated.
+    assert symmetry(4.0) == pytest.approx(-0.5)
+    assert symmetry(-1.0) == pytest.approx(0.0)

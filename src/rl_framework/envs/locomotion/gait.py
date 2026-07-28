@@ -23,6 +23,13 @@ class GaitStep:
     # Seconds since the previous accepted touchdown on either foot. ``None``
     # on steps with no touchdown and on the episode's first touchdown.
     touchdown_interval: float | None
+    # True when neither foot is on a supporting surface. A walk has no flight
+    # phase at all; a run is defined by having one.
+    in_flight: bool
+    # Running |right - left| stance-step imbalance as a fraction of total
+    # stance steps, in [0, 1]. 0.0 is a perfectly even duty cycle between the
+    # legs; 1.0 means one leg has done all the standing.
+    contact_duty_imbalance: float
     touchdown_swing_duration: float | None
     touchdown_swing_clearance: float | None
     touchdown_side: int | None
@@ -142,6 +149,18 @@ class WalkerGaitTracker:
             self._support_counts[1] += 1
         else:
             self._support_counts[3] += 1
+
+        in_flight = not right_contact and not left_contact
+        # Double-support steps count for both legs and cancel in the
+        # difference, so the imbalance is driven entirely by single-support.
+        right_stance_steps = self._support_counts[0] + self._support_counts[2]
+        left_stance_steps = self._support_counts[1] + self._support_counts[2]
+        total_stance_steps = right_stance_steps + left_stance_steps
+        contact_duty_imbalance = (
+            abs(right_stance_steps - left_stance_steps) / total_stance_steps
+            if total_stance_steps
+            else 0.0
+        )
 
         contacting_speeds = [
             max(float(speed), 0.0)
@@ -300,6 +319,8 @@ class WalkerGaitTracker:
             action_delta_l2=action_delta_l2,
             swing_clearance_now=swing_clearance_now,
             touchdown_interval=touchdown_interval,
+            in_flight=in_flight,
+            contact_duty_imbalance=contact_duty_imbalance,
             touchdown_swing_duration=touchdown_swing_duration,
             touchdown_swing_clearance=touchdown_swing_clearance,
             touchdown_side=touchdown_side,

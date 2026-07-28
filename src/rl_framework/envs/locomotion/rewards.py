@@ -68,6 +68,15 @@ class WalkerReward:
     # inter-touchdown interval is ``1 / (2 * max_cycle_frequency_hz)``.
     touchdown_rate_penalty_weight: float = 0.0
     max_cycle_frequency_hz: float = 2.5
+    # Charged on every step where neither foot is on a supporting surface.
+    # A walk has no flight phase; a run is defined by having one. Nothing else
+    # in the reward distinguishes the two, so a policy paid only for clearance
+    # and stride will happily bound.
+    flight_penalty_weight: float = 0.0
+    # Charged in proportion to the running left/right stance duty imbalance.
+    # Without it a policy can satisfy every stride and clearance term while
+    # favouring one leg and dragging the other.
+    gait_symmetry_penalty_weight: float = 0.0
 
     @property
     def min_touchdown_interval(self) -> float:
@@ -87,6 +96,8 @@ class WalkerReward:
         action_rate_l2: float = 0.0,
         swing_clearance: float = 0.0,
         touchdown_interval: float | None = None,
+        in_flight: bool = False,
+        contact_duty_imbalance: float = 0.0,
     ) -> float:
         return float(
             sum(
@@ -102,6 +113,8 @@ class WalkerReward:
                     action_rate_l2=action_rate_l2,
                     swing_clearance=swing_clearance,
                     touchdown_interval=touchdown_interval,
+                    in_flight=in_flight,
+                    contact_duty_imbalance=contact_duty_imbalance,
                 ).values()
             )
         )
@@ -119,6 +132,8 @@ class WalkerReward:
         action_rate_l2: float = 0.0,
         swing_clearance: float = 0.0,
         touchdown_interval: float | None = None,
+        in_flight: bool = False,
+        contact_duty_imbalance: float = 0.0,
     ) -> dict[str, float]:
         """Return individually attributable reward terms.
 
@@ -178,6 +193,10 @@ class WalkerReward:
             touchdown_rate_penalty = -self.touchdown_rate_penalty_weight * (
                 shortfall / minimum
             )
+        flight_penalty = -self.flight_penalty_weight if in_flight else 0.0
+        gait_symmetry_penalty = -self.gait_symmetry_penalty_weight * min(
+            max(float(contact_duty_imbalance), 0.0), 1.0
+        )
         return {
             "alive": float(alive_reward),
             "velocity": float(velocity_reward),
@@ -190,4 +209,6 @@ class WalkerReward:
             "action_rate": float(action_rate_penalty),
             "swing_clearance": float(swing_clearance_reward),
             "touchdown_rate": float(touchdown_rate_penalty),
+            "flight": float(flight_penalty),
+            "gait_symmetry": float(gait_symmetry_penalty),
         }

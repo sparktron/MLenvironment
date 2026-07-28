@@ -660,6 +660,8 @@ class WalkerBulletEnv(gym.Env):
                 "action_rate",
                 "swing_clearance",
                 "touchdown_rate",
+                "flight",
+                "gait_symmetry",
             )
         }
         foot_contacts = self._foot_contacts()
@@ -792,6 +794,8 @@ class WalkerBulletEnv(gym.Env):
             "action_rate_l2": gait_step.action_delta_l2**2,
             "swing_clearance": gait_step.swing_clearance_now,
             "touchdown_interval": gait_step.touchdown_interval,
+            "in_flight": gait_step.in_flight,
+            "contact_duty_imbalance": gait_step.contact_duty_imbalance,
         }
         reward_components = self.reward_fn.components(**reward_inputs)
         reward = self.reward_fn.compute(**reward_inputs)
@@ -837,6 +841,7 @@ class WalkerBulletEnv(gym.Env):
             "action_delta_l2": gait_step.action_delta_l2,
             "swing_clearance_now": gait_step.swing_clearance_now,
             "touchdown_interval": gait_step.touchdown_interval,
+            "contact_duty_imbalance": gait_step.contact_duty_imbalance,
             "target_velocity": self.reward_fn.target_velocity,
             "velocity_error": self.reward_fn.target_velocity - float(lin_vel[0]),
             "right_foot_tangential_velocity": foot_tangential_velocities[0],

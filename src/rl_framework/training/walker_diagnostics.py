@@ -56,6 +56,8 @@ _REWARD_EPISODE_METRICS = (
     "reward_action_rate_mean",
     "reward_swing_clearance_mean",
     "reward_touchdown_rate_mean",
+    "reward_flight_mean",
+    "reward_gait_symmetry_mean",
 )
 
 
