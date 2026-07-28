@@ -1288,3 +1288,60 @@ def test_arena_n_agent_simultaneous_wipeout_is_draw() -> None:
     assert all(terms.values())
     assert infos["agent_0"]["episode_outcome"]["outcome"] == "draw"
     assert all(rewards[a] == -1.0 for a in ("agent_0", "agent_1", "agent_2"))
+
+
+def test_gait_phase_observation_and_reference_schedule() -> None:
+    """The clock encodes anti-phase, which no per-step marginal can express."""
+    cfg = {
+        "type": "walker_bullet",
+        "seed": 0,
+        "observation": {
+            "version": "v2",
+            "coordinate_free": True,
+            "include_gait_phase": True,
+        },
+        "gait": {"cycle_period_s": 1.0, "stance_duty": 0.6},
+        "termination": {"max_steps": 10},
+    }
+    env = make_env("walker_bullet", cfg)
+    try:
+        # 35-D coordinate-free v2 plus (sin, cos) of the phase.
+        assert env.observation_space.shape == (37,)
+        obs, _ = env.reset(seed=0)
+        assert obs.shape == (37,)
+        # phase 0 -> sin 0, cos 1
+        assert obs[-2] == pytest.approx(0.0, abs=1e-5)
+        assert obs[-1] == pytest.approx(1.0, abs=1e-5)
+
+        # Right leg leads; the left is the same window half a cycle later.
+        assert env._expected_stance(0.0) == (True, True)      # double support
+        assert env._expected_stance(0.3) == (True, False)     # right single
+        assert env._expected_stance(0.55) == (True, True)     # double support
+        assert env._expected_stance(0.8) == (False, True)     # left single
+        # No phase leaves both feet airborne: stance_duty > 0.5 forbids flight.
+        assert all(
+            any(env._expected_stance(p / 100.0)) for p in range(100)
+        )
+
+        # The clock advances at the control rate: 60 Hz control, 1 s cycle.
+        env.step(np.zeros(10, dtype=np.float32))
+        assert env._gait_phase == pytest.approx(1 / 60, abs=1e-6)
+    finally:
+        env.close()
+
+
+def test_gait_stance_duty_must_leave_no_flight_phase() -> None:
+    def make(duty):
+        return make_env(
+            "walker_bullet",
+            {
+                "type": "walker_bullet",
+                "observation": {"version": "v2", "coordinate_free": True},
+                "gait": {"stance_duty": duty},
+            }
+        )
+
+    with pytest.raises(ValueError, match="stance_duty"):
+        make(0.4)
+    with pytest.raises(ValueError, match="stance_duty"):
+        make(1.0)

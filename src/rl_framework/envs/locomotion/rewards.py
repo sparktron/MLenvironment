@@ -103,6 +103,14 @@ class WalkerReward:
     # directly. Keep it well below the velocity weight: standing still scores
     # 100% double support, so an oversized weight makes standing competitive.
     double_support_reward_weight: float = 0.0
+    # Paid for matching a periodic reference contact schedule driven by a gait
+    # clock in the observation. Every per-step *property* term above constrains
+    # a marginal -- how high a foot lifts, how often it lands, how evenly the
+    # legs share load -- and four screens showed each can be satisfied by a
+    # non-walking gait, most starkly by hopping with both legs in phase. Only a
+    # phase-indexed target expresses the anti-phase ORDERING that defines a
+    # walk. Input is the fraction of feet whose contact matches the schedule.
+    phase_contact_weight: float = 0.0
 
     @property
     def min_touchdown_interval(self) -> float:
@@ -124,6 +132,7 @@ class WalkerReward:
         touchdown_interval: float | None = None,
         touchdown_clearance: float | None = None,
         bilateral_clearance: float = 0.0,
+        phase_contact_match: float = 0.0,
         in_flight: bool = False,
         in_double_support: bool = False,
         contact_duty_imbalance: float = 0.0,
@@ -144,6 +153,7 @@ class WalkerReward:
                     touchdown_interval=touchdown_interval,
                     touchdown_clearance=touchdown_clearance,
                     bilateral_clearance=bilateral_clearance,
+                    phase_contact_match=phase_contact_match,
                     in_flight=in_flight,
                     in_double_support=in_double_support,
                     contact_duty_imbalance=contact_duty_imbalance,
@@ -166,6 +176,7 @@ class WalkerReward:
         touchdown_interval: float | None = None,
         touchdown_clearance: float | None = None,
         bilateral_clearance: float = 0.0,
+        phase_contact_match: float = 0.0,
         in_flight: bool = False,
         in_double_support: bool = False,
         contact_duty_imbalance: float = 0.0,
@@ -238,6 +249,9 @@ class WalkerReward:
             max(float(bilateral_clearance), 0.0),
             max(self.bilateral_clearance_target, 0.0),
         )
+        phase_contact_reward = self.phase_contact_weight * min(
+            max(float(phase_contact_match), 0.0), 1.0
+        )
         flight_penalty = -self.flight_penalty_weight if in_flight else 0.0
         double_support_reward = (
             self.double_support_reward_weight if in_double_support else 0.0
@@ -258,6 +272,7 @@ class WalkerReward:
             "swing_clearance": float(swing_clearance_reward),
             "touchdown_clearance": float(touchdown_clearance_reward),
             "bilateral_clearance": float(bilateral_clearance_reward),
+            "phase_contact": float(phase_contact_reward),
             "touchdown_rate": float(touchdown_rate_penalty),
             "flight": float(flight_penalty),
             "double_support": float(double_support_reward),

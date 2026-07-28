@@ -43,6 +43,7 @@ def test_reward_components_sum_to_computed_reward() -> None:
         "swing_clearance",
         "touchdown_clearance",
         "bilateral_clearance",
+        "phase_contact",
         "touchdown_rate",
         "flight",
         "double_support",
@@ -443,3 +444,23 @@ def test_bilateral_clearance_requires_both_legs_and_ignores_cadence() -> None:
     assert term(0.05) == pytest.approx(0.4)
     assert term(0.20) == pytest.approx(0.4)
     assert term(0.0) == pytest.approx(0.0)
+
+
+def test_phase_contact_reward_scales_with_schedule_match() -> None:
+    reward = WalkerReward(phase_contact_weight=0.6)
+    action = np.zeros(10, dtype=np.float32)
+
+    def term(match: float) -> float:
+        return reward.components(
+            lin_vel_x=1.0,
+            pitch_roll_penalty=0.0,
+            action=action,
+            alive=True,
+            phase_contact_match=match,
+        )["phase_contact"]
+
+    assert term(0.0) == pytest.approx(0.0)    # both feet wrong
+    assert term(0.5) == pytest.approx(0.3)    # one foot right
+    assert term(1.0) == pytest.approx(0.6)    # both feet on schedule
+    assert term(3.0) == pytest.approx(0.6)    # clamped
+    assert term(-1.0) == pytest.approx(0.0)

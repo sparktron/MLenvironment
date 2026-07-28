@@ -88,6 +88,7 @@ class WalkerBulletEnv(gym.Env):
                 raise ValueError(
                     "observation.coordinate_free requires observation.version: v2"
                 )
+            self._include_gait_phase = bool(obs_cfg.get("include_gait_phase", False))
             if self._observation_version == "v1" and self._include_previous_action:
                 raise ValueError(
                     "observation.include_previous_action requires observation.version: v2"
@@ -100,6 +101,10 @@ class WalkerBulletEnv(gym.Env):
                 self._obs_size -= 2
             if self._include_previous_action:
                 self._obs_size += 10
+            # The gait clock enters as (sin, cos) so it is continuous across
+            # the wrap at phase 1 -> 0.
+            if self._include_gait_phase:
+                self._obs_size += 2
             # joints: rHip rKnee rAnkle lHip lKnee lAnkle rShoulder rElbow lShoulder lElbow
             # The DR scales make randomization observable to the policy; without
             # them, random mass/friction look like pure noise from the agent's
@@ -128,6 +133,24 @@ class WalkerBulletEnv(gym.Env):
             self._push_force = float(push_cfg.get("force", 0.0))
             self._push_start_step = int(push_cfg.get("start_step", 0))
             gait_cfg = get_section(cfg, "gait")
+            # Reference gait cycle. Four screens of per-step *property* terms
+            # (clearance, cadence, symmetry, support fractions) were each
+            # satisfied by a non-walking gait, because no marginal can express
+            # the anti-phase relationship that defines a walk. The clock and
+            # the schedule below encode the ordering directly: right leg is
+            # expected in stance over phase [0, stance_duty), left leg over the
+            # same window offset by half a cycle.
+            self._gait_cycle_period_s = float(gait_cfg.get("cycle_period_s", 1.0))
+            if self._gait_cycle_period_s <= 0:
+                raise ValueError("gait.cycle_period_s must be positive")
+            # 0.6 gives 2*0.6-1 = 20% double support and no flight phase.
+            self._gait_stance_duty = float(gait_cfg.get("stance_duty", 0.6))
+            if not 0.5 < self._gait_stance_duty < 1.0:
+                raise ValueError(
+                    "gait.stance_duty must be in (0.5, 1.0); below 0.5 leaves a "
+                    "flight phase, at/above 1.0 no foot ever swings"
+                )
+            self._gait_phase = 0.0
             self._gait_tracker = WalkerGaitTracker(
                 touchdown_debounce_steps=int(
                     gait_cfg.get("touchdown_debounce_steps", 3)
@@ -461,6 +484,9 @@ class WalkerBulletEnv(gym.Env):
             values.extend(float(contact) for contact in foot_contacts)
         if self._include_previous_action:
             values.extend(self._previous_action)
+        if self._include_gait_phase:
+            angle = 2.0 * np.pi * self._gait_phase
+            values.extend((float(np.sin(angle)), float(np.cos(angle))))
         self._obs_buf[:] = values
         if self._sensor_noise_std > 0.0:
             obs = self._obs_buf + self._rng.normal(
@@ -489,6 +515,18 @@ class WalkerBulletEnv(gym.Env):
             for link in (2, 5)
         ]
         return contacts[0], contacts[1]
+
+    def _expected_stance(self, phase: float) -> tuple[bool, bool]:
+        """Reference contact schedule at a gait phase.
+
+        Right leg is in stance over ``[0, stance_duty)``; the left leg follows
+        the same window half a cycle later. With ``stance_duty`` above 0.5 the
+        two windows overlap, producing double support and no flight phase.
+        """
+        duty = self._gait_stance_duty
+        right = (phase % 1.0) < duty
+        left = ((phase + 0.5) % 1.0) < duty
+        return bool(right), bool(left)
 
     def _foot_slip_speeds(self) -> tuple[float, float]:
         velocities = self._foot_tangential_velocities()
@@ -661,6 +699,7 @@ class WalkerBulletEnv(gym.Env):
                 "swing_clearance",
                 "touchdown_clearance",
                 "bilateral_clearance",
+                "phase_contact",
                 "touchdown_rate",
                 "flight",
                 "double_support",
@@ -674,6 +713,7 @@ class WalkerBulletEnv(gym.Env):
             action_size=action_size,
         )
         self._previous_action.fill(0.0)
+        self._gait_phase = 0.0
         obs = self._get_obs(foot_contacts=foot_contacts)
         return obs, {}
 
@@ -752,6 +792,15 @@ class WalkerBulletEnv(gym.Env):
         # The next observation receives the command that actually reached the
         # PD controller, including curriculum/action scaling and any latency.
         self._previous_action = applied_action.copy()
+        # Score against the schedule the policy actually saw, then advance.
+        expected_stance = self._expected_stance(self._gait_phase)
+        phase_contact_match = 0.5 * sum(
+            float(actual == want) for actual, want in zip(foot_contacts, expected_stance)
+        )
+        self._gait_phase = (
+            self._gait_phase
+            + (self._sim_timestep * max(1, self._frame_skip)) / self._gait_cycle_period_s
+        ) % 1.0
         obs = self._get_obs(
             pos=pos,
             quat=quat,
@@ -799,6 +848,7 @@ class WalkerBulletEnv(gym.Env):
             "touchdown_interval": gait_step.touchdown_interval,
             "touchdown_clearance": gait_step.touchdown_swing_clearance,
             "bilateral_clearance": gait_step.bilateral_swing_clearance,
+            "phase_contact_match": phase_contact_match,
             "in_flight": gait_step.in_flight,
             "in_double_support": gait_step.in_double_support,
             "contact_duty_imbalance": gait_step.contact_duty_imbalance,
@@ -846,6 +896,8 @@ class WalkerBulletEnv(gym.Env):
             "stance_slip_speed": gait_step.stance_slip_speed,
             "action_delta_l2": gait_step.action_delta_l2,
             "swing_clearance_now": gait_step.swing_clearance_now,
+            "gait_phase": self._gait_phase,
+            "phase_contact_match": phase_contact_match,
             "touchdown_interval": gait_step.touchdown_interval,
             "contact_duty_imbalance": gait_step.contact_duty_imbalance,
             "target_velocity": self.reward_fn.target_velocity,

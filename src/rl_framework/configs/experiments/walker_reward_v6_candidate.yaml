@@ -1,0 +1,121 @@
+# Paired CANDIDATE for the gait-phase screen (2026-07-28).
+#
+# Control is `walker_reward_v5_candidate`. Four consecutive screens added
+# per-step *property* terms and each was satisfied by a non-walking gait:
+#   v2 clearance/stride/cadence  -> asymmetric bound
+#   v3 flight penalty, symmetry  -> symmetric jog
+#   v4 double support, slip      -> one-legged hop
+#   v5 bilateral clearance       -> two-footed bunny hop
+# v5 is the clearest case: with both legs moving IN PHASE it is perfectly
+# symmetric, lands together (double support 31.4%), lifts together (bilateral
+# clearance), and sits inside the cadence band -- while only 13.9% of steps are
+# single support, against roughly 75% for a walk.
+#
+# No per-step marginal can express anti-phase, because equal duty says nothing
+# about ordering. This arm replaces the marginal support-state term with a
+# phase-indexed reference schedule:
+#
+#   observation.include_gait_phase   appends (sin, cos) of a 1 Hz clock; the
+#                                    pair is continuous across the 1 -> 0 wrap.
+#                                    Obs 35 -> 37, so this is
+#                                    checkpoint-incompatible.
+#   phase_contact_weight: 1.0        pays the fraction of feet whose contact
+#                                    matches the schedule. Right leg is in
+#                                    stance over phase [0, 0.6), the left the
+#                                    same window half a cycle later, giving 20%
+#                                    double support and no flight phase.
+#                                    A hop scores ~0.55 here against 1.0 for an
+#                                    anti-phase walk.
+#   double_support_reward_weight     0.5 -> 0. It is now subsumed AND in
+#                                    conflict: standing on both feet during a
+#                                    single-support window trades exactly 0.5 of
+#                                    phase match for exactly 0.5 of bonus, so
+#                                    double-support timing would be left
+#                                    unconstrained.
+#
+# flight_penalty and gait_symmetry are retained: both are implied by the
+# schedule rather than in tension with it.
+experiment_name: walker_reward_v6_candidate
+seed: 21
+
+environment:
+  type: walker_bullet
+  seed: 21
+  observation:
+    version: v2
+    coordinate_free: true
+    include_gait_phase: true
+  gait:
+    cycle_period_s: 1.0
+    stance_duty: 0.6
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    action_scale: 0.5
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  terrain:
+    preset: flat
+  reward:
+    alive_bonus: 0.10
+    forward_velocity_weight: 1.0
+    target_velocity: 0.15        # ramped to 1.0 by training.velocity_target_ramp
+    velocity_mode: clipped_linear
+    orientation_penalty_weight: 1.0
+    torque_penalty_weight: 0.02
+    fall_penalty: 2.0
+    action_rate_penalty_weight: 0.10
+    swing_clearance_weight: 0.0
+    bilateral_clearance_weight: 8.0
+    bilateral_clearance_target: 0.05
+    touchdown_rate_penalty_weight: 1.0
+    max_cycle_frequency_hz: 2.5
+    flight_penalty_weight: 0.5
+    gait_symmetry_penalty_weight: 0.5
+    double_support_reward_weight: 0.0
+    phase_contact_weight: 1.0
+    stance_slip_penalty_weight: 0.35
+    stance_slip_penalty_clip: 1.5
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 10000000
+  num_envs: 24
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 10
+  learning_rate: 0.0003
+  gamma: 0.995
+  log_std_init: -1.0
+  ent_coef: 0.001
+  checkpoint_every: 2000000
+  normalize_observations: true
+  device: cpu
+  velocity_target_ramp:
+    start: 0.15
+    end: 1.0
+    ramp_steps: 3000000
+
+evaluation:
+  episodes: 20
+
+output:
+  base_dir: outputs
