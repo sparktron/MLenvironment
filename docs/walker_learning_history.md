@@ -1124,3 +1124,83 @@ training against it.
 
 **Artifacts:** `outputs/quality_studies_walker_reward_v6_20260728/`,
 config `walker_reward_v6_candidate.yaml`.
+
+## 2026-07-28 — Correction: Swing Segmentation Was Not Debounced
+
+A dated correction to every clearance, swing-duration and stride figure recorded
+above, filed under the rule that a wrong historical value is corrected by
+appending. No earlier observation is retracted; the measurements were real, the
+instrument was not.
+
+**What was wrong.** `WalkerGaitTracker` debounced *touchdowns*
+(`step - _last_touchdown_steps[side] >= touchdown_debounce_steps`) but reset a
+swing's reference height on **any** raw contact break. The same contact stream
+was therefore filtered two different ways, and a single swing interrupted by a
+momentary re-contact was recorded as several small swings.
+
+**Evidence.** On the reward_v7 checkpoint, re-deriving clearance while merging
+contact gaps shorter than N steps:
+
+| merge gaps <= | swings counted | mean clearance |
+|---:|---:|---:|
+| 0 (what the tracker did) | 150 | 7.2 mm |
+| 3 | 85 | 14.2 mm |
+| 5 | 45 | 20.8 mm |
+
+Cadence independently implied ~45 swings (5.90 alternating touchdowns per 100
+steps over 762 steps), so the raw signal over-counted by 3.2x. Raw foot-height
+range over the same episode was 60 mm against a reported 7.2 mm clearance.
+
+**Why it mattered beyond the metric.** `bilateral_clearance_weight` is fed from
+this signal, and on v7 it earned **0.003 of a possible 0.400** — 27% of the
+reward left untaken with no gradient to climb, because the quantity it paid for
+was being measured as noise.
+
+**Change.** Event segmentation (swings, stances, touchdowns) now runs on a
+debounced contact signal; a swing is dated from the *raw* break so the
+confirmation lag does not eat the early part of the lift; slip and the
+support-occupancy fractions stay on the raw signal, being instantaneous
+measures rather than events.
+
+**Corrected re-evaluation, all six arms, 20 stochastic episodes:**
+
+| | v2 | v3 | v4 | v5 | v6 | v7 |
+|---|---:|---:|---:|---:|---:|---:|
+| stride (m) | 0.460 | 0.334 | 0.295 | 0.235 | 0.342 | **0.527** |
+| clearance (m) | 0.069 | **0.107** | 0.055 | 0.038 | 0.021 | 0.018 |
+| single support | 42.3% | 70.6% | 58.5% | 13.9% | 62.1% | **74.9%** |
+| flight | 57.6% | 29.0% | 36.4% | 54.7% | 34.4% | **20.7%** |
+| stance slip | 0.280 | 0.880 | 0.287 | 0.340 | 0.347 | **0.218** |
+| mid-stance slip | 0.319 | 0.196 | 0.208 | 0.251 | 0.249 | **0.188** |
+| phase match | — | — | — | — | 0.616 | **0.802** |
+| **gates** | 11/12 | 10/12 | 10/12 | 11/12 | **11/12** | 10/12 |
+
+The ranking moves: v4 drops 11/12 -> 10/12 (cadence 8.56 now exceeds the 8.5
+ceiling) and v6 rises 9/12 -> 11/12 (clearance and cadence both pass). Clearance
+was never as catastrophic as the broken instrument suggested — it was 38-107 mm
+in v2-v5, not 7-33 mm — so the "clearance collapsed" reading in the v6 and v7
+entries above overstated a real but smaller decline.
+
+**What the corrected data says.** v7 is structurally the closest to a walk this
+project has produced: 74.9% single support, 20.7% flight, 0.527 m stride at
+1.77 Hz, legs balanced, contact phase-locked at 0.802. Its two remaining gate
+failures are narrow — clearance 0.0176 against 0.020, and stance slip 0.218
+against 0.180 (mid-stance 0.188, essentially at the line).
+
+**On the slip gate.** `stance_slip <= 0.18` now fails in **all six arms**, best
+0.218, across gaits ranging from a bound to a hop to a phase-locked walk. A
+threshold measured in the 0.1 m/s regime that no gait at ~1.1 m/s has come
+within 20% of is more likely mis-scaled than universally violated. It still has
+not been changed, and should not be changed to make a candidate pass; it needs
+recalibration from a reference gait measured at the target speed, as the source
+comment on `WALKER_GAIT_GATE` already requires.
+
+**Lesson.** When two metrics derived from the same signal disagree by a constant
+factor, suspect the derivation before the behaviour. Cadence said 45 swings and
+clearance said 150; that ratio was visible in the data for five entries before
+anyone divided one by the other. A reward term reading near-zero while its
+theoretical maximum is 27% of total reward is the same signal in a different
+form — an untaken gradient that large is usually a broken measurement, not a
+stubborn policy.
+
+**Artifacts:** `outputs/quality_studies_walker_recheck_20260728/`.

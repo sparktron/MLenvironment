@@ -25,16 +25,26 @@ def _update(
     )
 
 
+def _hold(tracker, start_step, n, contacts, x):
+    """Hold a contact state for n steps so the debounce can confirm it."""
+    last = None
+    for i in range(n):
+        last = _update(tracker, step=start_step + i, contacts=contacts, x=x)
+    return last
+
+
 def test_gait_tracker_counts_only_ordered_alternating_touchdowns() -> None:
     tracker = WalkerGaitTracker(touchdown_debounce_steps=2)
     tracker.reset(initial_contacts=(True, True), action_size=10)
 
-    _update(tracker, step=1, contacts=(False, True), x=0.00)
-    first = _update(tracker, step=2, contacts=(True, True), x=0.05)
-    _update(tracker, step=3, contacts=(True, False), x=0.08)
-    alternating = _update(tracker, step=4, contacts=(True, True), x=0.15)
-    _update(tracker, step=5, contacts=(True, False), x=0.18)
-    same_foot = _update(tracker, step=6, contacts=(True, True), x=0.25)
+    # Each state is held for the debounce window; segmentation runs on the
+    # confirmed signal, so an event lands on the step it is confirmed.
+    _hold(tracker, 1, 2, (False, True), 0.00)
+    first = _hold(tracker, 3, 2, (True, True), 0.05)
+    _hold(tracker, 5, 2, (True, False), 0.08)
+    alternating = _hold(tracker, 7, 2, (True, True), 0.15)
+    _hold(tracker, 9, 2, (True, False), 0.18)
+    same_foot = _hold(tracker, 11, 2, (True, True), 0.25)
 
     assert first.valid_alternating_touchdown is False
     assert alternating.valid_alternating_touchdown is True
@@ -47,20 +57,40 @@ def test_gait_tracker_counts_only_ordered_alternating_touchdowns() -> None:
     assert metrics["gait_longest_same_foot_sequence"] == 2.0
 
 
-def test_gait_tracker_debounces_contact_bounce_and_ignores_double_landing() -> None:
-    tracker = WalkerGaitTracker(touchdown_debounce_steps=3)
-    tracker.reset(initial_contacts=(False, False), action_size=10)
+def test_debounce_rejects_brief_contact_breaks_within_one_swing() -> None:
+    """A momentary re-contact must not split one swing into two.
 
-    simultaneous = _update(tracker, step=1, contacts=(True, True), x=0.0)
-    _update(tracker, step=2, contacts=(False, True), x=0.0)
-    bounced = _update(tracker, step=3, contacts=(True, True), x=0.01)
+    Before the segmentation was debounced, any contact break reset the swing's
+    reference height while touchdowns stayed debounced. On the reward_v7
+    checkpoint that produced 150 swing fragments where cadence implied ~45 real
+    swings, understating mean clearance roughly 3x.
+    """
+    tracker = WalkerGaitTracker(touchdown_debounce_steps=3, control_timestep=0.1)
+    tracker.reset(initial_contacts=(True, True), action_size=10)
 
-    assert simultaneous.valid_alternating_touchdown is False
-    assert bounced.right_touchdown is False
+    def step(n, contacts, foot_z):
+        return _update(
+            tracker, step=n, contacts=contacts, x=0.0,
+            foot_positions=((0.0, foot_z), (0.0, 0.0)),
+        )
+
+    # Right foot lifts (held long enough to confirm) and climbs to 0.10 m.
+    for n, z in ((1, 0.02), (2, 0.04), (3, 0.06), (4, 0.08), (5, 0.10)):
+        step(n, (False, True), z)
+    # A single-step contact blip mid-swing: too short to confirm, so the swing
+    # reference height must survive it.
+    step(6, (True, True), 0.09)
+    for n, z in ((7, 0.08), (8, 0.06), (9, 0.04)):
+        step(n, (False, True), z)
+    # Genuine landing, held past the debounce window.
+    for n in (10, 11, 12):
+        step(n, (True, True), 0.02)
+
     metrics = tracker.episode_metrics()
-    assert metrics["gait_right_touchdowns"] == 1.0
-    assert metrics["gait_left_touchdowns"] == 1.0
-    assert metrics["gait_alternating_touchdowns"] == 0.0
+    assert metrics["gait_qualified_touchdowns"] == 1.0, "the blip must not count"
+    # Reference height is the 0.02 m at which contact was genuinely broken, so
+    # the recorded clearance is the full 0.10 m peak minus that.
+    assert metrics["gait_foot_clearance"] == pytest.approx(0.08)
 
 
 def test_gait_tracker_support_fractions_slip_and_reset() -> None:
@@ -106,7 +136,9 @@ def test_gait_tracker_support_fractions_slip_and_reset() -> None:
 
 
 def test_gait_tracker_reports_stride_swing_clearance_and_cadence() -> None:
-    tracker = WalkerGaitTracker(control_timestep=0.1)
+    # debounce 1 keeps the confirmation immediate; this test is about
+    # stride/clearance bookkeeping, not contact filtering.
+    tracker = WalkerGaitTracker(control_timestep=0.1, touchdown_debounce_steps=1)
     tracker.reset(initial_contacts=(True, True), action_size=2)
 
     _update(tracker, step=1, contacts=(False, True), x=0.0, foot_positions=((0.0, 0.03), (0.0, 0.0)))
@@ -127,6 +159,7 @@ def test_gait_tracker_reports_stride_swing_clearance_and_cadence() -> None:
 def test_sustained_swing_progress_requires_duration_and_clearance() -> None:
     tracker = WalkerGaitTracker(
         control_timestep=0.1,
+        touchdown_debounce_steps=1,
         min_swing_duration=0.2,
         min_foot_clearance=0.05,
     )
@@ -150,7 +183,7 @@ def test_sustained_swing_progress_requires_duration_and_clearance() -> None:
 
 
 def test_gait_tracker_reports_completed_stance_advance_duration_and_slip() -> None:
-    tracker = WalkerGaitTracker(control_timestep=0.1)
+    tracker = WalkerGaitTracker(control_timestep=0.1, touchdown_debounce_steps=1)
     tracker.reset(initial_contacts=(False, True), action_size=2)
 
     touchdown = _update(

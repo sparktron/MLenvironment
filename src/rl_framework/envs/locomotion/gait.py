@@ -73,6 +73,23 @@ class WalkerGaitTracker:
     # landing per foot every 2.2 s).
     clearance_staleness_steps: int = 150
     _previous_contacts: tuple[bool, bool] = (False, False)
+    # Debounced contact signal used for EVENT segmentation (swings, stances,
+    # touchdowns). Raw contacts still drive the occupancy fractions, which are
+    # instantaneous measures. Without this, a swing's reference height was
+    # reset by any momentary re-contact while touchdowns were debounced, so the
+    # two disagreed: on the reward_v7 checkpoint the raw signal produced 150
+    # swing fragments where cadence implied ~45 real swings, understating mean
+    # clearance 3x (7.2 mm against ~21 mm).
+    _confirmed_contacts: tuple[bool, bool] = (False, False)
+    _contact_disagree: list[int] = field(default_factory=lambda: [0, 0])
+    # Foot height and step index captured on the FIRST step the raw signal
+    # disagrees with the confirmed one. Confirmation lags by the debounce
+    # window, and the foot keeps rising during it, so measuring a swing from
+    # the confirmation step would understate clearance and duration.
+    _pending_break_z: list[float | None] = field(default_factory=lambda: [None, None])
+    _pending_break_step: list[int | None] = field(
+        default_factory=lambda: [None, None]
+    )
     _last_touchdown_steps: list[int] = field(default_factory=lambda: [-10_000, -10_000])
     _last_touchdown_side: int | None = None
     _last_touchdown_x: float | None = None
@@ -127,6 +144,10 @@ class WalkerGaitTracker:
         action_size: int,
     ) -> None:
         self._previous_contacts = initial_contacts
+        self._confirmed_contacts = initial_contacts
+        self._contact_disagree = [0, 0]
+        self._pending_break_z = [None, None]
+        self._pending_break_step = [None, None]
         self._last_touchdown_steps = [-10_000, -10_000]
         self._last_touchdown_side = None
         self._last_touchdown_x = None
@@ -195,6 +216,21 @@ class WalkerGaitTracker:
             else 0.0
         )
 
+        confirmed = list(self._confirmed_contacts)
+        for side in (0, 1):
+            if contacts[side] != confirmed[side]:
+                if self._contact_disagree[side] == 0:
+                    self._pending_break_z[side] = float(foot_positions[side][1])
+                    self._pending_break_step[side] = step
+                self._contact_disagree[side] += 1
+                if self._contact_disagree[side] >= self.touchdown_debounce_steps:
+                    confirmed[side] = contacts[side]
+                    self._contact_disagree[side] = 0
+            else:
+                self._contact_disagree[side] = 0
+        self._confirmed_contacts = (confirmed[0], confirmed[1])
+        segmentation_contacts = self._confirmed_contacts
+
         contacting_speeds = [
             max(float(speed), 0.0)
             for contact, speed in zip(contacts, foot_slip_speeds)
@@ -227,7 +263,7 @@ class WalkerGaitTracker:
         # for the second foot.
         previous_any_touchdown_step = self._last_any_touchdown_step
         for side, (contact, previous_contact) in enumerate(
-            zip(contacts, self._previous_contacts)
+            zip(segmentation_contacts, self._previous_contacts)
         ):
             foot_x, foot_z = foot_positions[side]
             if not contact and previous_contact:
@@ -247,9 +283,15 @@ class WalkerGaitTracker:
                 self._stance_slip_counts[side] = 0
             if not contact:
                 if previous_contact:
-                    self._swing_start_steps[side] = step
-                    self._swing_start_z[side] = float(foot_z)
-                    self._swing_peak_z[side] = float(foot_z)
+                    # Date the swing from the raw break, not its confirmation.
+                    pending_step = self._pending_break_step[side]
+                    pending_z = self._pending_break_z[side]
+                    self._swing_start_steps[side] = (
+                        pending_step if pending_step is not None else step
+                    )
+                    start_z = pending_z if pending_z is not None else float(foot_z)
+                    self._swing_start_z[side] = start_z
+                    self._swing_peak_z[side] = max(start_z, float(foot_z))
                 elif self._swing_start_steps[side] is not None:
                     self._swing_peak_z[side] = max(
                         self._swing_peak_z[side], float(foot_z)
@@ -294,7 +336,10 @@ class WalkerGaitTracker:
                         self._stride_lengths.append(abs(float(foot_x) - previous_x))
                     self._last_stride_touchdown_x[side] = float(foot_x)
                 self._swing_start_steps[side] = None
-            if contact and self._stance_start_steps[side] is not None:
+            # Slip is an instantaneous measurement, so it follows the RAW
+            # contact signal. Using the debounced one would extend the stance
+            # window past the real liftoff and count swing motion as slip.
+            if contacts[side] and self._stance_start_steps[side] is not None:
                 slip_speed = float(foot_slip_speeds[side])
                 if np.isfinite(slip_speed):
                     self._stance_slip_sums[side] += max(slip_speed, 0.0)
@@ -310,7 +355,7 @@ class WalkerGaitTracker:
             else self._last_swing_clearance[side]
             for side, last_step in enumerate(self._last_swing_touchdown_step)
         )
-        self._previous_contacts = contacts
+        self._previous_contacts = segmentation_contacts
 
         alternating = False
         progress = 0.0
