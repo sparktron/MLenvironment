@@ -336,6 +336,7 @@ class WalkerMetricsCallback(BaseCallback):
         "reward_action_rate_mean": "reward_action_rate_mean",
         "reward_swing_clearance_mean": "reward_swing_clearance_mean",
         "reward_touchdown_clearance_mean": "reward_touchdown_clearance_mean",
+        "reward_bilateral_clearance_mean": "reward_bilateral_clearance_mean",
         "reward_touchdown_rate_mean": "reward_touchdown_rate_mean",
         "reward_flight_mean": "reward_flight_mean",
         "reward_double_support_mean": "reward_double_support_mean",
@@ -354,6 +355,7 @@ class WalkerMetricsCallback(BaseCallback):
             "gait_progress_per_alternating_touchdown"
         ),
         "gait_stance_slip_speed": "gait_stance_slip_speed",
+        "gait_mid_stance_slip_speed": "gait_mid_stance_slip_speed",
         "gait_longest_same_foot_sequence": ("gait_longest_same_foot_sequence_mean"),
         "gait_mean_action_delta_l2": "gait_mean_action_delta_l2",
         "gait_stride_length": "gait_stride_length",

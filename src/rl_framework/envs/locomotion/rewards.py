@@ -71,12 +71,17 @@ class WalkerReward:
     swing_clearance_weight: float = 0.0
     swing_clearance_target: float = 0.05
     # Per-foot, paid on the step a foot lands, proportional to the clearance
-    # that foot actually achieved during its swing. This is the same quantity
-    # ``gait_foot_clearance`` gates on, so it cannot be farmed by one leg.
-    # It fires only on touchdowns (~7 per 100 steps), so an equivalent weight
-    # is roughly 14x the dense one.
+    # that foot actually achieved. Not farmable by one leg, but the payment
+    # scales with the NUMBER of touchdowns, so it rewards higher cadence and
+    # works against ``touchdown_rate_penalty_weight``. Prefer
+    # ``bilateral_clearance_weight`` unless you specifically want that coupling.
     touchdown_clearance_weight: float = 0.0
     touchdown_clearance_target: float = 0.05
+    # Dense credit for the LOWER of the two feet's most recent swing
+    # clearances. Both feet must lift to earn it, and because it pays per step
+    # rather than per landing it is independent of cadence.
+    bilateral_clearance_weight: float = 0.0
+    bilateral_clearance_target: float = 0.05
     # Penalises touchdowns arriving faster than ``max_cycle_frequency_hz``.
     # One gait cycle is two alternating touchdowns, so the minimum sane
     # inter-touchdown interval is ``1 / (2 * max_cycle_frequency_hz)``.
@@ -118,6 +123,7 @@ class WalkerReward:
         swing_clearance: float = 0.0,
         touchdown_interval: float | None = None,
         touchdown_clearance: float | None = None,
+        bilateral_clearance: float = 0.0,
         in_flight: bool = False,
         in_double_support: bool = False,
         contact_duty_imbalance: float = 0.0,
@@ -137,6 +143,7 @@ class WalkerReward:
                     swing_clearance=swing_clearance,
                     touchdown_interval=touchdown_interval,
                     touchdown_clearance=touchdown_clearance,
+                    bilateral_clearance=bilateral_clearance,
                     in_flight=in_flight,
                     in_double_support=in_double_support,
                     contact_duty_imbalance=contact_duty_imbalance,
@@ -158,6 +165,7 @@ class WalkerReward:
         swing_clearance: float = 0.0,
         touchdown_interval: float | None = None,
         touchdown_clearance: float | None = None,
+        bilateral_clearance: float = 0.0,
         in_flight: bool = False,
         in_double_support: bool = False,
         contact_duty_imbalance: float = 0.0,
@@ -226,6 +234,10 @@ class WalkerReward:
                 max(float(touchdown_clearance), 0.0),
                 max(self.touchdown_clearance_target, 0.0),
             )
+        bilateral_clearance_reward = self.bilateral_clearance_weight * min(
+            max(float(bilateral_clearance), 0.0),
+            max(self.bilateral_clearance_target, 0.0),
+        )
         flight_penalty = -self.flight_penalty_weight if in_flight else 0.0
         double_support_reward = (
             self.double_support_reward_weight if in_double_support else 0.0
@@ -245,6 +257,7 @@ class WalkerReward:
             "action_rate": float(action_rate_penalty),
             "swing_clearance": float(swing_clearance_reward),
             "touchdown_clearance": float(touchdown_clearance_reward),
+            "bilateral_clearance": float(bilateral_clearance_reward),
             "touchdown_rate": float(touchdown_rate_penalty),
             "flight": float(flight_penalty),
             "double_support": float(double_support_reward),

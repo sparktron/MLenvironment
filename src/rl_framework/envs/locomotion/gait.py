@@ -26,6 +26,11 @@ class GaitStep:
     # True when neither foot is on a supporting surface. A walk has no flight
     # phase at all; a run is defined by having one.
     in_flight: bool
+    # The LOWER of the two feet's most recent qualified swing clearances, in
+    # metres, with a stale value counted as zero. Dense on every step and
+    # independent of cadence, unlike a per-touchdown payment, and it cannot be
+    # farmed by one high-swinging leg the way a max-over-feet value can.
+    bilateral_swing_clearance: float
     # True when BOTH feet are supported. Flight, single support and double
     # support are three states, not two: penalising flight alone lets a policy
     # escape into extended single support, which is what the v3 screen did.
@@ -54,6 +59,19 @@ class WalkerGaitTracker:
     control_timestep: float = 1.0 / 60.0
     min_swing_duration: float = 0.0
     min_foot_clearance: float = 0.0
+    # Control steps to skip after each touchdown when accumulating
+    # `gait_mid_stance_slip_speed`. `gait_stance_slip_speed` averages the whole
+    # contact phase, which mixes the landing transient (the foot still moving
+    # as it arrives) with genuine sliding. On the reward_v4 checkpoint the
+    # first step after touchdown averages 1.034 m/s against 0.153 m/s for the
+    # rest of the stance, so the whole-phase mean says "sliding" about a foot
+    # that is planted. Stances here are only 2-4 steps, so 1 is the right skip.
+    mid_stance_skip_steps: int = 1
+    # A foot whose last qualified landing is older than this is treated as
+    # having zero clearance, so a dragged leg cannot coast on a stale value.
+    # 150 steps (2.5 s) clears the slowest gated cadence (0.45 Hz cycle -> one
+    # landing per foot every 2.2 s).
+    clearance_staleness_steps: int = 150
     _previous_contacts: tuple[bool, bool] = (False, False)
     _last_touchdown_steps: list[int] = field(default_factory=lambda: [-10_000, -10_000])
     _last_touchdown_side: int | None = None
@@ -65,6 +83,8 @@ class WalkerGaitTracker:
     _alternating_progress: float = 0.0
     _stance_slip_sum: float = 0.0
     _stance_steps: int = 0
+    _mid_stance_slip_sum: float = 0.0
+    _mid_stance_steps: int = 0
     _longest_same_foot_sequence: int = 0
     _action_delta_sum: float = 0.0
     _previous_action: np.ndarray | None = None
@@ -77,6 +97,10 @@ class WalkerGaitTracker:
     _swing_durations: list[float] = field(default_factory=list)
     _swing_clearances: list[float] = field(default_factory=list)
     _stride_lengths: list[float] = field(default_factory=list)
+    _last_swing_clearance: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    _last_swing_touchdown_step: list[int | None] = field(
+        default_factory=lambda: [None, None]
+    )
     _qualified_touchdowns: int = 0
     _sustained_swing_touchdowns: int = 0
     _stance_start_steps: list[int | None] = field(default_factory=lambda: [None, None])
@@ -113,6 +137,8 @@ class WalkerGaitTracker:
         self._alternating_progress = 0.0
         self._stance_slip_sum = 0.0
         self._stance_steps = 0
+        self._mid_stance_slip_sum = 0.0
+        self._mid_stance_steps = 0
         self._longest_same_foot_sequence = 0
         self._action_delta_sum = 0.0
         self._previous_action = np.zeros(action_size, dtype=np.float32)
@@ -123,6 +149,8 @@ class WalkerGaitTracker:
         self._swing_durations = []
         self._swing_clearances = []
         self._stride_lengths = []
+        self._last_swing_clearance = [0.0, 0.0]
+        self._last_swing_touchdown_step = [None, None]
         self._qualified_touchdowns = 0
         self._sustained_swing_touchdowns = 0
         self._stance_start_steps = [None, None]
@@ -258,6 +286,8 @@ class WalkerGaitTracker:
                     )
                     self._swing_durations.append(duration)
                     self._swing_clearances.append(clearance)
+                    self._last_swing_clearance[side] = clearance
+                    self._last_swing_touchdown_step[side] = step
                     swing_events[side] = (duration, clearance)
                     previous_x = self._last_stride_touchdown_x[side]
                     if previous_x is not None:
@@ -269,6 +299,17 @@ class WalkerGaitTracker:
                 if np.isfinite(slip_speed):
                     self._stance_slip_sums[side] += max(slip_speed, 0.0)
                     self._stance_slip_counts[side] += 1
+                    stance_age = step - self._stance_start_steps[side]
+                    if stance_age >= self.mid_stance_skip_steps:
+                        self._mid_stance_slip_sum += max(slip_speed, 0.0)
+                        self._mid_stance_steps += 1
+        bilateral_swing_clearance = min(
+            0.0
+            if last_step is None
+            or step - last_step > self.clearance_staleness_steps
+            else self._last_swing_clearance[side]
+            for side, last_step in enumerate(self._last_swing_touchdown_step)
+        )
         self._previous_contacts = contacts
 
         alternating = False
@@ -326,6 +367,7 @@ class WalkerGaitTracker:
             touchdown_interval=touchdown_interval,
             in_flight=in_flight,
             in_double_support=in_double_support,
+            bilateral_swing_clearance=bilateral_swing_clearance,
             contact_duty_imbalance=contact_duty_imbalance,
             touchdown_swing_duration=touchdown_swing_duration,
             touchdown_swing_clearance=touchdown_swing_clearance,
@@ -358,6 +400,11 @@ class WalkerGaitTracker:
             "gait_progress_per_alternating_touchdown": (
                 self._alternating_progress / alternating
                 if self._alternating_touchdowns
+                else 0.0
+            ),
+            "gait_mid_stance_slip_speed": (
+                self._mid_stance_slip_sum / self._mid_stance_steps
+                if self._mid_stance_steps
                 else 0.0
             ),
             "gait_stance_slip_speed": (

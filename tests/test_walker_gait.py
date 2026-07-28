@@ -291,3 +291,93 @@ def test_in_double_support_is_reported_independently_of_in_flight() -> None:
 
     air = _update(tracker, step=3, contacts=(False, False), x=0.0)
     assert air.in_double_support is False and air.in_flight is True
+
+
+def test_mid_stance_slip_excludes_the_touchdown_transient() -> None:
+    """gait_stance_slip_speed mixes landing impact with genuine sliding.
+
+    On the reward_v4 checkpoint the first step after touchdown averaged
+    1.034 m/s against 0.153 m/s for the rest of the stance, so the whole-phase
+    mean reported "sliding" about a foot that was planted.
+    """
+    tracker = WalkerGaitTracker(
+        touchdown_debounce_steps=1, control_timestep=1 / 60, mid_stance_skip_steps=1
+    )
+    tracker.reset(initial_contacts=(False, False), action_size=10)
+
+    # Right foot lands hard (4.0 m/s) then sits planted at 0.1 m/s.
+    _update(tracker, step=1, contacts=(True, False), x=0.0, slips=(4.0, 0.0))
+    for n in (2, 3, 4, 5):
+        _update(tracker, step=n, contacts=(True, False), x=0.0, slips=(0.1, 0.0))
+
+    m = tracker.episode_metrics()
+    # Whole-stance mean is dragged up by the single landing sample.
+    assert m["gait_stance_slip_speed"] == pytest.approx((4.0 + 0.4) / 5)
+    # Mid-stance sees only the planted foot.
+    assert m["gait_mid_stance_slip_speed"] == pytest.approx(0.1)
+
+
+def test_mid_stance_slip_is_zero_when_never_in_contact() -> None:
+    tracker = WalkerGaitTracker(touchdown_debounce_steps=1, control_timestep=1 / 60)
+    tracker.reset(initial_contacts=(False, False), action_size=10)
+    for n in (1, 2, 3):
+        _update(tracker, step=n, contacts=(False, False), x=0.0)
+    assert tracker.episode_metrics()["gait_mid_stance_slip_speed"] == 0.0
+
+
+def _swing_and_land(tracker, start_step, side, peak_z, land_z=0.02):
+    """Lift one foot to peak_z and land it, producing a qualified touchdown."""
+    contacts = [True, True]
+    contacts[side] = False
+    pos = [(0.0, land_z), (0.0, land_z)]
+    pos[side] = (0.0, land_z)
+    tracker.update(
+        step=start_step, contacts=tuple(contacts), pelvis_x=0.0,
+        foot_slip_speeds=(0.0, 0.0), foot_positions=tuple(pos),
+        applied_action=np.zeros(10, dtype=np.float32),
+    )
+    pos[side] = (0.0, land_z + peak_z)
+    tracker.update(
+        step=start_step + 1, contacts=tuple(contacts), pelvis_x=0.0,
+        foot_slip_speeds=(0.0, 0.0), foot_positions=tuple(pos),
+        applied_action=np.zeros(10, dtype=np.float32),
+    )
+    pos[side] = (0.0, land_z)
+    return tracker.update(
+        step=start_step + 2, contacts=(True, True), pelvis_x=0.0,
+        foot_slip_speeds=(0.0, 0.0), foot_positions=tuple(pos),
+        applied_action=np.zeros(10, dtype=np.float32),
+    )
+
+
+def test_bilateral_swing_clearance_tracks_the_worse_leg() -> None:
+    tracker = WalkerGaitTracker(touchdown_debounce_steps=1, control_timestep=1 / 60)
+    tracker.reset(initial_contacts=(True, True), action_size=10)
+
+    # Only the right foot has swung: the left has no credit yet, so the pair
+    # value stays at zero rather than paying for one good leg.
+    step = _swing_and_land(tracker, 1, side=0, peak_z=0.10)
+    assert step.bilateral_swing_clearance == pytest.approx(0.0)
+
+    # Left foot now swings, but only 5 mm -- the dragging leg sets the value.
+    step = _swing_and_land(tracker, 10, side=1, peak_z=0.005)
+    assert step.bilateral_swing_clearance == pytest.approx(0.005)
+
+    # Left foot swings properly: both legs now clear, so the pair value rises.
+    step = _swing_and_land(tracker, 20, side=1, peak_z=0.08)
+    assert step.bilateral_swing_clearance == pytest.approx(0.08)
+
+
+def test_bilateral_swing_clearance_expires_a_dragged_leg() -> None:
+    tracker = WalkerGaitTracker(
+        touchdown_debounce_steps=1, control_timestep=1 / 60,
+        clearance_staleness_steps=20,
+    )
+    tracker.reset(initial_contacts=(True, True), action_size=10)
+    _swing_and_land(tracker, 1, side=0, peak_z=0.10)
+    step = _swing_and_land(tracker, 5, side=1, peak_z=0.10)
+    assert step.bilateral_swing_clearance == pytest.approx(0.10)
+
+    # The right foot stops swinging; past the staleness window it counts as 0.
+    step = _swing_and_land(tracker, 60, side=1, peak_z=0.10)
+    assert step.bilateral_swing_clearance == pytest.approx(0.0)

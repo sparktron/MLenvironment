@@ -42,6 +42,7 @@ def test_reward_components_sum_to_computed_reward() -> None:
         "action_rate",
         "swing_clearance",
         "touchdown_clearance",
+        "bilateral_clearance",
         "touchdown_rate",
         "flight",
         "double_support",
@@ -416,3 +417,29 @@ def test_dense_swing_clearance_is_farmable_by_a_single_leg() -> None:
     assert per_foot.components(touchdown_clearance=0.5, **kw)[
         "touchdown_clearance"
     ] == pytest.approx(0.4)
+
+
+def test_bilateral_clearance_requires_both_legs_and_ignores_cadence() -> None:
+    """The term that closes the v4 farm without rewarding faster stepping.
+
+    A max-over-feet value pays full credit for one high leg; a per-touchdown
+    payment scales with touchdown count and so fights the cadence gate. This
+    pays the LOWER of the two feet, densely.
+    """
+    reward = WalkerReward(bilateral_clearance_weight=8.0, bilateral_clearance_target=0.05)
+    action = np.zeros(10, dtype=np.float32)
+
+    def term(value: float) -> float:
+        return reward.components(
+            lin_vel_x=1.0,
+            pitch_roll_penalty=0.0,
+            action=action,
+            alive=True,
+            bilateral_clearance=value,
+        )["bilateral_clearance"]
+
+    # v4's dragging leg pulls the pair value down to its own clearance.
+    assert term(0.005) == pytest.approx(0.04)
+    assert term(0.05) == pytest.approx(0.4)
+    assert term(0.20) == pytest.approx(0.4)
+    assert term(0.0) == pytest.approx(0.0)
