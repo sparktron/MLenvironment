@@ -1204,3 +1204,60 @@ form — an untaken gradient that large is usually a broken measurement, not a
 stubborn policy.
 
 **Artifacts:** `outputs/quality_studies_walker_recheck_20260728/`.
+
+## 2026-07-28 — Correction: Stance Slip Measured The Link Origin, Not The Contact
+
+A second dated correction to the instrument, filed like the one above.
+`stance_slip <= 0.18 m/s` had failed in all six arms; this explains part of why,
+and — more importantly — shows why relaxing it would be the wrong move.
+
+**What was wrong.** `_foot_slip_speeds` returns the velocity of the foot **link
+origin**. A foot rotating about a stationary contact edge — ordinary heel-off
+and toe-off — moves its origin while nothing slides. Slip proper is the velocity
+of the material point at the contact:
+
+    v_contact = v_com + omega x (r_contact - r_com)
+
+**Measured across all six checkpoints (20 stochastic episodes each):**
+
+| | v2 | v3 | v4 | v5 | v6 | v7 |
+|---|---:|---:|---:|---:|---:|---:|
+| link origin (gated) | 0.280 | 0.880 | 0.287 | 0.340 | 0.347 | 0.218 |
+| **contact point (true slip)** | **0.128** | **0.713** | 0.190 | 0.206 | 0.227 | **0.163** |
+| rotation share | 55% | 18% | 37% | 39% | 37% | 34% |
+
+Rotation accounts for 18-55% of the gated value, and the share grows with how
+much the foot pivots. v7's median contact-point slip is 0.010 m/s — the foot is
+planted to within a centimetre per second half the time.
+
+**Validity check.** A slip metric that merely flatters candidates would be
+useless. This one still separates v3 — the arm rendering showed visibly skidding
+— at 0.713, three to six times every other arm. It discriminates.
+
+**Caveat on the estimator.** The value taken is the *slowest* contact point, on
+the argument that it is the one anchoring the foot. That is the generous choice;
+a mean over contact points would read higher. The v3 separation holds either way.
+
+**Why this does NOT license relaxing the gate.** Under contact-point slip, v2
+passes stance slip — and stance slip was its *only* failure, so **v2 would score
+12/12**. v2 is the asymmetric bound: 57.6% flight, 0.1% double support, right
+foot in contact 27.3% against the left's 15.0%, and its render shows a bounding
+run. A gate set that awards a perfect score to that is not measuring walking.
+The frozen set has no double-support floor and a 60% flight ceiling, neither of
+which a bound violates.
+
+**Decision:** `gait_contact_point_slip_speed` is added as **telemetry only**.
+`max_stance_slip_speed` is unchanged, still 0.18, and still evaluated on the
+link-origin metric. Switching the gate to the physically correct quantity is
+justified on its own terms, but doing it in isolation would certify a bound as a
+walk, so it must be paired with a double-support floor and a tighter flight
+ceiling. That is a gate-design decision, not a measurement one, and it is left
+open rather than made with candidates in view.
+
+**Lesson.** Fixing a measurement can be correct and still be the wrong thing to
+act on alone. The right instrument revealed that the *gate set*, not the
+threshold, was the weaker link: v2 was one metric definition away from a perfect
+score on a gait nobody would call walking. When correcting an instrument moves a
+candidate across a line, check what else is now on the passing side.
+
+**Artifacts:** `outputs/quality_studies_walker_recheck_20260728/`.

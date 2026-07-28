@@ -414,3 +414,35 @@ def test_bilateral_swing_clearance_expires_a_dragged_leg() -> None:
     # The right foot stops swinging; past the staleness window it counts as 0.
     step = _swing_and_land(tracker, 60, side=1, peak_z=0.10)
     assert step.bilateral_swing_clearance == pytest.approx(0.0)
+
+
+def test_contact_point_slip_is_separate_from_link_origin_slip() -> None:
+    """A foot rolling about a fixed edge moves its origin but does not slide.
+
+    Across the reward_v2..v7 checkpoints rotation accounted for 18-55% of the
+    value `gait_stance_slip_speed` reports, and the artifact grows with speed.
+    """
+    tracker = WalkerGaitTracker(touchdown_debounce_steps=1, control_timestep=0.1)
+    tracker.reset(initial_contacts=(True, True), action_size=10)
+
+    for n in (1, 2, 3, 4):
+        tracker.update(
+            step=n,
+            contacts=(True, False),
+            pelvis_x=0.0,
+            foot_slip_speeds=(0.9, 0.0),          # link origin swinging through
+            foot_contact_slip_speeds=(0.05, 0.0),  # contact patch nearly planted
+            foot_positions=((0.0, 0.02), (0.0, 0.2)),
+            applied_action=np.zeros(10, dtype=np.float32),
+        )
+
+    m = tracker.episode_metrics()
+    assert m["gait_stance_slip_speed"] == pytest.approx(0.9)
+    assert m["gait_contact_point_slip_speed"] == pytest.approx(0.05)
+
+
+def test_contact_point_slip_defaults_to_zero_when_not_supplied() -> None:
+    tracker = WalkerGaitTracker(touchdown_debounce_steps=1, control_timestep=0.1)
+    tracker.reset(initial_contacts=(True, True), action_size=10)
+    _update(tracker, step=1, contacts=(True, True), x=0.0, slips=(0.4, 0.4))
+    assert tracker.episode_metrics()["gait_contact_point_slip_speed"] == 0.0

@@ -100,6 +100,8 @@ class WalkerGaitTracker:
     _alternating_progress: float = 0.0
     _stance_slip_sum: float = 0.0
     _stance_steps: int = 0
+    _contact_slip_sum: float = 0.0
+    _contact_slip_steps: int = 0
     _mid_stance_slip_sum: float = 0.0
     _mid_stance_steps: int = 0
     _longest_same_foot_sequence: int = 0
@@ -158,6 +160,8 @@ class WalkerGaitTracker:
         self._alternating_progress = 0.0
         self._stance_slip_sum = 0.0
         self._stance_steps = 0
+        self._contact_slip_sum = 0.0
+        self._contact_slip_steps = 0
         self._mid_stance_slip_sum = 0.0
         self._mid_stance_steps = 0
         self._longest_same_foot_sequence = 0
@@ -190,6 +194,7 @@ class WalkerGaitTracker:
         foot_slip_speeds: tuple[float, float],
         foot_positions: tuple[tuple[float, float], tuple[float, float]],
         applied_action: np.ndarray,
+        foot_contact_slip_speeds: tuple[float, float] | None = None,
     ) -> GaitStep:
         """Record one step and return reward-ready structural measurements."""
         self._steps += 1
@@ -230,6 +235,17 @@ class WalkerGaitTracker:
                 self._contact_disagree[side] = 0
         self._confirmed_contacts = (confirmed[0], confirmed[1])
         segmentation_contacts = self._confirmed_contacts
+
+        # True sliding at the contact patch, as opposed to the link-origin
+        # motion `foot_slip_speeds` reports, which also picks up the foot
+        # rotating about a stationary edge during heel-off and toe-off.
+        if foot_contact_slip_speeds is not None:
+            for side in (0, 1):
+                if contacts[side]:
+                    value = float(foot_contact_slip_speeds[side])
+                    if np.isfinite(value):
+                        self._contact_slip_sum += max(value, 0.0)
+                        self._contact_slip_steps += 1
 
         contacting_speeds = [
             max(float(speed), 0.0)
@@ -445,6 +461,11 @@ class WalkerGaitTracker:
             "gait_progress_per_alternating_touchdown": (
                 self._alternating_progress / alternating
                 if self._alternating_touchdowns
+                else 0.0
+            ),
+            "gait_contact_point_slip_speed": (
+                self._contact_slip_sum / self._contact_slip_steps
+                if self._contact_slip_steps
                 else 0.0
             ),
             "gait_mid_stance_slip_speed": (

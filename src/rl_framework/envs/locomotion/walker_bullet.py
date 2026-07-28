@@ -528,6 +528,73 @@ class WalkerBulletEnv(gym.Env):
         left = ((phase + 0.5) % 1.0) < duty
         return bool(right), bool(left)
 
+    def _foot_contact_point_slip(self) -> tuple[float, float]:
+        """True sliding speed of each foot: the velocity of the material point
+        at the contact, not of the link origin.
+
+        ``_foot_slip_speeds`` reports the link origin, which moves whenever the
+        foot rotates about a stationary contact edge -- ordinary heel-off and
+        toe-off. Measured across the reward_v2..v7 checkpoints, rotation
+        accounts for 18-55% of what the origin reports, and the artifact grows
+        with speed. Slip proper is
+
+            v_contact = v_com + omega x (r_contact - r_com)
+
+        evaluated at the slowest contact point, the one anchoring the foot.
+        Feet out of contact report 0.0.
+        """
+        support_body_ids = {self.plane_id, *self._terrain_body_ids}
+        speeds: list[float] = []
+        for link in (2, 5):
+            points = [
+                contact
+                for contact in p.getContactPoints(
+                    bodyA=self.robot_id,
+                    linkIndexA=link,
+                    physicsClientId=self._connection,
+                )
+                if contact[2] in support_body_ids
+            ]
+            if not points:
+                speeds.append(0.0)
+                continue
+            state = p.getLinkState(
+                self.robot_id,
+                link,
+                computeLinkVelocity=1,
+                physicsClientId=self._connection,
+            )
+            com = np.asarray(state[0], dtype=np.float64)
+            vel = np.nan_to_num(
+                np.asarray(state[6], dtype=np.float64),
+                nan=0.0,
+                posinf=1e6,
+                neginf=-1e6,
+            )
+            omega = np.nan_to_num(
+                np.asarray(state[7], dtype=np.float64),
+                nan=0.0,
+                posinf=1e6,
+                neginf=-1e6,
+            )
+            speeds.append(
+                min(
+                    float(
+                        np.linalg.norm(
+                            (
+                                vel
+                                + np.cross(
+                                    omega,
+                                    np.asarray(contact[5], dtype=np.float64) - com,
+                                )
+                            )[:2]
+                        )
+                    )
+                    for contact in points
+                )
+            )
+        return speeds[0], speeds[1]
+
     def _foot_slip_speeds(self) -> tuple[float, float]:
         velocities = self._foot_tangential_velocities()
         return (
@@ -775,6 +842,7 @@ class WalkerBulletEnv(gym.Env):
 
         foot_contacts = self._foot_contacts()
         foot_tangential_velocities = self._foot_tangential_velocities()
+        foot_contact_slip_speeds = self._foot_contact_point_slip()
         foot_slip_speeds = (
             float(np.linalg.norm(foot_tangential_velocities[0])),
             float(np.linalg.norm(foot_tangential_velocities[1])),
@@ -786,6 +854,7 @@ class WalkerBulletEnv(gym.Env):
             contacts=foot_contacts,
             pelvis_x=float(pos[0]),
             foot_slip_speeds=foot_slip_speeds,
+            foot_contact_slip_speeds=foot_contact_slip_speeds,
             foot_positions=foot_positions,
             applied_action=applied_action,
         )
