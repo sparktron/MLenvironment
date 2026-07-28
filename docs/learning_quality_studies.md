@@ -275,11 +275,14 @@ pretending a 35-D checkpoint can be resumed into a 45-D policy.
 Advancement requires 10M steps per arm, 20 deterministic and stochastic final
 episodes, five stochastic renders, and every existing natural-speed and
 real-gait gate: at least 600 mean episode steps, at most 30% falls and 0.18 m/s
-stance slip, at least 5 m displacement, peak height below 1 m, cadence 1.5–8.5
-alternating touchdowns per 100 steps, stride at least 0.10 m, clearance at
-least 0.02 m, progress at least 0.05 m per alternating touchdown, flight at
-most 60%, and same-foot sequence at most five. Only a passing, visually
-approved `previous_action` arm may run seeds 22–23 at 10M and then transfer.
+contact-point slip, at least 5 m displacement, peak height below 1 m, cadence
+1.5–8.5 alternating touchdowns per 100 steps, stride at least 0.10 m,
+clearance at least 0.02 m, progress at least 0.05 m per alternating touchdown,
+double support of at least 10%, flight at most 10%, and same-foot sequence at
+most five. The support thresholds are gait-gate v2, frozen on 2026-07-29 from
+the configured anti-phase reference before the corrected v7 rerun. Only a
+passing, visually approved `previous_action` arm may run seeds 22–23 at 10M
+and then transfer.
 
 A 2,400-step seed-21 functional smoke completed both observation shapes,
 evaluation, telemetry, GIF output, reporting, and the non-advancement path.

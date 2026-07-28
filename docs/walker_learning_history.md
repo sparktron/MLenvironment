@@ -1261,3 +1261,32 @@ score on a gait nobody would call walking. When correcting an instrument moves a
 candidate across a line, check what else is now on the passing side.
 
 **Artifacts:** `outputs/quality_studies_walker_recheck_20260728/`.
+
+## 2026-07-29 — Gait Gate V2 Frozen Before The Corrected V7 Rerun
+
+**Question:** how can the gate use the physically correct contact-point slip
+metric without certifying the v2 bound as a walk?
+
+**Calibration rule:** support thresholds are derived from gait semantics and
+the configured reference schedule, not from the six candidate measurements.
+For an anti-phase schedule with `stance_duty: 0.6`, each foot is planted for
+60% of a cycle, which implies 20% nominal double support and zero flight. Gate
+v2 retains half that nominal overlap as its floor and permits an equal
+raw-contact tolerance in the opposite direction:
+
+- double support at least 10%;
+- flight at most 10%.
+
+The slip metric switches from foot-link-origin speed to
+`gait_contact_point_slip_speed_mean`, the planar velocity of the slowest
+material contact point. The numeric ceiling remains 0.18 m/s; correcting the
+instrument is not used as a reason to loosen it. Cadence, progress, stride,
+clearance, survival, fall, displacement, height, and same-foot-sequence limits
+are unchanged.
+
+**Freeze:** `WALKER_GAIT_GATE["gate_version"] == 2` and regression tests pin
+the metric and all three thresholds. The gate was committed before producing a
+new v7 training result. The next experiment is a from-scratch seed-21 rerun of
+the otherwise unchanged v7 policy. Unlike the previous checkpoint, it will
+train against the corrected debounced bilateral-clearance signal. Seeds 22–23
+remain blocked unless seed 21 passes every v2 criterion and visual review.

@@ -29,7 +29,9 @@ def _diagnostic_result() -> dict:
         "gait_stride_length_mean": 0.30,
         "gait_foot_clearance_mean": 0.04,
         "gait_stance_slip_speed_mean": 0.15,
-        "gait_flight_fraction_mean": 0.18,
+        "gait_contact_point_slip_speed_mean": 0.15,
+        "gait_double_support_fraction_mean": 0.15,
+        "gait_flight_fraction_mean": 0.05,
         "gait_longest_same_foot_sequence_mean": 3.0,
     }
     return {
@@ -276,14 +278,14 @@ def test_walker_slip_recovery_gate_rejects_sliding_and_selects_sole_winner() -> 
         **control["stochastic"],
         "fall_rate": 0.4,
         "forward_displacement_mean": 6.0,
-        "gait_stance_slip_speed_mean": 0.4,
+        "gait_contact_point_slip_speed_mean": 0.4,
     }
     candidate = _diagnostic_result()
     candidate["stochastic"] = {
         **candidate["stochastic"],
         "fall_rate": 0.2,
         "forward_displacement_mean": 6.0,
-        "gait_stance_slip_speed_mean": 0.15,
+        "gait_contact_point_slip_speed_mean": 0.15,
         "peak_z_mean": 0.8,
         "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
     }
@@ -356,7 +358,7 @@ def test_walker_action_memory_gate_rejects_chatter_and_accepts_real_gait() -> No
             "forward_displacement_mean": 8.0,
             "fall_rate": 0.2,
             "peak_z_mean": 0.7,
-            "gait_stance_slip_speed_mean": 0.17,
+            "gait_contact_point_slip_speed_mean": 0.17,
         }
     )
     chattering = quality_study.deepcopy(passing)
@@ -403,7 +405,7 @@ def test_walker_action_memory_smoke_stays_in_phase1_below_evidence_budget(
             "forward_displacement_mean": 8.0,
             "fall_rate": 0.2,
             "peak_z_mean": 0.7,
-            "gait_stance_slip_speed_mean": 0.17,
+            "gait_contact_point_slip_speed_mean": 0.17,
         }
     )
     monkeypatch.setattr(quality_study, "train", fake_train)
@@ -463,7 +465,7 @@ def test_walker_action_memory_confirms_three_seeds_before_transfer(
             "forward_displacement_mean": 8.0,
             "fall_rate": 0.2,
             "peak_z_mean": 0.7,
-            "gait_stance_slip_speed_mean": 0.17,
+            "gait_contact_point_slip_speed_mean": 0.17,
         }
     )
     monkeypatch.setattr(quality_study, "WALKER_ACTION_MEMORY_SCREEN_STEPS", 100)
@@ -707,6 +709,16 @@ def test_walker_gait_gate_rejects_behavior_without_gait_structure() -> None:
     assert aggregate["promoted_variant"] is None
 
 
+def test_walker_gait_gate_v2_support_and_slip_contract_is_frozen() -> None:
+    assert quality_study.WALKER_GAIT_GATE["gate_version"] == 2
+    assert quality_study.WALKER_GAIT_GATE["slip_metric"] == (
+        "gait_contact_point_slip_speed_mean"
+    )
+    assert quality_study.WALKER_GAIT_GATE["max_slip_speed"] == 0.18
+    assert quality_study.WALKER_GAIT_GATE["min_double_support_fraction"] == 0.10
+    assert quality_study.WALKER_GAIT_GATE["max_flight_fraction"] == 0.10
+
+
 def test_walker_gait_gate_rejects_contact_chatter() -> None:
     """The regime the pre-correction gate demanded must now fail.
 
@@ -745,6 +757,50 @@ def test_walker_gait_gate_rejects_short_strides_at_valid_cadence() -> None:
     )
 
     assert aggregate["rankings"][0]["per_seed_passed"] == {"seed_0": False}
+
+
+def test_walker_gait_gate_rejects_bound_support_occupancy() -> None:
+    """A low-slip bound must not be certified as walking."""
+    bound = _diagnostic_result()
+    bound["stochastic"] = {
+        **bound["stochastic"],
+        "gait_contact_point_slip_speed_mean": 0.10,
+        "gait_double_support_fraction_mean": 0.0,
+        "gait_flight_fraction_mean": 0.55,
+    }
+
+    aggregate = quality_study._aggregate_walker_gait_results(
+        {"candidate/seed_0": bound}
+    )
+
+    assert aggregate["rankings"][0]["per_seed_passed"] == {"seed_0": False}
+
+
+def test_walker_gait_gate_uses_contact_point_slip() -> None:
+    """Heel/toe pivoting at a planted contact must not count as sliding."""
+    pivoting = _diagnostic_result()
+    pivoting["stochastic"] = {
+        **pivoting["stochastic"],
+        "gait_stance_slip_speed_mean": 0.50,
+        "gait_contact_point_slip_speed_mean": 0.17,
+    }
+    sliding = _diagnostic_result()
+    sliding["stochastic"] = {
+        **sliding["stochastic"],
+        "gait_stance_slip_speed_mean": 0.10,
+        "gait_contact_point_slip_speed_mean": 0.19,
+    }
+
+    aggregate = quality_study._aggregate_walker_gait_results(
+        {
+            "pivoting/seed_0": pivoting,
+            "sliding/seed_0": sliding,
+        }
+    )
+    by_variant = {row["variant"]: row for row in aggregate["rankings"]}
+
+    assert by_variant["pivoting"]["gate_passed"] is True
+    assert by_variant["sliding"]["gate_passed"] is False
 
 
 def test_walker_gait_score_does_not_reward_raw_cadence() -> None:

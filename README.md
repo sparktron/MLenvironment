@@ -1265,6 +1265,12 @@ The active development plan lives in [`docs/open_items_todo.md`](docs/open_items
   floors, and variant ranking no longer scores raw cadence. Measured throughput
   is 5,970 fps, so re-baseline at 5–10M steps per seed rather than 150k before
   comparing variants.
+- (2026-07-29) The walker gait gate is frozen at version 2 before the corrected
+  v7 rerun. It gates the physical contact-point slip metric at 0.18 m/s,
+  requires at least 10% double support, and permits at most 10% flight. The
+  support thresholds come from the configured anti-phase reference
+  (`stance_duty: 0.6` gives 20% nominal double support and zero flight), not
+  from candidate outcomes.
 - Priority 0 correctness fixes are currently cleared for the arena self-play validation path; new confirmed bugs should be added here first.
 - Learning-quality decisions are made through the resumable `quality-study`
   matrices; candidate defaults remain gated on promotion-scale evidence.

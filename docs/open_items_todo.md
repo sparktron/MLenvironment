@@ -1,6 +1,6 @@
 # Development Roadmap
 
-Last updated: 2026-07-27
+Last updated: 2026-07-29
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
@@ -19,6 +19,16 @@ must record both successful changes and failed hypotheses there.
 
 ## Priority 3: Learning Quality And Features
 
+- (2026-07-29) **Walker gait gate v2 is frozen before retraining.** It uses
+  `gait_contact_point_slip_speed_mean` with the unchanged 0.18 m/s ceiling,
+  requires double support ≥10%, and tightens flight from ≤60% to ≤10%. The
+  support limits were derived independently from the configured anti-phase
+  reference: `stance_duty: 0.6` produces 20% nominal double support and no
+  flight, so the gate retains half the nominal overlap and allows a symmetric
+  10% raw-contact tolerance. The next policy action is a from-scratch,
+  seed-matched v7 rerun with the corrected debounced bilateral-clearance reward;
+  advance to seeds 22–23 only if seed 21 passes every v2 metric and visual
+  review.
 - The 2026-07-25 promotion-scale walker and arena matrices completed, but no
   candidate earned behavioral promotion. The report readiness fields are true
   because the seed and budget gates were satisfied; every walker diagnostic
@@ -78,12 +88,11 @@ must record both successful changes and failed hypotheses there.
   that floor — they turned on displacement, slip, fall rate, or correlation — but
   the gate never discriminated, and the ranking score's `+ cadence / 100` term
   actively favoured a faster shuffle. The gate is now a cadence band of 1.5–8.5
-  plus stride (≥0.10 m), clearance (≥0.02 m), and progress (≥0.05 m) floors, with
-  flight widened to 60%. `max_stance_slip_speed` is unchanged at 0.18 m/s and
-  **must be recalibrated from a faster reference gait** before it gates a faster
-  candidate. Open-loop measurement showed the actuator lifts a foot 33.7 mm at
-  the study's own settings versus the learned 0.7 mm, so control authority is not
-  the bottleneck.
+  plus stride (≥0.10 m), clearance (≥0.02 m), and progress (≥0.05 m) floors.
+  Gate v2 supersedes its provisional support/slip terms as recorded above.
+  Open-loop measurement showed the actuator lifts a foot 33.7 mm at the study's
+  own settings versus the learned 0.7 mm, so control authority is not the
+  bottleneck.
 - (2026-07-26) **Budget is the other blocker.** Measured throughput is 5,970 fps,
   so the 50k rejection screens cost ~8 s and a three-seed 150k matrix ~75 s,
   while 10M steps costs 28 min. Re-baseline at 5–10M steps per seed before

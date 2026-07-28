@@ -170,20 +170,29 @@ WALKER_GAIT_VARIANTS: dict[str, dict[str, Any]] = {
 # permitted cadence (3 m / ~67 touchdowns), and a same-foot stride is one full
 # cycle, i.e. about twice the per-touchdown pelvis advance.
 #
-# `max_stance_slip_speed` is deliberately UNCHANGED at the value measured in the
-# 0.1 m/s regime. It is the next threshold that needs recalibration: a
-# legitimate gait at a higher target velocity carries real stance-foot speed
-# through heel-strike and toe-off, so this ceiling must be re-measured from a
-# faster reference gait before it gates anything. Do not raise it by guess.
+# Support occupancy is derived from the configured anti-phase reference rather
+# than candidate outcomes. With stance_duty=0.6, the nominal schedule has 20%
+# double support and no flight. The gate requires half of that nominal overlap
+# and permits an equal 10% raw-contact tolerance for flight. This excludes
+# running/bounding while leaving room for contact-estimation noise.
+#
+# Slip is the planar velocity of the slowest material contact point, not the
+# foot-link origin. Link-origin velocity includes ordinary heel/toe pivoting and
+# is therefore not a physical measure of sliding. The existing conservative
+# 0.18 m/s ceiling is retained; changing the instrument does not justify
+# loosening the threshold.
 WALKER_GAIT_GATE: dict[str, Any] = {
     **WALKER_VELOCITY_GATE,
+    "gate_version": 2,
     "min_alternating_touchdowns_per_100_steps": 1.5,
     "max_alternating_touchdowns_per_100_steps": 8.5,
     "min_progress_per_alternating_touchdown": 0.05,
     "min_stride_length": 0.10,
     "min_foot_clearance": 0.02,
-    "max_stance_slip_speed": 0.18,
-    "max_flight_fraction": 0.60,
+    "slip_metric": "gait_contact_point_slip_speed_mean",
+    "max_slip_speed": 0.18,
+    "min_double_support_fraction": 0.10,
+    "max_flight_fraction": 0.10,
     "max_longest_same_foot_sequence": 5.0,
 }
 WALKER_VELOCITY_RAMP_VARIANTS: dict[str, dict[str, Any]] = {
@@ -229,7 +238,8 @@ WALKER_RECOVERY_NOISE_MULTIPLIER = 2.0
 WALKER_SLIP_RECOVERY_GATE: dict[str, Any] = {
     "evaluation_mode": "stochastic",
     "max_fall_rate": 0.30,
-    "max_stance_slip_speed": 0.18,
+    "slip_metric": WALKER_GAIT_GATE["slip_metric"],
+    "max_slip_speed": WALKER_GAIT_GATE["max_slip_speed"],
     "min_forward_displacement": 5.0,
     "max_peak_z": 1.0,
 }
@@ -772,8 +782,10 @@ def _walker_gait_passed(result: dict[str, Any]) -> bool:
         >= WALKER_GAIT_GATE["min_foot_clearance"]
         and metrics["gait_progress_per_alternating_touchdown_mean"]
         >= WALKER_GAIT_GATE["min_progress_per_alternating_touchdown"]
-        and metrics["gait_stance_slip_speed_mean"]
-        <= WALKER_GAIT_GATE["max_stance_slip_speed"]
+        and metrics[WALKER_GAIT_GATE["slip_metric"]]
+        <= WALKER_GAIT_GATE["max_slip_speed"]
+        and metrics["gait_double_support_fraction_mean"]
+        >= WALKER_GAIT_GATE["min_double_support_fraction"]
         and metrics["gait_flight_fraction_mean"]
         <= WALKER_GAIT_GATE["max_flight_fraction"]
         and metrics["gait_longest_same_foot_sequence_mean"]
@@ -813,7 +825,10 @@ def _aggregate_walker_gait_results(
             "progress_per_alternating_touchdown_mean": mean(
                 "gait_progress_per_alternating_touchdown_mean"
             ),
-            "stance_slip_speed_mean": mean("gait_stance_slip_speed_mean"),
+            "slip_speed_mean": mean(WALKER_GAIT_GATE["slip_metric"]),
+            "double_support_fraction_mean": mean(
+                "gait_double_support_fraction_mean"
+            ),
             "flight_fraction_mean": mean("gait_flight_fraction_mean"),
             "stride_length_mean": mean("gait_stride_length_mean"),
             "foot_clearance_mean": mean("gait_foot_clearance_mean"),
@@ -834,7 +849,7 @@ def _aggregate_walker_gait_results(
             + row["stride_length_mean"]
             + row["foot_clearance_mean"]
             + 10.0 * row["progress_per_alternating_touchdown_mean"]
-            - row["stance_slip_speed_mean"]
+            - row["slip_speed_mean"]
         )
         rankings.append(row)
     rankings.sort(
@@ -965,9 +980,12 @@ def _aggregate_walker_velocity_ramp_results(
             "peak_z_mean": float(
                 np.mean([metrics["peak_z_mean"] for metrics in stochastic])
             ),
-            "stance_slip_speed_mean": float(
+            "slip_speed_mean": float(
                 np.mean(
-                    [metrics["gait_stance_slip_speed_mean"] for metrics in stochastic]
+                    [
+                        metrics[WALKER_GAIT_GATE["slip_metric"]]
+                        for metrics in stochastic
+                    ]
                 )
             ),
             "per_seed_passed": per_seed_passed,
@@ -1179,8 +1197,8 @@ def _walker_slip_recovery_gate_result(
         "sliding": (
             metrics["forward_displacement_mean"]
             >= WALKER_SLIP_RECOVERY_GATE["min_forward_displacement"]
-            and metrics["gait_stance_slip_speed_mean"]
-            > WALKER_SLIP_RECOVERY_GATE["max_stance_slip_speed"]
+            and metrics[WALKER_SLIP_RECOVERY_GATE["slip_metric"]]
+            > WALKER_SLIP_RECOVERY_GATE["max_slip_speed"]
         ),
         "contact_chatter": (
             metrics["gait_alternating_touchdowns_per_100_steps_mean"]
@@ -1190,8 +1208,8 @@ def _walker_slip_recovery_gate_result(
     criteria = {
         "fall_rate": metrics["fall_rate"]
         <= WALKER_SLIP_RECOVERY_GATE["max_fall_rate"],
-        "stance_slip_speed": metrics["gait_stance_slip_speed_mean"]
-        <= WALKER_SLIP_RECOVERY_GATE["max_stance_slip_speed"],
+        "slip_speed": metrics[WALKER_SLIP_RECOVERY_GATE["slip_metric"]]
+        <= WALKER_SLIP_RECOVERY_GATE["max_slip_speed"],
         "forward_displacement": metrics["forward_displacement_mean"]
         >= WALKER_SLIP_RECOVERY_GATE["min_forward_displacement"],
         "peak_z": metrics["peak_z_mean"]
@@ -1202,7 +1220,7 @@ def _walker_slip_recovery_gate_result(
         "criteria": criteria,
         "automatic_exploit_flags": flags,
         "metrics_gate_passed": all(criteria.values()),
-        "slip_gate_passed": criteria["stance_slip_speed"],
+        "slip_gate_passed": criteria["slip_speed"],
         "visual_review_required": True,
     }
 
@@ -1219,7 +1237,7 @@ def _aggregate_walker_slip_recovery_results(
                 "variant": variant,
                 "episode_length_mean": metrics["episode_length_mean"],
                 "fall_rate": metrics["fall_rate"],
-                "stance_slip_speed": metrics["gait_stance_slip_speed_mean"],
+                "slip_speed": metrics[WALKER_SLIP_RECOVERY_GATE["slip_metric"]],
                 "forward_displacement": metrics["forward_displacement_mean"],
                 "peak_z": metrics["peak_z_mean"],
                 "stride_length": metrics["gait_stride_length_mean"],
@@ -1230,7 +1248,7 @@ def _aggregate_walker_slip_recovery_results(
                 "score": float(
                     metrics["forward_displacement_mean"]
                     - metrics["fall_rate"]
-                    - metrics["gait_stance_slip_speed_mean"]
+                    - metrics[WALKER_SLIP_RECOVERY_GATE["slip_metric"]]
                 ),
             }
         )
@@ -1585,8 +1603,8 @@ def _walker_action_memory_gate_result(
         >= WALKER_GAIT_GATE["min_episode_length"],
         "fall_rate": metrics["fall_rate"]
         <= WALKER_SLIP_RECOVERY_GATE["max_fall_rate"],
-        "stance_slip_speed": metrics["gait_stance_slip_speed_mean"]
-        <= WALKER_SLIP_RECOVERY_GATE["max_stance_slip_speed"],
+        "slip_speed": metrics[WALKER_SLIP_RECOVERY_GATE["slip_metric"]]
+        <= WALKER_SLIP_RECOVERY_GATE["max_slip_speed"],
         "forward_displacement": metrics["forward_displacement_mean"]
         >= WALKER_SLIP_RECOVERY_GATE["min_forward_displacement"],
         "peak_z": metrics["peak_z_mean"]
@@ -1604,6 +1622,8 @@ def _walker_action_memory_gate_result(
         >= WALKER_GAIT_GATE["min_stride_length"],
         "foot_clearance": metrics["gait_foot_clearance_mean"]
         >= WALKER_GAIT_GATE["min_foot_clearance"],
+        "double_support_fraction": metrics["gait_double_support_fraction_mean"]
+        >= WALKER_GAIT_GATE["min_double_support_fraction"],
         "flight_fraction": metrics["gait_flight_fraction_mean"]
         <= WALKER_GAIT_GATE["max_flight_fraction"],
         "same_foot_sequence": metrics["gait_longest_same_foot_sequence_mean"]
@@ -1612,7 +1632,7 @@ def _walker_action_memory_gate_result(
     flags = {
         "launch": not criteria["peak_z"],
         "sliding": (
-            criteria["forward_displacement"] and not criteria["stance_slip_speed"]
+            criteria["forward_displacement"] and not criteria["slip_speed"]
         ),
         "contact_chatter": (
             metrics["gait_alternating_touchdowns_per_100_steps_mean"]
@@ -1639,7 +1659,10 @@ def _aggregate_walker_action_memory_results(
                 "variant": variant,
                 "episode_length_mean": metrics["episode_length_mean"],
                 "fall_rate": metrics["fall_rate"],
-                "stance_slip_speed": metrics["gait_stance_slip_speed_mean"],
+                "slip_speed": metrics[WALKER_SLIP_RECOVERY_GATE["slip_metric"]],
+                "double_support_fraction": metrics[
+                    "gait_double_support_fraction_mean"
+                ],
                 "forward_displacement": metrics["forward_displacement_mean"],
                 "peak_z": metrics["peak_z_mean"],
                 "alternating_touchdowns_per_100_steps": metrics[
@@ -1654,7 +1677,7 @@ def _aggregate_walker_action_memory_results(
                 "score": float(
                     metrics["forward_displacement_mean"]
                     - metrics["fall_rate"]
-                    - metrics["gait_stance_slip_speed_mean"]
+                    - metrics[WALKER_SLIP_RECOVERY_GATE["slip_metric"]]
                     + metrics["gait_stride_length_mean"]
                     + metrics["gait_foot_clearance_mean"]
                 ),
