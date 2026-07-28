@@ -952,3 +952,95 @@ prevent it.
 
 **Artifacts:** `outputs/quality_studies_walker_reward_v4_20260728/`,
 config `walker_reward_v4_candidate.yaml`, commit `0b4442f`.
+
+## 2026-07-28 — Clearance-Farm Screen: Hypothesis Confirmed, And The Fourth Hack
+
+**Question:** the v4 arm hopped on one leg because `swing_clearance` is the max
+over swinging feet, letting one high leg collect full credit. Does closing that
+farm restore the symmetry v3 had achieved?
+
+**Source:** `walker_reward_v4_candidate` seed-21 10M checkpoint as paired
+control. Only the new arm was trained.
+
+**Change:** exactly one. `swing_clearance_weight` 8.0 -> 0 and
+`bilateral_clearance_weight` 0 -> 8.0, same 0.05 m target. The bilateral term
+pays the LOWER of the two feet's most recent swing clearances, densely, with a
+stale value counted as zero. It was chosen over the per-touchdown form added in
+`db2d21f` because that form scales with touchdown COUNT and would fight the
+cadence ceiling v4 had just brought inside its band.
+
+**Observed result (stochastic, 20 episodes):**
+
+| metric | v4 | v5 | |
+|---|---:|---:|---|
+| stance duty imbalance | 0.303 | **0.015** | hypothesis confirmed |
+| **double support** | 5.2% | **31.4%** | into the walk range |
+| single support | 58.5% | **13.9%** | collapsed |
+| flight | 36.4% | 54.7% | worse |
+| cadence /100 | 7.30 | 4.20 | still in band |
+| progress/touchdown | 0.1049 | 0.0463 | now FAILS |
+| fall rate | 5% | 15% | worse |
+| episode length | 763 | 688 | worse |
+| mid-stance slip | 0.184 | 0.244 | worse |
+
+Frozen `WALKER_GAIT_GATE`: **10/12**, down from v4's 11/12. Newly failing:
+progress per alternating touchdown.
+
+**Visual check:** `v5_surviving.png`, `v5_surviving.gif`, 799 steps at 1.16 m/s.
+The two foot-height traces are **nearly superimposed** and the contact bands are
+aligned: both feet lift together to ~90-100 mm, land together, and leave
+together. The robot is **bunny-hopping on both legs**.
+
+**What worked:** the clearance farm was indeed the cause of v4's asymmetry.
+Closing it restored symmetry outright — stance duty imbalance 0.303 -> 0.015 —
+**without touching `gait_symmetry_penalty_weight`**. That was the pre-registered
+prediction and it held. Double support also finally reached the walk range.
+
+**What failed:** the gait is not a walk. Double support 31.4% plus flight 54.7%
+leaves only 13.9% single support, against roughly 75% for a real walk. Every
+term is satisfied by hopping: two feet moving in phase are perfectly symmetric,
+land together (double support), lift together (bilateral clearance), and do so
+within the cadence band.
+
+**The pattern across four screens.** Each added property term has been satisfied
+by a new non-walking gait:
+
+| screen | added | resulting gait |
+|---|---|---|
+| v2 | clearance, stride, action-rate, cadence | asymmetric bound |
+| v3 | flight penalty, symmetry | symmetric jog |
+| v4 | double support, slip | one-legged hop |
+| v5 | bilateral clearance | two-footed bunny hop |
+
+The reward now specifies the *marginal properties* of a walk — clearance,
+cadence, symmetry, support-state fractions — but never the one thing that
+defines it: **the legs must be in anti-phase.** Symmetry is satisfied by
+in-phase motion just as well as by alternation, because equal duty says nothing
+about ordering. No per-step marginal can express a phase relationship, which is
+why each new term has been absorbed rather than resisted.
+
+**Decision:** reject v5 as a promotion candidate. Retain the bilateral clearance
+term — it fixed the farm and restored symmetry, both confirmed. Do **not** add a
+fifth marginal property term. The next change should encode the gait *cycle*
+directly: a phase clock in the observation plus a reward on matching a periodic
+reference contact schedule (the standard approach in the sim-to-real bipedal
+literature), which forces the R -> RL -> L -> LR ordering that marginals cannot.
+This is also the observation work deferred on 2026-07-27; it is
+checkpoint-incompatible and should be bundled with the torso-frame velocity and
+heading fixes so the obs change is paid for once.
+
+**Note on the slip gate.** v4 remains the best arm at 11/12 and its only failure
+was `stance_slip <= 0.18` at 0.287 — which the new `gait_mid_stance_slip_speed`
+telemetry shows is dominated by landing impact, not sliding (0.153 mid-stance,
+under the ceiling). Whether the gate should measure mid-stance or whole-stance
+slip is an open decision that must be made on mechanism, not on v4's numbers.
+No threshold has been changed.
+
+**Lesson:** properties are not structure. A set of per-step marginal constraints
+can be jointly satisfied by a behaviour that violates the relationship between
+them — here, four independent gait properties were all satisfied by hopping.
+When the target behaviour is defined by a temporal relationship between parts,
+reward the relationship, not a checklist of its symptoms.
+
+**Artifacts:** `outputs/quality_studies_walker_reward_v5_20260728/`,
+config `walker_reward_v5_candidate.yaml`, commit `7c9eb68`.
