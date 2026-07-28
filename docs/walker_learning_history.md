@@ -772,3 +772,88 @@ nine experiments' worth of tuning.
 **Artifacts:** `outputs/quality_studies_walker_reward_v2_20260727/`,
 configs `walker_reward_v2_control.yaml` and `walker_reward_v2_candidate.yaml`,
 commit `cb2b4bc`.
+
+## 2026-07-28 — Walk-vs-Run Screen: Symmetry Solved, Double Support Did Not Appear
+
+**Question:** the reward_v2 candidate reached 0.41 m strides and 63 mm clearance
+by *running* — 0.7% double support, 54% flight, 30.7% right-foot contact against
+16.0% left. Do a flight penalty and a gait-symmetry penalty convert that into a
+walk?
+
+**Source:** `walker_reward_v2_candidate` seed-21 10M checkpoint serves as the
+paired control directly; it is already a from-scratch run under identical
+settings, so only the new arm was trained.
+
+**Change:** two terms, and nothing else. `flight_penalty_weight: 0.5` charged per
+step with neither foot supported; `gait_symmetry_penalty_weight: 0.5` charged in
+proportion to the running left/right stance duty imbalance. Weights sized against
+the measured control (0.54 flight fraction, 0.315 duty imbalance) so each lands
+near 0.2–0.3/step against a ~1.0/step velocity term.
+
+**Constants:** identical physics, PPO settings, seed 21, 10M budget,
+randomization, 0.15→1.0 ramp, and every other reward weight.
+
+**Pre-registered prediction:** measured against the control's own behaviour, the
+v2 reward preferred a symmetric 1.2 Hz walk to the bounding run by only
++0.041/step — near-indifference. Under v3 the same comparison is +0.458/step.
+
+**Observed result (stochastic, 20 episodes):**
+
+| metric | v2 (ran) | v3 | |
+|---|---:|---:|---|
+| duty imbalance | 0.291 | **0.014** | symmetry solved |
+| flight fraction | 57.6% | **29.0%** | halved |
+| foot clearance | 63.4 mm | 81.8 mm | improved |
+| **double support** | 0.1% | **0.4%** | **unchanged** |
+| stance slip | 0.280 m/s | **0.880 m/s** | 3.1× worse |
+| stride | 0.413 m | 0.252 m | worse |
+| displacement | 16.07 m | 13.12 m | worse |
+| fall rate | 0% | 5% | worse |
+
+Frozen `WALKER_GAIT_GATE`: **10/12 for both arms** — no net gate movement. v3
+newly passes nothing; it improves flight (0.29 vs 0.58, both already passing) and
+still fails the cadence ceiling (9.58 > 8.5) and slip ceiling (0.880 > 0.18).
+
+**Visual check:** `v3_surviving.png`, `v3_surviving.gif`. The first sampled
+rollout fell at 71 steps and was discarded as unrepresentative; the second ran
+799 steps at 1.03 m/s. It shows clean, near-perfectly alternating contacts
+(imbalance 0.014) with 150–200 mm foot peaks — a genuine symmetric jog. But the
+contact trace never overlaps: the robot is always either on one foot or
+airborne.
+
+**What worked:** the symmetry term is an unambiguous success and should be
+retained — duty imbalance fell from 0.291 to 0.014, and the asymmetric limp
+visible in the v2 renders is gone. The flight penalty also did what it was
+weighted to do, halving flight fraction.
+
+**What failed:** the screen did not produce a walk, and it cost displacement,
+stride, and fall rate to get there. The mechanism is now clear and was a design
+error on my part: **penalising flight is not the same as rewarding double
+support.** Forced to keep a foot down, the policy satisfied the constraint by
+extending *single* support (42.3% → 70.6%) rather than by overlapping the feet,
+so double support stayed at ~0. Extending single-support contact at 1 m/s with
+no slip penalty — removed in v2 because it was manufacturing chatter — is also
+exactly what produced the 3.1× slip regression.
+
+A second, procedural flaw: this screen changed **two** terms at once, violating
+the one-causal-factor rule. Their effects happened to be separable in telemetry
+(imbalance attributes to symmetry, flight fraction and slip to the flight
+penalty), so the conclusions stand, but the separation was luck rather than
+design.
+
+**Decision:** reject v3 as a promotion candidate; do not run seeds 22–23 or
+transfer. **Retain the symmetry term** — it is independently supported and cost
+nothing attributable. **Drop or reduce the flight penalty** in favour of a direct
+double-support reward, which is the term that actually encodes the target
+behaviour. Reinstate a clipped stance-slip penalty at the same time: the chatter
+mechanism that made it counterproductive in the v1 studies is now blocked by
+`touchdown_rate_penalty_weight`, so its old failure mode no longer applies.
+
+**Lesson:** a penalty on the complement of a behaviour is not a reward for that
+behaviour when a third option exists. Flight, single support, and double support
+are three states, not two; charging one of them let the policy escape into the
+second rather than the intended third. Before pricing a behaviour by penalising
+its opposite, enumerate every state the agent can occupy.
+
+**Artifacts:** `outputs/quality_studies_walker_reward_v3_20260728/`,
+config `walker_reward_v3_candidate.yaml`, commit `f51d15b`.
