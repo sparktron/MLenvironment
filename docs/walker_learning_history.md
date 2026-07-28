@@ -636,3 +636,139 @@ If a historical value is later found to be wrong, append a dated correction
 instead of silently replacing the original interpretation. Keep observation
 separate from inference, and label proposed work as a hypothesis until it has
 run.
+
+## 2026-07-27 — Reward Structure: The Gate Measures Gait, The Reward Never Paid For It
+
+**Question:** the preceding eight entries all shaped displacement, slip, or
+touchdown proxies and all failed to lengthen the stride. Is the stride collapse
+caused by the reward being *indifferent* to gait structure rather than by
+insufficient budget, actuator authority, or exploration?
+
+**Diagnostic measurements (before any training):**
+
+Three candidate explanations were tested and *rejected*:
+
+1. *No lateral degree of freedom.* All ten joints rotate about Y
+   (`linkJointAxis=[[0,1,0]]*10`), and in single support the COM sits 35 mm
+   outside the stance-foot support polygon. But sampling 300 actions in single
+   support, 60% produced a **restoring** roll change with up to 8 rad/s of
+   authority against 1.1 rad/s of accumulated drift. Lateral stabilisation is
+   momentum- and contact-mediated, not impossible.
+2. *PD gains suppress stride-scale motion.* With the torso pinned, the shipped
+   `position_gain: 0.1 / velocity_gain: 1.0` tracks a 1 Hz hip swing at **0.97**
+   achieved/commanded amplitude. Combined with the open-loop 33.7 mm clearance
+   already recorded above, actuation is not the constraint.
+3. *Budget.* Rejected previously; 10M costs ~30 min at the measured 5,500 fps.
+
+The reward decomposition at the measured operating point (v = 0.889 m/s, from
+4,193 stochastic steps on the seed-21 10M checkpoint) is:
+
+| term | value/step |
+|---|---:|
+| alive | +0.750 |
+| velocity | +0.278 |
+| stance_slip | −0.250 |
+| orientation | −0.100 |
+| action | −0.013 |
+| gait_step_progress | +0.007 |
+
+Survival is **2.7× the velocity term** and one fall costs **144 steps** of
+velocity reward, so the optimal policy minimises single-support time while
+drifting forward — which is the chatter. Three specific defects:
+
+- **The Gaussian velocity reward has no gradient away from its target.** At
+  `velocity_sigma: 0.10` with `target_velocity: 1.0` it pays 3.3e-4 at 0.6 m/s
+  and 1.3e-14 at 0.2 m/s. Sigma was calibrated in the 0.15 m/s regime and
+  `VelocityTargetRampCallback` rescales only the target, so for most of the 3M
+  ramp the velocity signal is under 1% of the alive bonus.
+- **`gait_step_progress` is a duplicate of the velocity reward.** It pays pelvis
+  advance between alternating touchdowns, which telescopes to total displacement
+  and is therefore cadence-invariant. It is structurally incapable of preferring
+  a long stride to a short one at the same speed — which is why weight 40.0
+  produced no measurable effect.
+- **`torque_penalty_weight` charges action magnitude, not rate.** It taxes a
+  held stride and leaves high-frequency chatter free.
+
+Measured directly: **at the same forward speed the control reward prefers a
+1 Hz walk to the measured chatter by only +0.20/step**, and that margin comes
+entirely from the slip term — whose own measured effect is to *shorten* contact.
+
+**Change (candidate only):** `alive_bonus` 0.75 → 0.10, `fall_penalty` 40 → 2,
+`velocity_mode` gaussian → `clipped_linear`, `stance_slip_penalty_weight`
+0.5 → 0, plus three terms weighted against the measured signals:
+`action_rate_penalty_weight: 0.10` (‖a_t − a_t−1‖² averages 1.45),
+`swing_clearance_weight: 8.0` at a 0.05 m target (mean lift was 5.2 mm), and
+`touchdown_rate_penalty_weight: 1.0` above 2.5 Hz (measured cycle frequency was
+9.8 Hz). Under the candidate reward the same walk-vs-chatter comparison is
+**+0.729/step**.
+
+**Constants:** identical physics, PPO settings, seed, budget, randomization, and
+0.15→1.0 ramp in both arms. Both trained **from scratch** — every prior walking
+policy was a continuation of a balance checkpoint trained with
+`log_std_init: -1.5, ent_coef: 0.0` to stand still.
+
+**Budget:** paired single-seed (21) screen, 10M steps per arm, 20 deterministic
+and 20 stochastic evaluation episodes at target 1.0 m/s.
+
+**Observed result (stochastic):**
+
+| metric | control | candidate | delta |
+|---|---:|---:|---:|
+| episode steps | 763 | 800 | +37 |
+| displacement | 12.33 m | 16.07 m | +3.74 m |
+| fall rate | 5% | 0% | −5 pts |
+| stride length | 0.117 m | 0.413 m | **×3.5** |
+| foot clearance | 7.6 mm | 63.4 mm | **×8.3** |
+| swing duration | 0.083 s | 0.263 s | ×3.2 |
+| cadence /100 steps | 11.90 | 9.09 | −2.81 |
+| stance slip | 0.223 m/s | 0.280 m/s | +0.057 |
+| peak torso height | 0.701 m | 0.723 m | +0.022 |
+
+Frozen `WALKER_GAIT_GATE`: control **8/12**, candidate **10/12**. The candidate
+newly passes foot clearance (0.0634 ≥ 0.02) and progress per alternating
+touchdown (0.2147 ≥ 0.05). Both still fail the cadence ceiling (9.09 > 8.5) and
+the slip ceiling (0.280 > 0.18).
+
+**Visual check:** `walker_reward_v2_{control,candidate}.gif` and
+`gait_signature.png`. The control's contact trace is dense bilateral tapping at
+~5 Hz with 25–60 mm foot excursions — the documented chatter. The candidate
+shows clearly separated contact blocks with real swing arcs peaking at 137 mm.
+Peak torso height 0.72 m rules out launching in both. **However**, over 300
+steps the candidate runs 30.7% right-foot contact against 16.0% left, mean
+stance 0.090 s right against 0.057 s left, **0.7% double support and 54%
+flight**. That is an asymmetric bounding run, not a walk.
+
+**What worked:** the reward diagnosis is supported. Removing the survival
+distortion, giving the velocity term a gradient, and paying directly for the
+gated quantities moved stride and clearance by 3.5× and 8.3× — the first
+material movement in either quantity across nine entries — while eliminating
+falls. Training from scratch also beat the continuation lineage on its own
+terms: the from-scratch *control* reached 0.117 m stride and 7.6 mm clearance
+against the resumed lineage's 0.075 m and 0.7 mm, supporting the hypothesis that
+continuing from an exploration-collapsed stand-still checkpoint suppresses gait
+discovery.
+
+**What failed:** the candidate does not pass every frozen gate, so it is not
+promotion-ready. Cadence remains above the 2.5 Hz band, and removing the slip
+penalty raised stance slip as expected. More importantly the resulting gait is
+an asymmetric run: the reward now pays for clearance, stride, and cadence but
+still contains **no term that prefers a walk to a run** — nothing rewards double
+support or penalises flight, and nothing penalises left/right asymmetry.
+
+**Decision:** do not promote, and do not run seeds 22–23, the 3M extension, or
+transfer. Keep the reward changes as the new baseline for the next isolated
+screen. The next change should add a double-support/flight term and a gait
+symmetry term, and should be screened against this candidate as the paired
+control. `max_stance_slip_speed: 0.18` still needs recalibration from a faster
+reference gait before it gates anything at 1.2 m/s — the source comment already
+says so, and this result does not license raising it.
+
+**Lesson:** a reward that is *indifferent* between two behaviours cannot be
+fixed by shaping a proxy for the one you want. Before adding another shaping
+term, measure whether the reward already distinguishes the target behaviour from
+the pathology at equal task performance. Here it differed by +0.20/step across
+nine experiments' worth of tuning.
+
+**Artifacts:** `outputs/quality_studies_walker_reward_v2_20260727/`,
+configs `walker_reward_v2_control.yaml` and `walker_reward_v2_candidate.yaml`,
+commit `cb2b4bc`.
