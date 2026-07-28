@@ -1044,3 +1044,83 @@ reward the relationship, not a checklist of its symptoms.
 
 **Artifacts:** `outputs/quality_studies_walker_reward_v5_20260728/`,
 config `walker_reward_v5_candidate.yaml`, commit `7c9eb68`.
+
+## 2026-07-28 — Gait Phase Screen: Anti-Phase Achieved, Schedule Kinematically Unreachable
+
+**Question:** four screens of per-step property terms were each absorbed by a
+non-walking gait, ending with v5 hopping on both legs in phase. Does a
+phase-indexed reference contact schedule produce anti-phase alternation?
+
+**Source:** `walker_reward_v5_candidate` seed-21 10M checkpoint as paired
+control. Both arms trained from scratch (v6's observation is 37-D, not 35-D).
+
+**Change:** `observation.include_gait_phase` appends (sin, cos) of a gait clock;
+`phase_contact_weight: 1.0` pays the fraction of feet matching the schedule
+(right leg in stance over phase [0, 0.6), left the same window half a cycle
+later). `double_support_reward_weight` 0.5 -> 0, since it is subsumed and in
+exact conflict: standing on both feet during a single-support window trades 0.5
+of phase match for 0.5 of bonus, leaving double-support timing unconstrained.
+
+**Observed result (stochastic, 20 episodes):**
+
+| metric | v5 | v6 | |
+|---|---:|---:|---|
+| **single support** | 13.9% | **62.1%** | the target |
+| right-only / left-only | 7.5 / 6.4% | **30.0 / 32.1%** | balanced |
+| double support | 31.4% | 3.5% | |
+| flight | 54.7% | 34.4% | |
+| phase match reward | 0.000 | 0.616 | of a possible 1.0 |
+| displacement | 13.32 m | 14.92 m | + |
+| episode length | 688 | 782 | + |
+| fall rate | 15% | 10% | + |
+| cadence /100 | 4.20 | 9.82 | now FAILS the 8.5 ceiling |
+| foot clearance | 33.4 mm | 16.4 mm | now FAILS the 20 mm floor |
+
+Frozen `WALKER_GAIT_GATE`: **9/12**, down from v5's 10/12 and v4's 11/12.
+
+**Visual check:** `v6_surviving.png`, `v6_surviving.gif`, 799 steps at 1.17 m/s.
+The two foot-height traces are **no longer superimposed** — they alternate. The
+bunny hop is gone and duty imbalance is 0.059. Contact bursts are irregular
+rather than a clean rhythm.
+
+**What worked:** the phase clock did exactly what the four preceding marginal
+terms could not. Single support went 13.9% -> 62.1% with the two legs
+near-perfectly balanced, and anti-phase alternation appeared for the first time
+in this ledger. Displacement, episode length and fall rate all improved.
+
+**What failed — a specification conflict I introduced.** The schedule period and
+the velocity target are mutually unreachable on this morphology:
+
+| quantity | value |
+|---|---:|
+| leg length, hip to ankle | 0.480 m |
+| hip excursion at `action_scale: 0.5` | ±0.600 rad |
+| kinematic step ceiling, `2 L sin(theta)` | 0.542 m |
+| kinematic stride ceiling | 1.084 m |
+| **top speed at a 1 Hz cycle** | **1.08 m/s** |
+| **speed the policy actually runs** | **1.14 m/s** |
+
+A 1 Hz cycle at 1.14 m/s demands a 1.14 m stride, which exceeds the ceiling even
+at full hip excursion. The policy cannot satisfy both, and the velocity term
+(1.0/step) outweighs the phase term, so it kept the speed and took partial phase
+credit (0.616). Stepping at 2.95 Hz against a 1 Hz clock leaves roughly 0.17 s
+per swing, which is why clearance halved to 16.4 mm and failed its gate; the
+achieved 0.21 m stride accounts for only part of the distance, with stance slip
+at 0.347 m/s making up the rest. The policy uses 77% of the available hip range,
+so this is a schedule/target inconsistency, not an actuation limit.
+
+**Decision:** retain the phase clock and schedule — the mechanism is validated.
+Reject v6's *parameters*. The next screen changes one number:
+`gait.cycle_period_s` 1.0 -> 0.55, which at the 1.0 m/s target demands a 0.55 m
+stride, 51% of the kinematic ceiling, and implies 6.06 alternating touchdowns per
+100 steps, inside the frozen 1.5-8.5 band. Nothing else changes.
+
+**Lesson:** a reference schedule is a kinematic claim, not just a reward shape.
+`v = stride x cycle_frequency` ties the period to the velocity target and the
+leg geometry; choosing a period without checking that product asks the policy to
+satisfy two constraints that cannot both hold, and it will drop the cheaper one.
+Check the arithmetic of a reference trajectory against the morphology before
+training against it.
+
+**Artifacts:** `outputs/quality_studies_walker_reward_v6_20260728/`,
+config `walker_reward_v6_candidate.yaml`.
