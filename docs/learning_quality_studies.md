@@ -290,6 +290,39 @@ Both policies were untrained and fell in their sampled stochastic episode, as
 expected. The smoke is implementation validation, not candidate evidence.
 Artifacts: `outputs/quality_studies_walker_action_memory_smoke_20260727`.
 
+## Walker Gait Gate V2 And Corrected V7 Rerun — 2026-07-29
+
+Gate v2 was committed before retraining. It switches the slip criterion to
+`gait_contact_point_slip_speed_mean` with the unchanged 0.18 m/s ceiling,
+requires at least 10% double support, and permits at most 10% flight. The
+support thresholds come from the configured anti-phase schedule:
+`stance_duty: 0.6` implies 20% nominal double support and zero flight, so the
+gate retains half the nominal overlap and allows an equal raw-contact
+tolerance.
+
+The seed-matched v7 rerun trained from scratch for 10,002,432 steps with the
+corrected debounced bilateral-clearance signal. Its only configuration
+difference from the original v7 was `experiment_name`, preserving the old
+artifacts. Twenty independent stochastic episodes produced:
+
+| Metric | Original v7 | Corrected rerun | Gate v2 |
+|---|---:|---:|---:|
+| Episode steps | 762.25 | **800.00** | ≥600 |
+| Fall rate | 10% | **0%** | ≤30% |
+| Displacement | 13.72 m | **13.87 m** | ≥5 m |
+| Contact-point slip | 0.163 m/s | **0.124 m/s** | ≤0.18 m/s |
+| Stride | 0.527 m | **0.569 m** | ≥0.10 m |
+| Clearance | 17.6 mm | **32.5 mm** | ≥20 mm |
+| Double support | 4.42% | **4.91%** | ≥10% |
+| Flight | 20.66% | **12.96%** | ≤10% |
+| Bilateral-clearance reward | 0.100/step | **0.218/step** | diagnostic |
+
+The reward fix worked, but promotion did not: the rerun passed 10 of 12
+criteria and failed double support and flight. It therefore receives no visual
+approval, seeds 22–23, or transfer evaluation. Artifacts:
+`outputs/quality_studies_walker_reward_v7_corrected_20260729` and
+`outputs/walker_reward_v7_corrected_rerun`.
+
 ## Promotion-Scale Run — 2026-07-25
 
 The requested walker and arena evidence budgets completed successfully. The

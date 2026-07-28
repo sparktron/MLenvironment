@@ -1290,3 +1290,45 @@ new v7 training result. The next experiment is a from-scratch seed-21 rerun of
 the otherwise unchanged v7 policy. Unlike the previous checkpoint, it will
 train against the corrected debounced bilateral-clearance signal. Seeds 22–23
 remain blocked unless seed 21 passes every v2 criterion and visual review.
+
+## 2026-07-29 — Corrected V7 Rerun: Clearance Fixed, Support Gate Fails
+
+**Question:** with the bilateral-clearance reward finally receiving correctly
+debounced swing events, does an otherwise identical v7 run clear the gait gate?
+
+**Constants:** seed 21, 10M PPO steps from scratch, 0.15→1.0 m/s velocity ramp,
+0.55 s gait period, 0.6 stance duty, all reward weights, physics,
+randomization, and optimizer settings. The only YAML difference is
+`experiment_name`, so the original checkpoint is preserved. Gate v2 was
+already committed as `ccce8fc`.
+
+**Result:** training completed at 10,002,432 steps. The corrected reward was no
+longer starved: its stochastic contribution increased from 0.100 to 0.218 per
+step. Twenty deterministic and stochastic episodes then completed with no
+falls.
+
+| stochastic metric | original v7 | corrected rerun | gate |
+|---|---:|---:|---:|
+| episode steps | 762.25 | **800.00** | ≥600 |
+| displacement | 13.72 m | **13.87 m** | ≥5 m |
+| contact-point slip | 0.163 m/s | **0.124 m/s** | ≤0.18 m/s |
+| cadence / 100 steps | 5.90 | **5.99** | 1.5–8.5 |
+| progress / touchdown | 0.273 m | **0.284 m** | ≥0.05 m |
+| stride | 0.527 m | **0.569 m** | ≥0.10 m |
+| clearance | 17.6 mm | **32.5 mm** | ≥20 mm |
+| double support | 4.42% | **4.91%** | ≥10% |
+| flight | 20.66% | **12.96%** | ≤10% |
+| longest same-foot sequence | 2.10 | **1.65** | ≤5 |
+
+**Decision:** reject for promotion at 10/12. The clearance mechanism worked,
+and flight moved materially toward walking, but double support remained below
+half the frozen floor and flight remained 2.96 percentage points above its
+ceiling. Because the metrics gate failed, visual approval is not reached and
+seeds 22–23 and transfer remain blocked. Do not rerun v7 again for seed luck.
+The next hypothesis, if pursued, must target support occupancy explicitly while
+holding gate v2 and the corrected bilateral signal fixed.
+
+**Artifacts:**
+`outputs/walker_reward_v7_corrected_rerun/seed_21/checkpoints/final_model.zip`
+and
+`outputs/quality_studies_walker_reward_v7_corrected_20260729/comparison.json`.

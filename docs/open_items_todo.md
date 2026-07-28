@@ -19,16 +19,21 @@ must record both successful changes and failed hypotheses there.
 
 ## Priority 3: Learning Quality And Features
 
-- (2026-07-29) **Walker gait gate v2 is frozen before retraining.** It uses
+- (2026-07-29) **Walker gait gate v2 is frozen and the corrected v7 rerun is
+  rejected.** The gate uses
   `gait_contact_point_slip_speed_mean` with the unchanged 0.18 m/s ceiling,
   requires double support ≥10%, and tightens flight from ≤60% to ≤10%. The
   support limits were derived independently from the configured anti-phase
   reference: `stance_duty: 0.6` produces 20% nominal double support and no
   flight, so the gate retains half the nominal overlap and allows a symmetric
-  10% raw-contact tolerance. The next policy action is a from-scratch,
-  seed-matched v7 rerun with the corrected debounced bilateral-clearance reward;
-  advance to seeds 22–23 only if seed 21 passes every v2 metric and visual
-  review.
+  10% raw-contact tolerance. The from-scratch seed-21 10M rerun proved the
+  debounced bilateral-clearance signal works: stochastic clearance improved
+  17.6→32.5 mm, true slip 0.163→0.124 m/s, flight 20.66→12.96%, falls 10→0%,
+  and reward contribution 0.100→0.218 per step. It passed 10/12 criteria but
+  missed double support (4.91% <10%) and flight (12.96% >10%), so no visual
+  approval, seeds 22–23, or transfer is allowed. Any next candidate must target
+  support occupancy explicitly while retaining gate v2 and the corrected
+  bilateral signal; do not rerun v7 again for seed luck.
 - The 2026-07-25 promotion-scale walker and arena matrices completed, but no
   candidate earned behavioral promotion. The report readiness fields are true
   because the seed and budget gates were satisfied; every walker diagnostic

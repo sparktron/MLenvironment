@@ -1270,7 +1270,10 @@ The active development plan lives in [`docs/open_items_todo.md`](docs/open_items
   requires at least 10% double support, and permits at most 10% flight. The
   support thresholds come from the configured anti-phase reference
   (`stance_duty: 0.6` gives 20% nominal double support and zero flight), not
-  from candidate outcomes.
+  from candidate outcomes. The seed-21 10M corrected v7 rerun then passed 10/12
+  criteria: clearance improved from 17.6 to 32.5 mm and true slip from 0.163 to
+  0.124 m/s, but double support reached only 4.91% and flight remained 12.96%.
+  It is rejected for promotion; seeds 22–23 are not run.
 - Priority 0 correctness fixes are currently cleared for the arena self-play validation path; new confirmed bugs should be added here first.
 - Learning-quality decisions are made through the resumable `quality-study`
   matrices; candidate defaults remain gated on promotion-scale evidence.
