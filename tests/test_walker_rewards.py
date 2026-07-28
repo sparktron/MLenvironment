@@ -43,6 +43,7 @@ def test_reward_components_sum_to_computed_reward() -> None:
         "swing_clearance",
         "touchdown_rate",
         "flight",
+        "double_support",
         "gait_symmetry",
     }
     assert sum(components.values()) == reward.compute(**kwargs)
@@ -250,6 +251,7 @@ def test_new_gait_terms_are_zero_by_default() -> None:
         swing_clearance=0.08,
         touchdown_interval=0.01,
         in_flight=True,
+        in_double_support=True,
         contact_duty_imbalance=0.9,
     )
 
@@ -258,6 +260,7 @@ def test_new_gait_terms_are_zero_by_default() -> None:
     assert components["swing_clearance"] == 0.0
     assert components["touchdown_rate"] == 0.0
     assert components["flight"] == 0.0
+    assert components["double_support"] == 0.0
     assert components["gait_symmetry"] == 0.0
 
 
@@ -304,3 +307,74 @@ def test_gait_symmetry_penalty_scales_with_duty_imbalance() -> None:
     # Out-of-range inputs are clamped rather than extrapolated.
     assert symmetry(4.0) == pytest.approx(-0.5)
     assert symmetry(-1.0) == pytest.approx(0.0)
+
+
+def test_double_support_reward_prices_the_state_flight_penalty_cannot_reach() -> None:
+    """Flight, single support and double support are three states, not two.
+
+    The v3 screen charged flight and drove it 57.6% -> 29.0%, but the policy
+    escaped into extended SINGLE support (42.3% -> 70.6%) and double support
+    stayed at 0.4%. Only a term that prices double support directly can move it.
+    """
+    reward = WalkerReward(flight_penalty_weight=0.5, double_support_reward_weight=0.5)
+    action = np.zeros(10, dtype=np.float32)
+
+    def state(in_flight: bool, in_double_support: bool) -> float:
+        c = reward.components(
+            lin_vel_x=1.0,
+            pitch_roll_penalty=0.0,
+            action=action,
+            alive=True,
+            in_flight=in_flight,
+            in_double_support=in_double_support,
+        )
+        return c["flight"] + c["double_support"]
+
+    flight = state(in_flight=True, in_double_support=False)
+    single = state(in_flight=False, in_double_support=False)
+    double = state(in_flight=False, in_double_support=True)
+
+    assert flight == pytest.approx(-0.5)
+    assert single == pytest.approx(0.0)
+    assert double == pytest.approx(+0.5)
+    # The ordering is what matters: single support must not be a free escape
+    # from the flight penalty.
+    assert flight < single < double
+
+
+def test_double_support_weight_must_not_make_standing_competitive() -> None:
+    """Standing still scores 100% double support, so this term can be farmed.
+
+    Measured against the v4 reward: a 1 m/s walk beats standing at weight 0.5
+    and 1.0, ties at 1.5, and LOSES at 2.0. The shipped weight must sit in the
+    safe region.
+    """
+    base = dict(
+        alive_bonus=0.10,
+        forward_velocity_weight=1.0,
+        target_velocity=1.0,
+        velocity_mode="clipped_linear",
+        orientation_penalty_weight=1.0,
+        torque_penalty_weight=0.02,
+        swing_clearance_weight=8.0,
+        swing_clearance_target=0.05,
+    )
+    action = np.full(10, 0.5, dtype=np.float32)
+
+    def margin(weight: float) -> float:
+        r = WalkerReward(**base, double_support_reward_weight=weight)
+        standing = r.compute(
+            0.0, 0.02, action, alive=True, in_double_support=True, swing_clearance=0.0
+        )
+        # a walk: 25% of steps in double support, the rest swinging a foot
+        ds = r.compute(
+            1.0, 0.10, action, alive=True, in_double_support=True, swing_clearance=0.0
+        )
+        ss = r.compute(
+            1.0, 0.10, action, alive=True, in_double_support=False, swing_clearance=0.05
+        )
+        return (0.25 * ds + 0.75 * ss) - standing
+
+    assert margin(0.5) > 0.5           # shipped weight: comfortable margin
+    assert margin(1.0) > 0.0
+    assert margin(2.0) < 0.0           # standing wins -- do not ship this

@@ -77,6 +77,13 @@ class WalkerReward:
     # Without it a policy can satisfy every stride and clearance term while
     # favouring one leg and dragging the other.
     gait_symmetry_penalty_weight: float = 0.0
+    # Paid on every step with BOTH feet supported. ``flight_penalty_weight``
+    # charges the complement of "grounded", which a policy can satisfy by
+    # extending single support -- the v3 screen drove flight 57.6% -> 29.0%
+    # while double support stayed at 0.4%. This term prices the target state
+    # directly. Keep it well below the velocity weight: standing still scores
+    # 100% double support, so an oversized weight makes standing competitive.
+    double_support_reward_weight: float = 0.0
 
     @property
     def min_touchdown_interval(self) -> float:
@@ -97,6 +104,7 @@ class WalkerReward:
         swing_clearance: float = 0.0,
         touchdown_interval: float | None = None,
         in_flight: bool = False,
+        in_double_support: bool = False,
         contact_duty_imbalance: float = 0.0,
     ) -> float:
         return float(
@@ -114,6 +122,7 @@ class WalkerReward:
                     swing_clearance=swing_clearance,
                     touchdown_interval=touchdown_interval,
                     in_flight=in_flight,
+                    in_double_support=in_double_support,
                     contact_duty_imbalance=contact_duty_imbalance,
                 ).values()
             )
@@ -133,6 +142,7 @@ class WalkerReward:
         swing_clearance: float = 0.0,
         touchdown_interval: float | None = None,
         in_flight: bool = False,
+        in_double_support: bool = False,
         contact_duty_imbalance: float = 0.0,
     ) -> dict[str, float]:
         """Return individually attributable reward terms.
@@ -194,6 +204,9 @@ class WalkerReward:
                 shortfall / minimum
             )
         flight_penalty = -self.flight_penalty_weight if in_flight else 0.0
+        double_support_reward = (
+            self.double_support_reward_weight if in_double_support else 0.0
+        )
         gait_symmetry_penalty = -self.gait_symmetry_penalty_weight * min(
             max(float(contact_duty_imbalance), 0.0), 1.0
         )
@@ -210,5 +223,6 @@ class WalkerReward:
             "swing_clearance": float(swing_clearance_reward),
             "touchdown_rate": float(touchdown_rate_penalty),
             "flight": float(flight_penalty),
+            "double_support": float(double_support_reward),
             "gait_symmetry": float(gait_symmetry_penalty),
         }

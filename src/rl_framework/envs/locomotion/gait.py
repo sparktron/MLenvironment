@@ -26,6 +26,10 @@ class GaitStep:
     # True when neither foot is on a supporting surface. A walk has no flight
     # phase at all; a run is defined by having one.
     in_flight: bool
+    # True when BOTH feet are supported. Flight, single support and double
+    # support are three states, not two: penalising flight alone lets a policy
+    # escape into extended single support, which is what the v3 screen did.
+    in_double_support: bool
     # Running |right - left| stance-step imbalance as a fraction of total
     # stance steps, in [0, 1]. 0.0 is a perfectly even duty cycle between the
     # legs; 1.0 means one leg has done all the standing.
@@ -151,6 +155,7 @@ class WalkerGaitTracker:
             self._support_counts[3] += 1
 
         in_flight = not right_contact and not left_contact
+        in_double_support = right_contact and left_contact
         # Double-support steps count for both legs and cancel in the
         # difference, so the imbalance is driven entirely by single-support.
         right_stance_steps = self._support_counts[0] + self._support_counts[2]
@@ -320,6 +325,7 @@ class WalkerGaitTracker:
             swing_clearance_now=swing_clearance_now,
             touchdown_interval=touchdown_interval,
             in_flight=in_flight,
+            in_double_support=in_double_support,
             contact_duty_imbalance=contact_duty_imbalance,
             touchdown_swing_duration=touchdown_swing_duration,
             touchdown_swing_clearance=touchdown_swing_clearance,

@@ -1,0 +1,109 @@
+# Paired CANDIDATE for the double-support screen (2026-07-28).
+#
+# Control is `walker_reward_v3_candidate`. That arm fixed gait symmetry
+# outright (duty imbalance 0.291 -> 0.014) and halved flight (57.6% -> 29.0%),
+# but double support stayed at 0.4% and stance slip regressed 3.1x to
+# 0.880 m/s. Mechanism: penalising flight is not the same as rewarding double
+# support. Flight, single support and double support are three states, and the
+# policy escaped the flight penalty into extended SINGLE support (42.3% ->
+# 70.6%) rather than overlapping the feet.
+#
+# Two coupled additions, both sized from measurement on the v3 checkpoint
+# (8,872 stochastic steps):
+#
+#   double_support_reward_weight: 0.5
+#     Prices the target state directly instead of its complement. Measured
+#     double support is 0.29%; at a 25% walk this pays +0.125/step against
+#     +0.001 now. The weight is bounded ABOVE by a standing exploit: standing
+#     still scores 100% double support, and a 1 m/s walk beats standing by
+#     +0.757/step at weight 0.5, +0.382 at 1.0, +0.007 at 1.5, and LOSES by
+#     -0.368 at 2.0. Do not raise this without re-checking that margin.
+#
+#   stance_slip_penalty_weight: 0.35, clip 1.5
+#     Reinstated. It was removed in v2 because it manufactured chatter -- the
+#     cheapest way to cut slip is to shorten contact -- but that escape route
+#     is now closed by touchdown_rate_penalty_weight. The clip is NOT the p90
+#     (3.60 m/s): slip is heavy-tailed here (p50 0.219, p75 0.565, max 7.47),
+#     so a p90 clip would let touchdown-impulse spikes dominate the gradient.
+#     1.5 sits above the bulk and below the spikes.
+#
+# The flight penalty is RETAINED at 0.5: it did halve flight, and its failure
+# was the missing double-support term, not the penalty itself.
+experiment_name: walker_reward_v4_candidate
+seed: 21
+
+environment:
+  type: walker_bullet
+  seed: 21
+  observation:
+    version: v2
+    coordinate_free: true
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    action_scale: 0.5
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  terrain:
+    preset: flat
+  reward:
+    alive_bonus: 0.10
+    forward_velocity_weight: 1.0
+    target_velocity: 0.15        # ramped to 1.0 by training.velocity_target_ramp
+    velocity_mode: clipped_linear
+    orientation_penalty_weight: 1.0
+    torque_penalty_weight: 0.02
+    fall_penalty: 2.0
+    action_rate_penalty_weight: 0.10
+    swing_clearance_weight: 8.0
+    swing_clearance_target: 0.05
+    touchdown_rate_penalty_weight: 1.0
+    max_cycle_frequency_hz: 2.5
+    flight_penalty_weight: 0.5
+    gait_symmetry_penalty_weight: 0.5
+    double_support_reward_weight: 0.5
+    stance_slip_penalty_weight: 0.35
+    stance_slip_penalty_clip: 1.5
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 10000000
+  num_envs: 24
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 10
+  learning_rate: 0.0003
+  gamma: 0.995
+  log_std_init: -1.0
+  ent_coef: 0.001
+  checkpoint_every: 2000000
+  normalize_observations: true
+  device: cpu
+  velocity_target_ramp:
+    start: 0.15
+    end: 1.0
+    ramp_steps: 3000000
+
+evaluation:
+  episodes: 20
+
+output:
+  base_dir: outputs

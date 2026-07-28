@@ -277,3 +277,17 @@ def test_contact_duty_imbalance_is_zero_for_a_symmetric_gait() -> None:
 
     assert step is not None
     assert step.contact_duty_imbalance == pytest.approx(0.0)
+
+
+def test_in_double_support_is_reported_independently_of_in_flight() -> None:
+    tracker = WalkerGaitTracker(touchdown_debounce_steps=1, control_timestep=1 / 60)
+    tracker.reset(initial_contacts=(False, False), action_size=10)
+
+    both = _update(tracker, step=1, contacts=(True, True), x=0.0)
+    assert both.in_double_support is True and both.in_flight is False
+
+    right = _update(tracker, step=2, contacts=(True, False), x=0.0)
+    assert right.in_double_support is False and right.in_flight is False
+
+    air = _update(tracker, step=3, contacts=(False, False), x=0.0)
+    assert air.in_double_support is False and air.in_flight is True

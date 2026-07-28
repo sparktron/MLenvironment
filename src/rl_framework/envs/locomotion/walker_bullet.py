@@ -661,6 +661,7 @@ class WalkerBulletEnv(gym.Env):
                 "swing_clearance",
                 "touchdown_rate",
                 "flight",
+                "double_support",
                 "gait_symmetry",
             )
         }
@@ -795,6 +796,7 @@ class WalkerBulletEnv(gym.Env):
             "swing_clearance": gait_step.swing_clearance_now,
             "touchdown_interval": gait_step.touchdown_interval,
             "in_flight": gait_step.in_flight,
+            "in_double_support": gait_step.in_double_support,
             "contact_duty_imbalance": gait_step.contact_duty_imbalance,
         }
         reward_components = self.reward_fn.components(**reward_inputs)
