@@ -857,3 +857,98 @@ its opposite, enumerate every state the agent can occupy.
 
 **Artifacts:** `outputs/quality_studies_walker_reward_v3_20260728/`,
 config `walker_reward_v3_candidate.yaml`, commit `f51d15b`.
+
+## 2026-07-28 — Double Support Screen: Best Gate Score Yet, And A Farmable Clearance Reward
+
+**Question:** does pricing double support directly — rather than penalising its
+complement — produce the double-support phase the v3 screen failed to create,
+and does reinstating a clipped slip penalty control the slip regression?
+
+**Source:** `walker_reward_v3_candidate` seed-21 10M checkpoint as paired
+control. Only the new arm was trained.
+
+**Change:** two coupled additions and nothing else.
+`double_support_reward_weight: 0.5` and `stance_slip_penalty_weight: 0.35` with
+`stance_slip_penalty_clip: 1.5`. The flight penalty was retained at 0.5 — it did
+halve flight, and its failure was the missing double-support term.
+
+**Calibration:** both weights were measured, not guessed. The double-support
+weight is bounded above by a standing exploit (standing scores 100% double
+support): a 1 m/s walk beats standing by +0.757/step at weight 0.5, +0.007 at
+1.5, and **loses by −0.368 at 2.0**. That bound is now a test. The slip clip is
+deliberately **not** the p90: v3 slip is heavy-tailed (p50 0.219, p75 0.565,
+p90 3.60, max 7.47), so a p90 clip would hand the gradient to touchdown-impulse
+spikes. 1.5 sits above the bulk and below the spikes.
+
+**Observed result (stochastic, 20 episodes):**
+
+| metric | v3 | v4 | |
+|---|---:|---:|---|
+| **double support** | 0.4% | **5.2%** | first movement in this quantity |
+| **cadence /100** | 9.58 | **7.30** | **now inside the 1.5–8.5 band** |
+| **stance slip** | 0.880 m/s | **0.287 m/s** | 3.1× better, still fails 0.18 |
+| displacement | 13.12 m | 13.50 m | + |
+| flight | 29.0% | 36.4% | worse |
+| foot clearance | 81.8 mm | 41.5 mm | worse |
+| stride | 0.252 m | 0.218 m | worse |
+| duty imbalance | 0.014 | ~0.30 | **regressed** |
+
+Frozen `WALKER_GAIT_GATE`: **11/12 — the best score any arm has reached.** The
+cadence ceiling passes for the first time. The only remaining failure is
+`stance_slip <= 0.18` at 0.287.
+
+**Visual check:** `v4_surviving.png`, `v4_surviving.gif`, 799 steps at 1.06 m/s.
+The robot **hops on its right leg while the left leg does all the swinging** —
+right foot peaks at 50–80 mm with visible contact chatter, left foot swings
+150–270 mm. Right foot is in contact 47.2% against the left's 23.7%.
+
+**Root cause of the asymmetry — a defect in the v2 reward implementation.** The
+env feeds `swing_clearance` from `GaitStep.swing_clearance_now`, which is the
+**max over currently-swinging feet**. One high-swinging leg therefore collects
+full clearance credit while the other drags. The telemetry proves the farm:
+
+| | v3 | v4 |
+|---|---:|---:|
+| `reward_swing_clearance_mean` (earned) | 0.360 | 0.257 (−29%) |
+| `gait_foot_clearance_mean` (measured, gated) | 0.0818 | 0.0415 (−49%) |
+
+The policy retained 71% of the reward while real per-foot clearance halved, and
+it is *paying* a 4.8× larger symmetry penalty (−0.028 → −0.133) to do so because
+the farm is worth more than the penalty. The gate telemetry is honest — it
+averages per-touchdown clearances per foot — so only the reward term was wrong.
+This defect was latent in v2 and v3; it only became profitable once symmetry and
+double-support pressure made single-leg specialisation attractive.
+
+**What worked:** pricing the target state directly moved it. Double support went
+0.4% → 5.2% where the flight penalty alone had moved it 0.1% → 0.4%. The
+reinstated slip penalty cut slip 3.1× without reproducing the chatter it caused
+in the v1 studies, confirming that `touchdown_rate_penalty_weight` closes that
+escape route. Cadence entered the frozen band.
+
+**What failed:** 5.2% double support is still far from the ~25% of a walk, and
+the arm regressed clearance, stride, flight, and symmetry. It is not
+promotion-ready at 11/12.
+
+**Change made in response:** added `touchdown_clearance_weight`, which pays
+per-foot on the step a foot lands, proportional to the clearance that foot
+actually achieved — the same quantity `gait_foot_clearance` gates on, so it
+cannot be farmed by one leg. `swing_clearance_weight` is retained at zero
+default with a warning so v2–v4 stay reproducible.
+
+**Decision:** reject v4 as a promotion candidate; do not run seeds 22–23 or
+transfer. Do **not** run another reward screen until the clearance term is
+switched to the per-foot form — every clearance result from v2 onward was
+measured against a farmable signal. The next screen should be v4 with
+`swing_clearance_weight: 0` and `touchdown_clearance_weight` sized to match the
+dense term's expected value, and should re-check whether the symmetry regression
+disappears once the farm is closed.
+
+**Lesson:** when a reward aggregates over interchangeable body parts, check
+whether the aggregation is farmable by specialising one of them. `max` over feet
+rewards having *a* good leg; the gate measures *both* legs. Whenever a reward
+term and its gate compute the same-sounding quantity differently, the policy will
+find the gap — here it was worth more than the penalty explicitly designed to
+prevent it.
+
+**Artifacts:** `outputs/quality_studies_walker_reward_v4_20260728/`,
+config `walker_reward_v4_candidate.yaml`, commit `0b4442f`.

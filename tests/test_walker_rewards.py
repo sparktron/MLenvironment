@@ -41,6 +41,7 @@ def test_reward_components_sum_to_computed_reward() -> None:
         "stance_slip",
         "action_rate",
         "swing_clearance",
+        "touchdown_clearance",
         "touchdown_rate",
         "flight",
         "double_support",
@@ -378,3 +379,40 @@ def test_double_support_weight_must_not_make_standing_competitive() -> None:
     assert margin(0.5) > 0.5           # shipped weight: comfortable margin
     assert margin(1.0) > 0.0
     assert margin(2.0) < 0.0           # standing wins -- do not ship this
+
+
+def test_dense_swing_clearance_is_farmable_by_a_single_leg() -> None:
+    """Regression guard documenting why touchdown_clearance exists.
+
+    The env feeds ``swing_clearance`` from the MAX over swinging feet, so a
+    policy that swings one leg high and drags the other collects full credit.
+    The reward_v4 screen did exactly this: earned clearance fell 29% while
+    measured per-foot clearance fell 49%.
+    """
+    dense = WalkerReward(swing_clearance_weight=8.0, swing_clearance_target=0.05)
+    per_foot = WalkerReward(
+        touchdown_clearance_weight=8.0, touchdown_clearance_target=0.05
+    )
+    action = np.zeros(10, dtype=np.float32)
+    kw = dict(lin_vel_x=1.0, pitch_roll_penalty=0.0, action=action, alive=True)
+
+    # One leg at full target height; the dragging leg never lands high.
+    assert dense.components(swing_clearance=0.05, **kw)["swing_clearance"] == (
+        pytest.approx(0.4)
+    )
+    # The per-foot term pays only for the foot that actually landed, so a
+    # 5 mm drag step is credited as a 5 mm step.
+    assert per_foot.components(touchdown_clearance=0.005, **kw)[
+        "touchdown_clearance"
+    ] == pytest.approx(0.04)
+    assert per_foot.components(touchdown_clearance=0.05, **kw)[
+        "touchdown_clearance"
+    ] == pytest.approx(0.4)
+    # No touchdown this step -> nothing paid, rather than a held-aloft leg
+    # collecting every step.
+    assert per_foot.components(touchdown_clearance=None, **kw)[
+        "touchdown_clearance"
+    ] == 0.0
+    assert per_foot.components(touchdown_clearance=0.5, **kw)[
+        "touchdown_clearance"
+    ] == pytest.approx(0.4)
