@@ -36,7 +36,11 @@ must record both successful changes and failed hypotheses there.
   bilateral signal; do not rerun v7 again for seed luck. The next isolated
   seed-21 candidate is `walker_reward_v8_support_overlap`: it adds a 0.5
   phase-gated double-support reward, paid only during the reference schedule's
-  20% overlap, so standing and in-phase hopping cannot farm it.
+  20% overlap, so standing and in-phase hopping cannot farm it. Its completed
+  10M seed-21 evaluation clears the support floor (11.59%) and slip ceiling
+  (0.170 m/s), but fails flight (22.04% >10%); reject it for promotion and do
+  not run seeds 22–23 or transfer. Any successor must reduce flight without
+  sacrificing the recovered scheduled overlap.
 - The 2026-07-25 promotion-scale walker and arena matrices completed, but no
   candidate earned behavioral promotion. The report readiness fields are true
   because the seed and budget gates were satisfied; every walker diagnostic

@@ -1332,3 +1332,31 @@ holding gate v2 and the corrected bilateral signal fixed.
 `outputs/walker_reward_v7_corrected_rerun/seed_21/checkpoints/final_model.zip`
 and
 `outputs/quality_studies_walker_reward_v7_corrected_20260729/comparison.json`.
+
+## 2026-07-29 — V8 Scheduled Support Overlap: Support Recovered, Flight Fails
+
+**Question:** can a reward paid only for scheduled double support recover the
+gait gate's support occupancy without the standing and in-phase-hop exploits of
+an unconditional double-support bonus?
+
+**Constants:** v7's corrected bilateral-clearance signal, 0.55 s cycle, 0.6
+stance duty, seed 21, 10M steps, PPO schedule, physics, randomization, and
+frozen gait gate v2. **Only intervention:**
+`phase_double_support_reward_weight: 0.5`, which pays when both feet contact
+during the phase reference's 20% overlap, rather than whenever both feet happen
+to contact.
+
+**Result:** the run completed at 10,002,432 steps. Across 20 stochastic
+episodes, double support rose from v7's 4.91% to **11.59%**, exceeding the 10%
+floor. Contact-point slip remained compliant at **0.170 m/s**, displacement was
+13.28 m, falls were 5%, stride was 0.535 m, and clearance was 34.5 mm. Flight
+remained **22.04%**, however, above the frozen 10% ceiling. The 20 deterministic
+episodes also showed 13.69% double support but 16.51% flight.
+
+**Decision:** reject at 11/12 behavior criteria. The intervention validates
+scheduled support as a real lever, but does not establish walking because flight
+is still too frequent. No visual approval, seeds 22–23, or transfer evaluation
+is permitted. Preserve gate v2; any successor must lower flight while retaining
+the recovered support and slip.
+
+**Artifacts:** `outputs/walker_reward_v8_support_overlap/seed_21/checkpoints/final_model.zip`.

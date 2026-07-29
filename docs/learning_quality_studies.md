@@ -323,6 +323,34 @@ approval, seeds 22–23, or transfer evaluation. Artifacts:
 `outputs/quality_studies_walker_reward_v7_corrected_20260729` and
 `outputs/walker_reward_v7_corrected_rerun`.
 
+## Walker V8 Scheduled Support-Overlap Screen — 2026-07-29
+
+The corrected v7 rerun failed only the support-occupancy terms, so v8 retained
+every setting and gate from that run and added a `0.5`
+`phase_double_support_reward_weight`. The reward pays only when both feet
+contact during the phase clock's intended 20% overlap; it cannot be collected
+by standing or by an in-phase hop during the scheduled single-support windows.
+
+The seed-21 run completed at 10,002,432 PPO steps. Full diagnostics used five
+zero-action baselines plus 20 deterministic and 20 stochastic episodes.
+
+| Stochastic metric | Result | Gate v2 |
+|---|---:|---:|
+| Episode steps | 764.35 | ≥600 |
+| Fall rate | 5% | ≤30% |
+| Displacement | 13.28 m | ≥1 m |
+| Contact-point slip | 0.170 m/s | ≤0.18 m/s |
+| Double support | **11.59%** | ≥10% |
+| Flight | **22.04%** | ≤10% |
+| Stride | 0.535 m | ≥0.10 m |
+| Clearance | 34.5 mm | ≥20 mm |
+
+The phase-gated term recovered the required overlap without a standing exploit,
+but it did not suppress flight. The candidate is rejected under frozen gate v2;
+there is no visual approval, seed-22/23 replication, or transfer evaluation.
+Any later candidate must lower flight while preserving the support and slip
+improvements. Artifacts: `outputs/walker_reward_v8_support_overlap`.
+
 ## Promotion-Scale Run — 2026-07-25
 
 The requested walker and arena evidence budgets completed successfully. The

@@ -1276,6 +1276,9 @@ The active development plan lives in [`docs/open_items_todo.md`](docs/open_items
   It is rejected for promotion; seeds 22–23 are not run.
   The next isolated seed-21 candidate, `walker_reward_v8_support_overlap`,
   rewards double support only during the phase reference's intended overlap.
+  Its full seed-21 evaluation recovered 11.59% double support and kept true
+  slip at 0.170 m/s, but stochastic flight was 22.04%; it is rejected under
+  gait gate v2 and does not advance to seeds 22–23.
 - Priority 0 correctness fixes are currently cleared for the arena self-play validation path; new confirmed bugs should be added here first.
 - Learning-quality decisions are made through the resumable `quality-study`
   matrices; candidate defaults remain gated on promotion-scale evidence.
