@@ -60,6 +60,7 @@ _REWARD_EPISODE_METRICS = (
     "reward_touchdown_clearance_mean",
     "reward_bilateral_clearance_mean",
     "reward_phase_contact_mean",
+    "reward_phase_double_support_mean",
     "reward_touchdown_rate_mean",
     "reward_flight_mean",
     "reward_double_support_mean",

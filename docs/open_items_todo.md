@@ -33,7 +33,10 @@ must record both successful changes and failed hypotheses there.
   missed double support (4.91% <10%) and flight (12.96% >10%), so no visual
   approval, seeds 22–23, or transfer is allowed. Any next candidate must target
   support occupancy explicitly while retaining gate v2 and the corrected
-  bilateral signal; do not rerun v7 again for seed luck.
+  bilateral signal; do not rerun v7 again for seed luck. The next isolated
+  seed-21 candidate is `walker_reward_v8_support_overlap`: it adds a 0.5
+  phase-gated double-support reward, paid only during the reference schedule's
+  20% overlap, so standing and in-phase hopping cannot farm it.
 - The 2026-07-25 promotion-scale walker and arena matrices completed, but no
   candidate earned behavioral promotion. The report readiness fields are true
   because the seed and budget gates were satisfied; every walker diagnostic

@@ -44,6 +44,7 @@ def test_reward_components_sum_to_computed_reward() -> None:
         "touchdown_clearance",
         "bilateral_clearance",
         "phase_contact",
+        "phase_double_support",
         "touchdown_rate",
         "flight",
         "double_support",
@@ -343,6 +344,24 @@ def test_double_support_reward_prices_the_state_flight_penalty_cannot_reach() ->
     # The ordering is what matters: single support must not be a free escape
     # from the flight penalty.
     assert flight < single < double
+
+
+def test_phase_double_support_reward_only_pays_in_the_scheduled_overlap() -> None:
+    """The overlap bonus cannot be farmed by standing through single support."""
+    reward = WalkerReward(phase_double_support_reward_weight=0.5)
+    action = np.zeros(10, dtype=np.float32)
+
+    scheduled = reward.components(
+        0.0, 0.0, action, alive=True,
+        phase_expects_double_support=True, in_double_support=True,
+    )
+    unscheduled = reward.components(
+        0.0, 0.0, action, alive=True,
+        phase_expects_double_support=False, in_double_support=True,
+    )
+
+    assert scheduled["phase_double_support"] == pytest.approx(0.5)
+    assert unscheduled["phase_double_support"] == pytest.approx(0.0)
 
 
 def test_double_support_weight_must_not_make_standing_competitive() -> None:

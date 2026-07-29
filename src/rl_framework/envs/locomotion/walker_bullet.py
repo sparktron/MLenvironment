@@ -767,6 +767,7 @@ class WalkerBulletEnv(gym.Env):
                 "touchdown_clearance",
                 "bilateral_clearance",
                 "phase_contact",
+                "phase_double_support",
                 "touchdown_rate",
                 "flight",
                 "double_support",
@@ -866,6 +867,7 @@ class WalkerBulletEnv(gym.Env):
         phase_contact_match = 0.5 * sum(
             float(actual == want) for actual, want in zip(foot_contacts, expected_stance)
         )
+        phase_expects_double_support = all(expected_stance)
         self._gait_phase = (
             self._gait_phase
             + (self._sim_timestep * max(1, self._frame_skip)) / self._gait_cycle_period_s
@@ -918,6 +920,7 @@ class WalkerBulletEnv(gym.Env):
             "touchdown_clearance": gait_step.touchdown_swing_clearance,
             "bilateral_clearance": gait_step.bilateral_swing_clearance,
             "phase_contact_match": phase_contact_match,
+            "phase_expects_double_support": phase_expects_double_support,
             "in_flight": gait_step.in_flight,
             "in_double_support": gait_step.in_double_support,
             "contact_duty_imbalance": gait_step.contact_duty_imbalance,
