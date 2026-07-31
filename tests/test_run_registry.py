@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from rl_framework.utils.run_registry import RunRegistry
 
 
@@ -22,6 +24,52 @@ def test_registry_preserves_identity_and_records_lineage(tmp_path: Path) -> None
     assert child is not None
     assert child["parent_run_id"] == "parent"
     assert child["config"] == _cfg()
+
+
+def test_registry_keeps_variant_id_separate_from_execution_id(tmp_path: Path) -> None:
+    registry = RunRegistry(tmp_path)
+    cfg = _cfg()
+    cfg["output"]["run_id"] = "morph_000"
+    registry.register_run("run_execution_a", cfg, tmp_path / "exp_a")
+
+    row = registry.get_run("run_execution_a")
+    assert row is not None
+    assert row["run_id"] == "run_execution_a"
+    assert row["variant_id"] == "morph_000"
+    assert registry.list_runs()[0]["variant_id"] == "morph_000"
+
+
+def test_registry_rejects_execution_id_reuse_for_different_run(tmp_path: Path) -> None:
+    registry = RunRegistry(tmp_path)
+    cfg = _cfg()
+    cfg["output"]["run_id"] = "morph_000"
+    registry.register_run("run_execution", cfg, tmp_path / "exp_a")
+
+    conflicting_cfg = _cfg()
+    conflicting_cfg["experiment_name"] = "other_experiment"
+    conflicting_cfg["output"]["run_id"] = "morph_000"
+    with pytest.raises(ValueError, match="different training execution"):
+        registry.register_run("run_execution", conflicting_cfg, tmp_path / "exp_b")
+
+    assert registry.get_run("run_execution")["run_dir"] == str(tmp_path / "exp_a")
+
+
+def test_registry_existing_identity_requires_explicit_orchestrator_handoff(
+    tmp_path: Path,
+) -> None:
+    registry = RunRegistry(tmp_path)
+    run_dir = tmp_path / "exp"
+    registry.register_run("run_execution", _cfg(), run_dir)
+
+    with pytest.raises(ValueError, match="different training execution"):
+        registry.register_run("run_execution", _cfg(), run_dir)
+
+    assert (
+        registry.register_run(
+            "run_execution", _cfg(), run_dir, allow_existing=True
+        )
+        == "run_execution"
+    )
 
 
 def test_registry_tuning_queue_is_durable_and_ordered(tmp_path: Path) -> None:

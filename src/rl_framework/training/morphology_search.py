@@ -1,4 +1,4 @@
-"""Random morphology search: mutate morphology params, train, keep best.
+"""Random morphology search: train mutations, then rank them together.
 
 Thin loop around :class:`~rl_framework.evolution.simple_search.RandomMorphologySearch`.
 Each trial gets a mutated copy of ``cfg["environment"]["morphology"]`` and a
@@ -29,7 +29,7 @@ def run_morphology_search(
     trials: int,
     seed: int = 0,
 ) -> dict[str, Any]:
-    """Run ``trials`` train+eval cycles with mutated morphology and return the best.
+    """Train ``trials`` mutations, evaluate them together, and return the best.
 
     Returns a dict with ``best_trial``, ``best_params``, ``best_score``, and
     the per-trial ``results`` list. Relies on lazy imports so this module can
@@ -64,9 +64,6 @@ def run_morphology_search(
     base_name = cfg["experiment_name"]
 
     results: list[dict[str, Any]] = []
-    best_idx = -1
-    best_score = float("-inf")
-
     for i in range(trials):
         trial_cfg = copy.deepcopy(cfg)
         mutated = searcher.mutate(base_morph)
@@ -78,37 +75,39 @@ def run_morphology_search(
         trial_cfg.setdefault("output", {})["run_id"] = run_id
 
         model_path = train(trial_cfg)
-        model_zip = _as_model_zip_path(str(model_path))
-        field = [
-            model_zip,
-            *[_as_model_zip_path(entry["model_path"]) for entry in results],
-        ]
-        tournament = run_tournament(
-            field,
-            trial_cfg,
-            n_episodes=int(
-                cfg.get("morphology_search", {}).get("tournament_episodes", 10)
-            ),
-            include_random=True,
-        )
-        label = next(
-            item["label"]
-            for item in tournament["competitors"]
-            if item["path"] == model_zip
-        )
-        score = float(tournament["ratings"][label])
-        metrics = {"elo": score, "tournament": tournament}
         entry = {
             "trial": i,
             "experiment_name": base_name,
             "run_id": run_id,
             "morphology": mutated,
             "model_path": str(model_path),
-            "score": score,
-            "metrics": metrics,
         }
         results.append(entry)
 
+    # Elo is only comparable within one tournament. Evaluate every trained
+    # policy in the same unmodified environment configuration instead of
+    # scoring expanding fields under each trial's morphology.
+    evaluation_cfg = copy.deepcopy(cfg)
+    field = [_as_model_zip_path(entry["model_path"]) for entry in results]
+    tournament = run_tournament(
+        field,
+        evaluation_cfg,
+        n_episodes=int(
+            cfg.get("morphology_search", {}).get("tournament_episodes", 10)
+        ),
+        include_random=True,
+    )
+
+    best_idx = -1
+    best_score = float("-inf")
+    labels_by_path = {
+        item["path"]: item["label"] for item in tournament["competitors"]
+    }
+    for i, entry in enumerate(results):
+        model_zip = _as_model_zip_path(entry["model_path"])
+        score = float(tournament["ratings"][labels_by_path[model_zip]])
+        entry["score"] = score
+        entry["metrics"] = {"elo": score, "tournament": tournament}
         if score > best_score:
             best_score = score
             best_idx = i
@@ -118,4 +117,5 @@ def run_morphology_search(
         "best_params": results[best_idx]["morphology"] if best_idx >= 0 else {},
         "best_score": best_score,
         "results": results,
+        "tournament": tournament,
     }

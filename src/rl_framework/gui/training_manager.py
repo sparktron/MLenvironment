@@ -81,7 +81,8 @@ class TrainingManager:
             state.status = "running"
             state.started_at = time.time()
             self._runs[run_id] = state
-        cfg.setdefault("output", {})["run_id"] = run_id
+        output_cfg = cfg.setdefault("output", {})
+        output_cfg["run_id"] = run_id
         registry_for_config(cfg).register_run(
             run_id,
             cfg,
@@ -241,6 +242,7 @@ class TrainingManager:
                 extra_callbacks=[live_cb, frame_cb],
                 stop_event=state.stop_event,
                 render_env_index=0,
+                registry_run_id=state.run_id,
             )
             with self._lock:
                 state.status = "completed"

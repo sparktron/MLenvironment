@@ -80,6 +80,7 @@ def test_gui_training_selects_only_worker_zero_for_rendering(monkeypatch) -> Non
 
     assert captured["cfg"]["environment"]["render_mode"] == "rgb_array"
     assert captured["kwargs"]["render_env_index"] == 0
+    assert captured["kwargs"]["registry_run_id"] == "render_worker"
     assert state.status == "completed"
 
 

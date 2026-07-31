@@ -1,6 +1,6 @@
 """Tests for morphology search orchestration.
 
-Uses monkeypatching to replace ``train`` and ``evaluate`` with deterministic
+Uses monkeypatching to replace ``train`` and ``run_tournament`` with deterministic
 stubs, so this exercises the search loop without pulling SB3/torch in.
 """
 
@@ -29,18 +29,28 @@ def test_morphology_search_picks_highest_score(monkeypatch):
     from rl_framework.training import morphology_search as ms
     from rl_framework.training import arena_tournament, sb3_runner
 
-    # Elo = base_size so trial with biggest base_size wins.
-    model_paths_seen: list[str] = []
+    trained_paths: list[str] = []
+    tournament_calls: list[tuple[list[str], dict, dict]] = []
 
     def fake_train(cfg, **kw):
-        return f"/tmp/{cfg['experiment_name']}_{cfg['output']['run_id']}.zip"
+        path = f"/tmp/{cfg['experiment_name']}_{cfg['output']['run_id']}.zip"
+        trained_paths.append(path)
+        return path
 
-    def fake_tournament(paths, trial_cfg, **kw):
-        model_paths_seen.append(paths[0])
-        elo = float(trial_cfg["environment"]["morphology"]["base_size"])
+    def fake_tournament(paths, evaluation_cfg, **kwargs):
+        tournament_calls.append((list(paths), evaluation_cfg, kwargs))
+        competitors = [
+            {"label": f"candidate_{i}", "path": path}
+            for i, path in enumerate(paths)
+        ]
         return {
-            "competitors": [{"label": "candidate", "path": paths[0]}],
-            "ratings": {"candidate": elo},
+            "competitors": competitors,
+            "ratings": {
+                "candidate_0": 1450.0,
+                "candidate_1": 1525.0,
+                "candidate_2": 1700.0,
+                "candidate_3": 1500.0,
+            },
         }
 
     monkeypatch.setattr(sb3_runner, "train", fake_train)
@@ -50,7 +60,7 @@ def test_morphology_search_picks_highest_score(monkeypatch):
 
     scores = [r["score"] for r in result["results"]]
     assert len(result["results"]) == 4
-    assert result["best_trial"] in range(4)
+    assert result["best_trial"] == 2
     assert result["best_score"] == max(scores)
     assert (
         result["best_params"] == result["results"][result["best_trial"]]["morphology"]
@@ -60,7 +70,15 @@ def test_morphology_search_picks_highest_score(monkeypatch):
     assert {r["experiment_name"] for r in result["results"]} == {"exp"}
     run_ids = [r["run_id"] for r in result["results"]]
     assert run_ids == ["morph_000", "morph_001", "morph_002", "morph_003"]
-    assert all(path.endswith(".zip") for path in model_paths_seen)
+    assert len(tournament_calls) == 1
+    tournament_paths, evaluation_cfg, tournament_kwargs = tournament_calls[0]
+    assert tournament_paths == trained_paths
+    assert evaluation_cfg["environment"]["morphology"] == {
+        "base_size": 1.0,
+        "health": 1.0,
+    }
+    assert tournament_kwargs == {"n_episodes": 10, "include_random": True}
+    assert result["tournament"] is result["results"][0]["metrics"]["tournament"]
 
 
 def test_morphology_search_rejects_mean_return_scoring():

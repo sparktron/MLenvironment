@@ -52,6 +52,11 @@ from rl_framework.utils.reproducibility import (
 )
 
 
+def _resolve_registry_run_id(explicit_id: str | None = None) -> str:
+    """Return the execution identity, independent of the output variant id."""
+    return str(explicit_id) if explicit_id else new_run_id()
+
+
 def _configure_torch_num_threads(training_cfg: dict[str, Any]) -> None:
     """Apply an explicit PyTorch CPU thread limit when configured."""
     value = training_cfg.get("torch_num_threads")
@@ -538,6 +543,7 @@ def train(
     stop_event: threading.Event | None = None,
     resume_from: str | Path | None = None,
     render_env_index: int | None = None,
+    registry_run_id: str | None = None,
 ) -> Path:
     """Train an SB3 agent from *cfg* and return the path to the saved model.
 
@@ -561,6 +567,9 @@ def train(
         Optional rollout-worker index that alone retains the configured
         ``environment.render_mode``. The GUI uses index 0 for live frame
         capture without enabling RGB rendering on every parallel worker.
+    registry_run_id:
+        Opaque execution identity supplied by an orchestrator that has already
+        registered the run. Direct calls generate a fresh identity.
     """
     train_cfg = cfg["training"]
     num_envs = int(train_cfg.get("num_envs", 1))
@@ -597,8 +606,14 @@ def train(
         resume_from=resume_from,
     )
     registry = registry_for_config(cfg)
-    run_identity = str(cfg["output"].get("run_id") or new_run_id())
-    registry.register_run(run_identity, cfg, paths.run_dir, resume_from=resume_from)
+    run_identity = _resolve_registry_run_id(registry_run_id)
+    registry.register_run(
+        run_identity,
+        cfg,
+        paths.run_dir,
+        resume_from=resume_from,
+        allow_existing=registry_run_id is not None,
+    )
     env_cfg = cfg["environment"]
     algorithm_name = str(train_cfg.get("algorithm", "PPO")).upper()
     algorithm_cls = _algorithm_class(algorithm_name)

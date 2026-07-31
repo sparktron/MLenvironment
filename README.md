@@ -397,9 +397,12 @@ python -m rl_framework.cli.main morph-search \
 ```
 
 Mutates the organism's morphology parameters (base size, health) across N
-trials, trains each, and ranks trials by round-robin tournament Elo
-(`morphology_search.scoring: tournament_elo`, the only supported/default
-mode). Currently scoped to `organism_arena_parallel`. The legacy
+trials, trains every candidate first, and then ranks them in one round-robin
+tournament under the original config's common environment. The resulting Elo
+ratings share a competitor field and evaluation protocol, so they are directly
+comparable. Tournament Elo is selected with `morphology_search.scoring:
+tournament_elo` (the only supported/default mode). Currently scoped to
+`organism_arena_parallel`. The legacy
 shared-policy `mean_return` mode is rejected outright — the arena is
 zero-sum, so a shared policy's mean return sums to ~0 by construction and
 would rank trials on noise, not skill.
@@ -1308,8 +1311,8 @@ height. Start a new run with `walker_v2_smoke_cpu`, `walker_sac_baseline`, or
 slot. N-agent tournaments rotate competitors through slots and derive Elo from
 placement scores. For N-agent replay, pass comma-separated `--replay-opponent`
 paths for every slot after `agent_0`. `morphology_search` ranks trials by
-tournament Elo (`morphology_search.scoring: tournament_elo`, the default and
-only supported mode).
+one common post-training tournament Elo (`morphology_search.scoring:
+tournament_elo`, the default and only supported mode).
 
 ---
 
@@ -1323,13 +1326,15 @@ only supported mode).
 ### Run Registry
 
 Each train run is registered in `outputs/run_registry.sqlite3` (or the configured
-`output.base_dir`). The SQLite registry assigns the run identity, snapshots the
-resolved config, records status/metrics events and tuning commands, indexes
-artifacts, and links resumed runs to their parent. GUI tuning uses this durable
-queue, so commands survive a GUI process restart until the training callback
-claims them. The `registry` CLI reports table/status counts, exports every table
-as JSON, and safely prunes filtered runs, analysis jobs, or stale artifact index
-entries; see the CLI section for examples.
+`output.base_dir`). Every training invocation gets a fresh opaque registry
+identity. Reusable sweep and morphology labels such as `morph_000` remain
+separate output variant IDs and are exposed as `variant_id` in registry reads.
+The SQLite registry snapshots the resolved config, records status/metrics events
+and tuning commands, indexes artifacts, and links resumed runs to their parent.
+GUI tuning uses this durable queue, so commands survive a GUI process restart
+until the training callback claims them. The `registry` CLI reports table/status
+counts, exports every table as JSON, and safely prunes filtered runs, analysis
+jobs, or stale artifact index entries; see the CLI section for examples.
 
 ### GUI Analysis
 

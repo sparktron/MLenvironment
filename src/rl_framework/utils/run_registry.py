@@ -118,15 +118,35 @@ class RunRegistry:
         run_dir: Path,
         *,
         resume_from: str | Path | None = None,
+        allow_existing: bool = False,
     ) -> str:
-        """Create a run record once; subsequent calls preserve its identity/config."""
+        """Create a run record once; identity reuse requires an explicit handoff."""
         now = time.time()
         parent = self.find_run_for_artifact(resume_from) if resume_from else None
+        run_dir_str = str(run_dir)
+        variant_id = cfg.get("output", {}).get("run_id")
         with self._connect() as db:
             existing = db.execute(
-                "SELECT run_id FROM runs WHERE run_id = ?", (run_id,)
+                "SELECT run_id, experiment_name, seed, run_dir, config_json, "
+                "resume_from FROM runs WHERE run_id = ?",
+                (run_id,),
             ).fetchone()
             if existing is not None:
+                existing_cfg = json.loads(existing["config_json"])
+                existing_variant = existing_cfg.get("output", {}).get("run_id")
+                expected_resume = str(resume_from) if resume_from else None
+                same_run = (
+                    str(existing["experiment_name"]) == str(cfg["experiment_name"])
+                    and int(existing["seed"]) == int(cfg["seed"])
+                    and str(existing["run_dir"]) == run_dir_str
+                    and existing_variant == variant_id
+                    and existing["resume_from"] == expected_resume
+                )
+                if not allow_existing or not same_run:
+                    raise ValueError(
+                        f"Registry run_id {run_id!r} is already assigned to a "
+                        "different training execution"
+                    )
                 return str(existing["run_id"])
             db.execute(
                 """INSERT INTO runs (run_id, experiment_name, seed, run_dir, config_json, parent_run_id,
@@ -135,7 +155,7 @@ class RunRegistry:
                     run_id,
                     cfg["experiment_name"],
                     int(cfg["seed"]),
-                    str(run_dir),
+                    run_dir_str,
                     json.dumps(cfg, sort_keys=True),
                     parent,
                     str(resume_from) if resume_from else None,
@@ -143,7 +163,11 @@ class RunRegistry:
                     now,
                 ),
             )
-        self.record_event(run_id, "run_started", {"run_dir": str(run_dir)})
+        self.record_event(
+            run_id,
+            "run_started",
+            {"run_dir": run_dir_str, "variant_id": variant_id},
+        )
         return run_id
 
     def find_run_for_artifact(self, artifact: str | Path | None) -> str | None:
@@ -200,6 +224,7 @@ class RunRegistry:
         data = dict(row)
         data["metrics"] = json.loads(data.pop("latest_metrics_json"))
         data["config"] = json.loads(data.pop("config_json"))
+        data["variant_id"] = data["config"].get("output", {}).get("run_id")
         return data
 
     def list_runs(self) -> list[dict[str, Any]]:
@@ -221,6 +246,7 @@ class RunRegistry:
             config = json.loads(data.pop("config_json"))
             data["algorithm"] = config.get("training", {}).get("algorithm", "PPO")
             data["environment_type"] = config.get("environment", {}).get("type")
+            data["variant_id"] = config.get("output", {}).get("run_id")
             data["artifacts"] = by_run.get(data["run_id"], [])
             result.append(data)
         return result

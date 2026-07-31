@@ -39,6 +39,16 @@ def test_callback_frequency_scales_with_vector_env_count() -> None:
     assert _callback_freq_from_timesteps(4, 24) == 1
 
 
+def test_registry_execution_id_is_fresh_unless_orchestrated(monkeypatch) -> None:
+    from rl_framework.training import sb3_runner
+
+    generated = iter(["run_execution_a", "run_execution_b"])
+    monkeypatch.setattr(sb3_runner, "new_run_id", lambda: next(generated))
+    assert sb3_runner._resolve_registry_run_id() == "run_execution_a"
+    assert sb3_runner._resolve_registry_run_id() == "run_execution_b"
+    assert sb3_runner._resolve_registry_run_id("run_gui") == "run_gui"
+
+
 def test_gui_render_mode_is_limited_to_selected_worker() -> None:
     from rl_framework.training.sb3_runner import _worker_env_config
 

@@ -1,6 +1,6 @@
 # Development Roadmap
 
-Last updated: 2026-07-29
+Last updated: 2026-07-31
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
@@ -167,6 +167,15 @@ must record both successful changes and failed hypotheses there.
 
 ## Completed Foundations
 
+- (2026-07-31) Separated immutable registry execution identities from reusable
+  sweep/morphology output variant IDs. Direct training now generates a fresh
+  opaque registry key, GUI orchestration passes its pre-registered key
+  explicitly, registry reads expose `variant_id`, and conflicting identity
+  reuse fails instead of updating an unrelated run.
+- (2026-07-31) Corrected morphology selection so all candidates train before a
+  single final tournament under the original common environment config. Every
+  compared Elo now comes from the same competitor field and evaluation
+  protocol.
 - (2026-07-26) Walker evaluation now fans episodes out across process-backed
   vector environments for the `eval` command, quality-study checkpoint
   diagnostics, and periodic best-model selection. `evaluation.workers` caps

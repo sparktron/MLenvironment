@@ -65,8 +65,10 @@ def _walker_cfg(
 def test_walker_train_produces_model_and_vecnorm(tmp_path: Path) -> None:
     """train() writes a .zip checkpoint and vecnormalize.pkl to disk."""
     from rl_framework.training.sb3_runner import train
+    from rl_framework.utils.run_registry import RunRegistry
 
     cfg = _walker_cfg(tmp_path)
+    cfg["output"]["run_id"] = "repeatable_variant"
     model_path = train(cfg)
 
     zip_path = (
@@ -78,6 +80,11 @@ def test_walker_train_produces_model_and_vecnorm(tmp_path: Path) -> None:
 
     vecnorm_path = zip_path.with_name("vecnormalize.pkl")
     assert vecnorm_path.exists(), f"vecnormalize.pkl not found alongside {zip_path}"
+
+    registry_rows = RunRegistry(tmp_path).list_runs()
+    assert len(registry_rows) == 1
+    assert registry_rows[0]["run_id"] != "repeatable_variant"
+    assert registry_rows[0]["variant_id"] == "repeatable_variant"
 
 
 def test_walker_ppo_uses_configured_initial_log_std(
