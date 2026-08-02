@@ -1,0 +1,133 @@
+# Seed-21 overlap-window candidate following the rejected v9 run.
+#
+# V8 and V9 bracket the target without either reaching it. V8 (flight penalty
+# 0.5) held double support 11.59% but flew 22.04%; V9 (flight penalty 1.0) cut
+# flight to 12.39% but gave double support back to 8.88%. Flight, single support
+# and double support are three states summing to one, so a scalar on either term
+# moves both and no setting of that scalar reaches a corner constraining two of
+# the three.
+#
+# The phase telemetry says where the deficit actually is, and it is NOT aiming:
+#
+#   reward_phase_contact_mean        0.869 @ w=1.0 -> 86.9% schedule match
+#   reward_phase_double_support_mean 0.0422 @ w=0.5 -> 8.44% of steps are
+#                                    in-window AND in double support
+#
+# That 8.44% is 95.0% of all the double support v9 produces -- essentially every
+# bit of overlap it makes is already correctly scheduled. What it cannot do is
+# hold both feet down long enough: it fills only 42.2% of the 20% overlap window
+# that `stance_duty: 0.6` provides, and needs 50% to clear the 10% floor.
+#
+# Raising `phase_double_support_reward_weight` would pay more for a window the
+# policy already hits accurately, and v8 measured what that pressure costs in
+# airtime. The mechanism-matched lever is the window itself. Nominal double
+# support is `2 * stance_duty - 1`, so at v9's observed 42.2% occupancy:
+#
+#   duty 0.60 -> 20% nominal ->  8.4% realized   (v9, measured 8.88%)
+#   duty 0.65 -> 30% nominal -> 12.7% realized
+#   duty 0.70 -> 40% nominal -> 16.9% realized
+#
+# 0.65 clears with margin without commanding a gait far from the one that
+# already works. THE SINGLE INTERVENTION is `gait.stance_duty: 0.6 -> 0.65`;
+# every reward weight, including `flight_penalty_weight: 1.0`, is identical
+# to v9.
+#
+# GATE NOTE: gate v2's 10% double-support floor was originally derived as half
+# the nominal overlap at duty 0.6. That derivation is schedule-relative and does
+# not survive this change, so it was re-grounded absolutely (human walking holds
+# ~20% double support at comfortable speed; 10% is half that and still excludes
+# running, which has none by definition). The threshold value is UNCHANGED at
+# 0.10 and a regression test now pins it against any commanded duty. This
+# candidate is not scored against a moved goalpost.
+#
+# RISK: swing time falls from 40% to 35% of the 0.55 s cycle (0.220 s ->
+# 0.193 s). V9's clearance was already down to 22.3 mm against a 20 mm floor,
+# so clearance is the expected failure mode if this misses. Do not respond by
+# lengthening `cycle_period_s` in the same run -- that would be a second
+# intervention.
+experiment_name: walker_reward_v10_stance_duty
+seed: 21
+
+environment:
+  type: walker_bullet
+  seed: 21
+  observation:
+    version: v2
+    coordinate_free: true
+    include_gait_phase: true
+  gait:
+    cycle_period_s: 0.55
+    # THE SINGLE INTERVENTION: 0.6 -> 0.65. See the header note.
+    stance_duty: 0.65
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    action_scale: 0.5
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  terrain:
+    preset: flat
+  reward:
+    alive_bonus: 0.10
+    forward_velocity_weight: 1.0
+    target_velocity: 0.15
+    velocity_mode: clipped_linear
+    orientation_penalty_weight: 1.0
+    torque_penalty_weight: 0.02
+    fall_penalty: 2.0
+    action_rate_penalty_weight: 0.10
+    swing_clearance_weight: 0.0
+    bilateral_clearance_weight: 8.0
+    bilateral_clearance_target: 0.05
+    touchdown_rate_penalty_weight: 1.0
+    max_cycle_frequency_hz: 2.5
+    flight_penalty_weight: 1.0
+    gait_symmetry_penalty_weight: 0.5
+    double_support_reward_weight: 0.0
+    phase_contact_weight: 1.0
+    phase_double_support_reward_weight: 0.5
+    stance_slip_penalty_weight: 0.35
+    stance_slip_penalty_clip: 1.5
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 10000000
+  num_envs: 24
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 10
+  learning_rate: 0.0003
+  gamma: 0.995
+  log_std_init: -1.0
+  ent_coef: 0.001
+  checkpoint_every: 2000000
+  normalize_observations: true
+  device: cpu
+  velocity_target_ramp:
+    start: 0.15
+    end: 1.0
+    ramp_steps: 3000000
+
+evaluation:
+  episodes: 20
+
+output:
+  base_dir: outputs

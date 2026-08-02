@@ -170,11 +170,27 @@ WALKER_GAIT_VARIANTS: dict[str, dict[str, Any]] = {
 # permitted cadence (3 m / ~67 touchdowns), and a same-foot stride is one full
 # cycle, i.e. about twice the per-touchdown pelvis advance.
 #
-# Support occupancy is derived from the configured anti-phase reference rather
-# than candidate outcomes. With stance_duty=0.6, the nominal schedule has 20%
-# double support and no flight. The gate requires half of that nominal overlap
-# and permits an equal 10% raw-contact tolerance for flight. This excludes
-# running/bounding while leaving room for contact-estimation noise.
+# Support occupancy is derived from gait semantics rather than candidate
+# outcomes. Both thresholds are ABSOLUTE -- they do not track the configured
+# schedule.
+#
+# 2026-08-02: these two numbers are unchanged, but their justification is
+# re-grounded, because the original one was schedule-relative ("half the 20%
+# nominal overlap implied by stance_duty=0.6") and that does not survive a
+# candidate that changes the duty. A floor indexed to the commanded schedule
+# could be passed by commanding a shorter one, so the gate would certify
+# progressively less walking -- the same failure class as gate v1, which
+# calibrated from whatever the system happened to produce. What the gate must
+# certify is walking, and the schedule is a training device, not the definition.
+#
+# Absolute grounding: human walking holds roughly 20% double support per cycle
+# at comfortable speed, declining toward zero at the walk-run transition. The
+# 10% floor is half that, conservative for a 65.9 kg Atlas-class biped at the
+# ~1.0 m/s target, and still strictly excludes running, which has no double
+# support by definition. The 10% flight ceiling is a contact-estimation
+# tolerance, not a schedule quantity: walking has no flight phase at all, and
+# the allowance exists for raw-contact noise. Neither number may be moved to
+# make a candidate pass.
 #
 # Slip is the planar velocity of the slowest material contact point, not the
 # foot-link origin. Link-origin velocity includes ordinary heel/toe pivoting and

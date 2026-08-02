@@ -295,9 +295,7 @@ def test_walker_slip_recovery_gate_rejects_sliding_and_selects_sole_winner() -> 
     )
 
     assert result["objective_winner"] == "slip_cost_025"
-    control_row = next(
-        row for row in result["rankings"] if row["variant"] == "control"
-    )
+    control_row = next(row for row in result["rankings"] if row["variant"] == "control")
     assert control_row["automatic_exploit_flags"]["sliding"] is True
     assert control_row["metrics_gate_passed"] is False
 
@@ -362,9 +360,7 @@ def test_walker_action_memory_gate_rejects_chatter_and_accepts_real_gait() -> No
         }
     )
     chattering = quality_study.deepcopy(passing)
-    chattering["stochastic"][
-        "gait_alternating_touchdowns_per_100_steps_mean"
-    ] = 20.0
+    chattering["stochastic"]["gait_alternating_touchdowns_per_100_steps_mean"] = 20.0
 
     assert quality_study._walker_action_memory_gate_result(passing)[
         "metrics_gate_passed"
@@ -717,6 +713,34 @@ def test_walker_gait_gate_v2_support_and_slip_contract_is_frozen() -> None:
     assert quality_study.WALKER_GAIT_GATE["max_slip_speed"] == 0.18
     assert quality_study.WALKER_GAIT_GATE["min_double_support_fraction"] == 0.10
     assert quality_study.WALKER_GAIT_GATE["max_flight_fraction"] == 0.10
+
+
+def test_walker_support_thresholds_do_not_track_the_commanded_schedule() -> None:
+    """The support floor is absolute, not a fraction of the configured duty.
+
+    The original derivation was schedule-relative -- half the 20% nominal
+    overlap implied by `stance_duty: 0.6`. A floor indexed to the schedule can
+    be passed by commanding a shorter one, so the gate would certify
+    progressively less walking: the same failure class as gate v1, which
+    calibrated from whatever the system happened to produce. The v9 candidate
+    (double support 8.88%) must fail at ANY commanded duty.
+    """
+    for stance_duty in (0.55, 0.6, 0.65, 0.7, 0.9):
+        result = _diagnostic_result()
+        result["stochastic"] = {
+            **result["stochastic"],
+            "gait_double_support_fraction_mean": 0.0888,
+            "gait_flight_fraction_mean": 0.05,
+        }
+        # A recorded schedule must not reach the thresholds.
+        result["environment"] = {"gait": {"stance_duty": stance_duty}}
+        assert quality_study._walker_gait_passed(result) is False, (
+            f"8.88% double support must fail at stance_duty={stance_duty}"
+        )
+
+    # And the thresholds themselves carry no schedule-derived key.
+    assert "stance_duty" not in quality_study.WALKER_GAIT_GATE
+    assert "nominal_double_support" not in quality_study.WALKER_GAIT_GATE
 
 
 def test_walker_gait_gate_rejects_contact_chatter() -> None:

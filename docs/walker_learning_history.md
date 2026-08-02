@@ -1555,3 +1555,70 @@ the schedule asks for is shorter than what the gate demands the policy realize"
 **Artifacts:**
 `outputs/walker_reward_v9_flight_cost/seed_21/checkpoints/final_model.zip` and
 `outputs/walker_reward_v9_flight_cost/seed_21/eval_gate_v2.json`.
+
+## 2026-08-02 — Gate v2 Support Floors Re-Grounded Absolutely (No Value Changed)
+
+**Question:** the next candidate changes `stance_duty`, and gate v2's 10%
+double-support floor was derived as *half the nominal overlap implied by
+`stance_duty: 0.6`*. Does the floor move with the schedule?
+
+**No, and the reason is the gate's purpose.** A floor indexed to the commanded
+schedule can be passed by commanding a shorter one, so the gate would certify
+progressively less walking as the schedule relaxed. That is the same failure
+class as gate v1, which calibrated from whatever the system happened to produce.
+What a promotion gate must certify is walking; the phase schedule is a training
+device, not the definition of the target.
+
+**Re-grounding, absolute:** human walking holds roughly 20% double support per
+cycle at comfortable speed, declining toward zero at the walk-run transition.
+The 10% floor is half that — conservative for a 65.9 kg Atlas-class biped at the
+~1.0 m/s target, and still strictly excluding running, which has no double
+support by definition. The 10% flight ceiling was never a schedule quantity at
+all: walking has no flight phase, and the allowance exists for raw-contact
+estimation noise.
+
+**What changed:** the justifying comment, and a regression test
+(`test_walker_support_thresholds_do_not_track_the_commanded_schedule`) that pins
+v9's failing 8.88% as failing at commanded duties from 0.55 to 0.9, with a
+passing 15% control so the assertion is not vacuous. **`gate_version` stays 2
+and no threshold value moved**, so this is not a gate change with a candidate in
+view — the accept/reject set is identical. Only the argument for it is now one
+that survives a schedule change.
+
+**Lesson.** A threshold derived from a configurable quantity inherits that
+quantity's mutability whether or not anyone intended it. The derivation read as
+principled ("half the nominal overlap") and was in fact parameterised by a knob
+the next experiment was about to turn. When freezing a gate, check whether its
+justification names anything a future candidate can edit.
+
+## 2026-08-02 — V10 Stance Duty: Lengthen The Window The Policy Already Hits
+
+**Question:** v9 places 95.0% of its double support correctly inside the
+scheduled window but fills only 42.2% of that window. Does a longer window
+produce more realized overlap, given the policy already tracks the schedule at
+86.9%?
+
+**Why not the reward weight.** Raising
+`phase_double_support_reward_weight` pays more for a window the policy already
+hits accurately — the deficit measured is duration, not aim — and v8 measured
+what that pressure costs: +6.7 points of double support bought with +9.1 points
+of flight. The mechanism-matched lever is the window.
+
+**Constants:** seed 21, 10M steps from scratch, 0.15→1.0 m/s ramp, 0.55 s cycle,
+gate v2, and every reward weight including `flight_penalty_weight: 1.0`.
+**Only intervention:** `gait.stance_duty: 0.6 → 0.65`. The config diff against
+v9 is two lines.
+
+Nominal double support is `2 * stance_duty - 1`, verified numerically against
+`_expected_stance`: 20% → 30%, with nominal flight still exactly 0.0000. At
+v9's observed 42.2% window occupancy that projects to 12.7% realized overlap,
+clearing the 10% floor with margin.
+
+**Declared risk:** the swing window falls from 0.220 s to 0.193 s of the cycle.
+v9's clearance was already 22.3 mm against a 20 mm floor, so clearance is the
+expected failure mode if this misses. The correct response to that outcome is
+*not* to lengthen `cycle_period_s` in the same run; that would be a second
+intervention and would make the result unattributable.
+
+**Status:** launched, not yet evaluated. Seeds 22–23, transfer, and visual
+approval remain blocked pending all thirteen stochastic criteria.
