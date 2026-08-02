@@ -1478,3 +1478,80 @@ and the 0.10 m stride and 0.02 m clearance floors, none of which were touched.
 
 **Status:** not yet run. Seed 21, 10M, gate v2 frozen. Seeds 22–23 and transfer
 remain blocked unless seed 21 clears all twelve criteria and visual review.
+
+## 2026-08-02 — V9 Flight Cost: Flight Recovered, Support Given Back
+
+**Question:** v8 cleared the double-support floor but flew 22.04% against a 10%
+ceiling. Does doubling the price of flight remove the excess airtime while
+keeping the scheduled overlap v8 recovered?
+
+**Constants:** seed 21, 10M PPO steps from scratch, 0.15→1.0 m/s ramp, 0.55 s
+cycle, 0.6 stance duty, gate v2, and every other reward, physics, randomization
+and optimizer setting. **Only intervention:** `flight_penalty_weight: 0.5 →
+1.0`, chosen at ~1.6x the 0.64 break-even weight computed from v8's own reward
+economics. The config diff against v8 is two lines.
+
+**Result:** training completed at 10,002,432 steps. Twenty stochastic and 20
+deterministic episodes completed with no falls.
+
+| stochastic metric | v7 corrected | v8 | **v9** | gate |
+|---|---:|---:|---:|---:|
+| flight | 12.96% | 22.04% | **12.39%** | ≤10% |
+| double support | 4.91% | 11.59% | **8.88%** | ≥10% |
+| single support | 82.13% | 66.37% | **78.73%** | — |
+| contact-point slip | 0.124 | 0.170 | **0.153** | ≤0.18 |
+| displacement | 13.87 m | 13.28 m | **14.29 m** | ≥1 m |
+| falls | 0% | 5% | **0%** | ≤30% |
+| stride | 0.569 | 0.535 | **0.592 m** | ≥0.10 |
+| clearance | 32.5 mm | 34.5 mm | **22.3 mm** | ≥20 mm |
+| cadence /100 | 5.99 | — | **5.93** | 1.5–8.5 |
+
+**Decision:** reject at 11/13. Deterministic scored 12/13 (flight 9.77%, under
+the ceiling; double support 9.33% the sole miss), but the gate evaluates
+stochastic, and there both support criteria fail.
+
+**The intervention did exactly what it was priced to do, and that is the
+finding.** It removed 9.65 points of flight — almost precisely the 9.08 that v8
+had added — and gave back 2.71 points of double support. v8 and v9 now bracket
+the target without either reaching it. Read through the support decomposition,
+v8 converted 15.8 points of single support into +6.7 double and +9.1 flight;
+v9 converted most of it back. A scalar on either term moves both.
+
+**Where the shortfall actually is — not aiming, duration.** The phase telemetry
+rules out the obvious explanation:
+
+- `reward_phase_contact_mean` 0.869 at weight 1.0 → the policy matches the
+  reference contact schedule on 86.9% of steps;
+- `reward_phase_double_support_mean` 0.0422 at weight 0.5 → 8.44% of all steps
+  are simultaneously in the overlap window *and* in double support;
+- that is **95.0% of the policy's total double support**, so essentially all of
+  the overlap it produces is already correctly scheduled.
+
+The policy is not failing to aim at the window. It fills only **42.2% of the
+20% window** the schedule provides, and would need 50% to reach the 10% gate.
+The deficit is how long both feet stay down, not when they do.
+
+**Watch item:** clearance fell 34.5 → 22.3 mm, now 2.3 mm above its floor. Part
+of how v9 bought reduced airtime was by lifting less. Cadence (5.93) and stride
+(0.592 m) are unharmed, so this is not yet chatter, but it is the chatter
+direction, and a successor that pushes the same lever harder should be expected
+to fail clearance before it delivers support.
+
+**Telemetry check:** the new mid-stance contact-point slip read 0.105 against
+the gated whole-phase 0.153 — a 31% transient share, inside the 10–37% range
+measured on 2026-08-02. Slip passed on both metrics and remained non-binding,
+as predicted when it was added.
+
+**Lesson.** Pricing an unwanted behaviour out works, and buys nothing on its own
+if the wanted behaviour shares a budget with it. Flight, single support and
+double support are three states summing to one; v8 and v9 each moved mass
+between them with a scalar and neither could reach a corner that constrains two
+of the three at once. The measurement that mattered was not either failing
+metric but the window-occupancy ratio, which separated "the policy does not know
+where the overlap should be" (false — 95% correctly placed) from "the overlap
+the schedule asks for is shorter than what the gate demands the policy realize"
+(true).
+
+**Artifacts:**
+`outputs/walker_reward_v9_flight_cost/seed_21/checkpoints/final_model.zip` and
+`outputs/walker_reward_v9_flight_cost/seed_21/eval_gate_v2.json`.

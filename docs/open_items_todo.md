@@ -19,20 +19,43 @@ must record both successful changes and failed hypotheses there.
 
 ## Priority 3: Learning Quality And Features
 
-- (2026-08-02) **Next walker candidate is `walker_reward_v9_flight_cost`; not
-  yet run.** V8's only failing criterion was flight (22.04% vs a 10% ceiling).
-  A proposed "unscheduled flight penalty" was rejected before implementation as
-  a duplicate: at `stance_duty: 0.6` the anti-phase reference schedule expects
-  at least one foot in stance at every phase (measured expected flight fraction
-  exactly 0.0000), so unscheduled flight is identical to flight, which
-  `flight_penalty_weight` already charges unconditionally. Priced from v8's own
-  metrics, its phase-double-support term earned +0.0580/step while the extra
-  flight cost only 0.0454/step — a net +0.0125/step, so the policy bought
-  overlap with airtime. Break-even weight is 0.64. The single intervention is
-  `flight_penalty_weight: 0.5 → 1.0` (~1.6x break-even); the config diff against
-  v8 is two lines. Chatter is guarded by gate v2's existing cadence band and
-  stride/clearance floors. Run seed 21 × 10M; seeds 22–23 and transfer stay
-  blocked pending all twelve criteria plus visual review.
+- (2026-08-02) **`walker_reward_v9_flight_cost` completed and is rejected at
+  11/13.** The single intervention was `flight_penalty_weight: 0.5 → 1.0`, set
+  at ~1.6x the 0.64 break-even weight computed from v8's reward economics. (A
+  proposed "unscheduled flight penalty" was rejected before implementation as a
+  duplicate: at `stance_duty: 0.6` the reference schedule expects a foot in
+  stance at every phase — measured expected flight fraction exactly 0.0000 — so
+  unscheduled flight *is* flight, already charged unconditionally.) Stochastic
+  results: flight 22.04% → **12.39%**, but double support 11.59% → **8.88%**;
+  both support criteria fail. Displacement 14.29 m, 0% falls, slip 0.153 m/s,
+  stride 0.592 m, cadence 5.93 all pass. Deterministic scored 12/13 (flight
+  9.77% clears; double support 9.33% is the only miss), but the gate evaluates
+  stochastic. v8 and v9 now **bracket** the target: a scalar on either term
+  moves both, because flight, single support and double support are three
+  states summing to one. Seeds 22–23, transfer, and visual approval remain
+  blocked.
+- (2026-08-02) **The v9 shortfall is window duration, not aiming — this is the
+  finding that should drive the next candidate.** Phase telemetry:
+  `reward_phase_contact_mean` 0.869 (86.9% schedule match) and
+  `reward_phase_double_support_mean` 0.0422 at weight 0.5, i.e. 8.44% of steps
+  are in-window *and* in double support — **95.0% of all the double support the
+  policy produces is already correctly scheduled.** The policy fills only
+  **42.2% of the 20% overlap window** `stance_duty: 0.6` provides and would need
+  50% to clear the 10% floor. Raising the incentive to aim at a window it
+  already hits is therefore the wrong lever; lengthening the window is the
+  mechanism-matched one. At v9's observed 42% occupancy, `stance_duty: 0.65`
+  projects ~12.7% realized double support and `0.7` ~16.9%. **Gate coupling that
+  must be decided first:** gate v2's 10% double-support floor was *derived* as
+  half the nominal overlap at duty 0.6; changing the duty breaks that derivation
+  and turns 10% into an absolute threshold needing its own justification
+  (human walking is ~20% double support at comfortable speed, so 10% remains
+  conservative). Settle that as a gate-design question before running a duty
+  candidate, not after.
+- (2026-08-02) **Watch item: clearance is trending toward the chatter
+  direction.** v8 34.5 mm → v9 22.3 mm, against a 20 mm floor. Part of how v9
+  bought reduced airtime was lifting less. Cadence and stride are unharmed, so
+  it is not chatter yet, but a successor pushing the flight penalty harder
+  should be expected to fail clearance before it delivers support.
 - (2026-08-02) **Slip-ceiling recalibration attempted; threshold deliberately
   unchanged.** The method that calibrated the clearance floor (an open-loop
   scripted gait) does not transfer: clearance is an actuator-capability measure
