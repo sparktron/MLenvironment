@@ -87,9 +87,7 @@ class WalkerGaitTracker:
     # window, and the foot keeps rising during it, so measuring a swing from
     # the confirmation step would understate clearance and duration.
     _pending_break_z: list[float | None] = field(default_factory=lambda: [None, None])
-    _pending_break_step: list[int | None] = field(
-        default_factory=lambda: [None, None]
-    )
+    _pending_break_step: list[int | None] = field(default_factory=lambda: [None, None])
     _last_touchdown_steps: list[int] = field(default_factory=lambda: [-10_000, -10_000])
     _last_touchdown_side: int | None = None
     _last_touchdown_x: float | None = None
@@ -104,6 +102,8 @@ class WalkerGaitTracker:
     _contact_slip_steps: int = 0
     _mid_stance_slip_sum: float = 0.0
     _mid_stance_steps: int = 0
+    _mid_stance_contact_slip_sum: float = 0.0
+    _mid_stance_contact_slip_steps: int = 0
     _longest_same_foot_sequence: int = 0
     _action_delta_sum: float = 0.0
     _previous_action: np.ndarray | None = None
@@ -364,10 +364,20 @@ class WalkerGaitTracker:
                     if stance_age >= self.mid_stance_skip_steps:
                         self._mid_stance_slip_sum += max(slip_speed, 0.0)
                         self._mid_stance_steps += 1
+                        # Same skip applied to the contact-point metric. The
+                        # gate's whole-phase contact-point mean still carries
+                        # the landing transient, which scales with locomotion
+                        # speed; this cell does not. See the 2026-08-02 entry.
+                        if foot_contact_slip_speeds is not None:
+                            contact_speed = float(foot_contact_slip_speeds[side])
+                            if np.isfinite(contact_speed):
+                                self._mid_stance_contact_slip_sum += max(
+                                    contact_speed, 0.0
+                                )
+                                self._mid_stance_contact_slip_steps += 1
         bilateral_swing_clearance = min(
             0.0
-            if last_step is None
-            or step - last_step > self.clearance_staleness_steps
+            if last_step is None or step - last_step > self.clearance_staleness_steps
             else self._last_swing_clearance[side]
             for side, last_step in enumerate(self._last_swing_touchdown_step)
         )
@@ -471,6 +481,11 @@ class WalkerGaitTracker:
             "gait_mid_stance_slip_speed": (
                 self._mid_stance_slip_sum / self._mid_stance_steps
                 if self._mid_stance_steps
+                else 0.0
+            ),
+            "gait_mid_stance_contact_point_slip_speed": (
+                self._mid_stance_contact_slip_sum / self._mid_stance_contact_slip_steps
+                if self._mid_stance_contact_slip_steps
                 else 0.0
             ),
             "gait_stance_slip_speed": (

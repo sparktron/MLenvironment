@@ -181,6 +181,32 @@ WALKER_GAIT_VARIANTS: dict[str, dict[str, Any]] = {
 # is therefore not a physical measure of sliding. The existing conservative
 # 0.18 m/s ceiling is retained; changing the instrument does not justify
 # loosening the threshold.
+#
+# 2026-08-02 recalibration attempt, recorded here because it did NOT move the
+# threshold. The intended method -- measure a reference gait at the 1.0 m/s
+# target, as the clearance floor was calibrated from an open-loop scripted gait
+# -- is not available: clearance is an actuator-capability measure and survives
+# a rollout that falls in a second, whereas slip only means something during
+# sustained balanced locomotion at speed, and the only policies that do that are
+# the candidates themselves. Calibrating from candidates is the error that made
+# gate v1 certify chatter.
+#
+# What the measurement did establish (20 stochastic episodes each, both at
+# 1.04 m/s mean forward speed):
+#
+#                       whole-phase   mid-stance     transient share
+#   v7 contact point         0.1206       0.0764                 37%
+#   v8 contact point         0.1667       0.1503                 10%
+#
+# The gate metric averages the whole contact phase, so it includes the landing
+# transient -- the foot still moving as it arrives, carrying roughly the body's
+# forward speed. That component scales with locomotion speed; ideal mid-stance
+# slip is zero at any speed. The transient's share is also gait-dependent (37%
+# vs 10%), so the gated metric can separate two candidates on landing dynamics
+# rather than on sliding. `gait_mid_stance_contact_point_slip_speed` is added as
+# TELEMETRY ONLY, following the 2026-07-28 precedent: a corrected instrument is
+# not swapped into a live gate with a candidate in view. Both v7 and v8 pass
+# 0.18 on both metrics, so no decision to date turned on the difference.
 WALKER_GAIT_GATE: dict[str, Any] = {
     **WALKER_VELOCITY_GATE,
     "gate_version": 2,
@@ -826,9 +852,7 @@ def _aggregate_walker_gait_results(
                 "gait_progress_per_alternating_touchdown_mean"
             ),
             "slip_speed_mean": mean(WALKER_GAIT_GATE["slip_metric"]),
-            "double_support_fraction_mean": mean(
-                "gait_double_support_fraction_mean"
-            ),
+            "double_support_fraction_mean": mean("gait_double_support_fraction_mean"),
             "flight_fraction_mean": mean("gait_flight_fraction_mean"),
             "stride_length_mean": mean("gait_stride_length_mean"),
             "foot_clearance_mean": mean("gait_foot_clearance_mean"),
@@ -982,10 +1006,7 @@ def _aggregate_walker_velocity_ramp_results(
             ),
             "slip_speed_mean": float(
                 np.mean(
-                    [
-                        metrics[WALKER_GAIT_GATE["slip_metric"]]
-                        for metrics in stochastic
-                    ]
+                    [metrics[WALKER_GAIT_GATE["slip_metric"]] for metrics in stochastic]
                 )
             ),
             "per_seed_passed": per_seed_passed,
@@ -1192,8 +1213,7 @@ def _walker_slip_recovery_gate_result(
 ) -> dict[str, Any]:
     metrics = result[WALKER_SLIP_RECOVERY_GATE["evaluation_mode"]]
     flags = {
-        "launch": metrics["peak_z_mean"]
-        >= WALKER_SLIP_RECOVERY_GATE["max_peak_z"],
+        "launch": metrics["peak_z_mean"] >= WALKER_SLIP_RECOVERY_GATE["max_peak_z"],
         "sliding": (
             metrics["forward_displacement_mean"]
             >= WALKER_SLIP_RECOVERY_GATE["min_forward_displacement"]
@@ -1206,14 +1226,12 @@ def _walker_slip_recovery_gate_result(
         ),
     }
     criteria = {
-        "fall_rate": metrics["fall_rate"]
-        <= WALKER_SLIP_RECOVERY_GATE["max_fall_rate"],
+        "fall_rate": metrics["fall_rate"] <= WALKER_SLIP_RECOVERY_GATE["max_fall_rate"],
         "slip_speed": metrics[WALKER_SLIP_RECOVERY_GATE["slip_metric"]]
         <= WALKER_SLIP_RECOVERY_GATE["max_slip_speed"],
         "forward_displacement": metrics["forward_displacement_mean"]
         >= WALKER_SLIP_RECOVERY_GATE["min_forward_displacement"],
-        "peak_z": metrics["peak_z_mean"]
-        < WALKER_SLIP_RECOVERY_GATE["max_peak_z"],
+        "peak_z": metrics["peak_z_mean"] < WALKER_SLIP_RECOVERY_GATE["max_peak_z"],
         "automatic_exploit_screen": not any(flags.values()),
     }
     return {
@@ -1350,8 +1368,7 @@ def _phase0_slip_recovery_telemetry(
         "dominant_mechanism": dominant,
         "contact_damping_enabled": (
             fall_count > 0
-            and cause_counts["touchdown_overshoot"]
-            == max(cause_counts.values())
+            and cause_counts["touchdown_overshoot"] == max(cause_counts.values())
         ),
         "seed_reports": pooled_reports,
     }
@@ -1538,7 +1555,9 @@ def _run_walker_slip_recovery_study(
         confirmation: dict[str, dict[str, Any]] = {}
         winner_overrides = variant_overrides[objective_winner]
         for seed in seeds:
-            seed_source = source_dir / f"seed_{seed}" / "checkpoints" / "final_model.zip"
+            seed_source = (
+                source_dir / f"seed_{seed}" / "checkpoints" / "final_model.zip"
+            )
             run = _run_slip_recovery_candidate(
                 variant=objective_winner,
                 overrides=winner_overrides,
@@ -1555,9 +1574,7 @@ def _run_walker_slip_recovery_study(
             if run is not None:
                 confirmation[f"seed_{seed}"] = run["diagnostics"]
         per_seed_gate = {
-            seed_label: _walker_slip_recovery_gate_result(result)[
-                "metrics_gate_passed"
-            ]
+            seed_label: _walker_slip_recovery_gate_result(result)["metrics_gate_passed"]
             for seed_label, result in confirmation.items()
         }
         phase2 = {
@@ -1601,14 +1618,12 @@ def _walker_action_memory_gate_result(
     criteria = {
         "episode_length": metrics["episode_length_mean"]
         >= WALKER_GAIT_GATE["min_episode_length"],
-        "fall_rate": metrics["fall_rate"]
-        <= WALKER_SLIP_RECOVERY_GATE["max_fall_rate"],
+        "fall_rate": metrics["fall_rate"] <= WALKER_SLIP_RECOVERY_GATE["max_fall_rate"],
         "slip_speed": metrics[WALKER_SLIP_RECOVERY_GATE["slip_metric"]]
         <= WALKER_SLIP_RECOVERY_GATE["max_slip_speed"],
         "forward_displacement": metrics["forward_displacement_mean"]
         >= WALKER_SLIP_RECOVERY_GATE["min_forward_displacement"],
-        "peak_z": metrics["peak_z_mean"]
-        < WALKER_SLIP_RECOVERY_GATE["max_peak_z"],
+        "peak_z": metrics["peak_z_mean"] < WALKER_SLIP_RECOVERY_GATE["max_peak_z"],
         "cadence_band": (
             WALKER_GAIT_GATE["min_alternating_touchdowns_per_100_steps"]
             <= metrics["gait_alternating_touchdowns_per_100_steps_mean"]
@@ -1631,9 +1646,7 @@ def _walker_action_memory_gate_result(
     }
     flags = {
         "launch": not criteria["peak_z"],
-        "sliding": (
-            criteria["forward_displacement"] and not criteria["slip_speed"]
-        ),
+        "sliding": (criteria["forward_displacement"] and not criteria["slip_speed"]),
         "contact_chatter": (
             metrics["gait_alternating_touchdowns_per_100_steps_mean"]
             > WALKER_GAIT_GATE["max_alternating_touchdowns_per_100_steps"]
@@ -1660,9 +1673,7 @@ def _aggregate_walker_action_memory_results(
                 "episode_length_mean": metrics["episode_length_mean"],
                 "fall_rate": metrics["fall_rate"],
                 "slip_speed": metrics[WALKER_SLIP_RECOVERY_GATE["slip_metric"]],
-                "double_support_fraction": metrics[
-                    "gait_double_support_fraction_mean"
-                ],
+                "double_support_fraction": metrics["gait_double_support_fraction_mean"],
                 "forward_displacement": metrics["forward_displacement_mean"],
                 "peak_z": metrics["peak_z_mean"],
                 "alternating_touchdowns_per_100_steps": metrics[
@@ -1694,8 +1705,7 @@ def _aggregate_walker_action_memory_results(
         (
             row
             for row in rows
-            if row["variant"] == "previous_action"
-            and row["metrics_gate_passed"]
+            if row["variant"] == "previous_action" and row["metrics_gate_passed"]
         ),
         None,
     )
@@ -1870,9 +1880,7 @@ def _run_walker_action_memory_study(
             if run is not None:
                 confirmation[f"seed_{seed}"] = run["diagnostics"]
         per_seed_gate = {
-            seed_label: _walker_action_memory_gate_result(result)[
-                "metrics_gate_passed"
-            ]
+            seed_label: _walker_action_memory_gate_result(result)["metrics_gate_passed"]
             for seed_label, result in confirmation.items()
         }
         phase2 = {
@@ -1884,9 +1892,7 @@ def _run_walker_action_memory_study(
         if len(confirmation) == len(seeds) and all(per_seed_gate.values()):
             transfer: dict[str, Any] = {}
             for seed in seeds:
-                phase = (
-                    "phase1" if seed == phase1_seed else "phase2_confirmation"
-                )
+                phase = "phase1" if seed == phase1_seed else "phase2_confirmation"
                 run = state["runs"][
                     f"walker_action_memory/{phase}/{objective_winner}/seed_{seed}"
                 ]
@@ -2483,31 +2489,27 @@ def run_quality_study(
             state_path=state_path,
         )
     if "walker-slip-recovery" in studies:
-        state["results"]["walker_slip_recovery"] = (
-            _run_walker_slip_recovery_study(
-                seeds=seeds,
-                step_budget=step_budget or 1_000_000,
-                eval_episodes=eval_episodes,
-                config_dir=config_path,
-                source_dir=Path(source_dir),
-                output_dir=output,
-                state=state,
-                state_path=state_path,
-                approved_variant=approved_variant,
-            )
+        state["results"]["walker_slip_recovery"] = _run_walker_slip_recovery_study(
+            seeds=seeds,
+            step_budget=step_budget or 1_000_000,
+            eval_episodes=eval_episodes,
+            config_dir=config_path,
+            source_dir=Path(source_dir),
+            output_dir=output,
+            state=state,
+            state_path=state_path,
+            approved_variant=approved_variant,
         )
     if "walker-action-memory" in studies:
-        state["results"]["walker_action_memory"] = (
-            _run_walker_action_memory_study(
-                seeds=seeds,
-                step_budget=step_budget or WALKER_ACTION_MEMORY_SCREEN_STEPS,
-                eval_episodes=eval_episodes,
-                config_dir=config_path,
-                output_dir=output,
-                state=state,
-                state_path=state_path,
-                approved_variant=approved_variant,
-            )
+        state["results"]["walker_action_memory"] = _run_walker_action_memory_study(
+            seeds=seeds,
+            step_budget=step_budget or WALKER_ACTION_MEMORY_SCREEN_STEPS,
+            eval_episodes=eval_episodes,
+            config_dir=config_path,
+            output_dir=output,
+            state=state,
+            state_path=state_path,
+            approved_variant=approved_variant,
         )
     if "arena" in studies:
         state["results"]["arena"] = _run_arena_study(

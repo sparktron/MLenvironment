@@ -1,0 +1,114 @@
+# Seed-21 flight-reduction candidate following the rejected v8 run.
+#
+# V8 recovered scheduled double support (4.91% -> 11.59%, clearing the 10%
+# floor) and held true contact-point slip at 0.170 m/s, but flight rose
+# 12.96% -> 22.04% against a 10% ceiling. That was the only failing criterion,
+# and it is a trade the reward made explicit: the phase-double-support term
+# earned +0.0580/step while the extra flight cost only 0.5 x 0.0908 =
+# 0.0454/step, a net +0.0125/step. The policy bought scheduled overlap with
+# airtime because airtime was cheap.
+#
+# NOTE on the intervention. An "unscheduled flight penalty" was considered and
+# rejected as a duplicate: with `stance_duty: 0.6` the anti-phase reference
+# schedule expects at least one foot in stance at EVERY phase (verified: the
+# schedule's expected flight fraction is exactly 0.0000), so "flight outside the
+# schedule" is identical to "flight", which `flight_penalty_weight` already
+# charges unconditionally. Adding a phase-gated flight term would have created a
+# second term mathematically equal to one already active.
+#
+# The sole intervention is therefore the weight on that existing term:
+# `flight_penalty_weight: 0.5 -> 1.0`. The break-even weight that makes the v8
+# trade neutral is 0.64; 1.0 leaves ~1.6x headroom, enough to be a gradient
+# rather than a tie-breaker. Everything else -- including
+# `phase_double_support_reward_weight: 0.5`, whose recovered overlap must be
+# retained -- is byte-identical to v8.
+#
+# The chatter failure mode this could induce (never lift a foot, so never fly)
+# is already guarded by gate v2's 1.5-8.5 cadence band and its stride (0.10 m)
+# and clearance (0.02 m) floors.
+experiment_name: walker_reward_v9_flight_cost
+seed: 21
+
+environment:
+  type: walker_bullet
+  seed: 21
+  observation:
+    version: v2
+    coordinate_free: true
+    include_gait_phase: true
+  gait:
+    cycle_period_s: 0.55
+    stance_duty: 0.6
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    action_scale: 0.5
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  terrain:
+    preset: flat
+  reward:
+    alive_bonus: 0.10
+    forward_velocity_weight: 1.0
+    target_velocity: 0.15
+    velocity_mode: clipped_linear
+    orientation_penalty_weight: 1.0
+    torque_penalty_weight: 0.02
+    fall_penalty: 2.0
+    action_rate_penalty_weight: 0.10
+    swing_clearance_weight: 0.0
+    bilateral_clearance_weight: 8.0
+    bilateral_clearance_target: 0.05
+    touchdown_rate_penalty_weight: 1.0
+    max_cycle_frequency_hz: 2.5
+    # THE SINGLE INTERVENTION: 0.5 -> 1.0. See the header note.
+    flight_penalty_weight: 1.0
+    gait_symmetry_penalty_weight: 0.5
+    double_support_reward_weight: 0.0
+    phase_contact_weight: 1.0
+    phase_double_support_reward_weight: 0.5
+    stance_slip_penalty_weight: 0.35
+    stance_slip_penalty_clip: 1.5
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 10000000
+  num_envs: 24
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 10
+  learning_rate: 0.0003
+  gamma: 0.995
+  log_std_init: -1.0
+  ent_coef: 0.001
+  checkpoint_every: 2000000
+  normalize_observations: true
+  device: cpu
+  velocity_target_ramp:
+    start: 0.15
+    end: 1.0
+    ramp_steps: 3000000
+
+evaluation:
+  episodes: 20
+
+output:
+  base_dir: outputs

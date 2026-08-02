@@ -37,6 +37,7 @@ _GAIT_EPISODE_METRICS = (
     "gait_stance_slip_speed",
     "gait_mid_stance_slip_speed",
     "gait_contact_point_slip_speed",
+    "gait_mid_stance_contact_point_slip_speed",
     "gait_longest_same_foot_sequence",
     "gait_mean_action_delta_l2",
     "gait_stride_length",

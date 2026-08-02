@@ -13,7 +13,10 @@ def _update(
     contacts: tuple[bool, bool],
     x: float,
     slips: tuple[float, float] = (0.0, 0.0),
-    foot_positions: tuple[tuple[float, float], tuple[float, float]] = ((0.0, 0.0), (0.0, 0.0)),
+    foot_positions: tuple[tuple[float, float], tuple[float, float]] = (
+        (0.0, 0.0),
+        (0.0, 0.0),
+    ),
 ):
     return tracker.update(
         step=step,
@@ -70,7 +73,10 @@ def test_debounce_rejects_brief_contact_breaks_within_one_swing() -> None:
 
     def step(n, contacts, foot_z):
         return _update(
-            tracker, step=n, contacts=contacts, x=0.0,
+            tracker,
+            step=n,
+            contacts=contacts,
+            x=0.0,
             foot_positions=((0.0, foot_z), (0.0, 0.0)),
         )
 
@@ -141,12 +147,48 @@ def test_gait_tracker_reports_stride_swing_clearance_and_cadence() -> None:
     tracker = WalkerGaitTracker(control_timestep=0.1, touchdown_debounce_steps=1)
     tracker.reset(initial_contacts=(True, True), action_size=2)
 
-    _update(tracker, step=1, contacts=(False, True), x=0.0, foot_positions=((0.0, 0.03), (0.0, 0.0)))
-    _update(tracker, step=2, contacts=(False, True), x=0.0, foot_positions=((0.1, 0.12), (0.0, 0.0)))
-    _update(tracker, step=3, contacts=(True, True), x=0.0, foot_positions=((0.2, 0.02), (0.0, 0.0)))
-    _update(tracker, step=4, contacts=(False, True), x=0.0, foot_positions=((0.2, 0.03), (0.0, 0.0)))
-    _update(tracker, step=5, contacts=(False, True), x=0.0, foot_positions=((0.4, 0.15), (0.0, 0.0)))
-    _update(tracker, step=6, contacts=(True, True), x=0.0, foot_positions=((0.5, 0.02), (0.0, 0.0)))
+    _update(
+        tracker,
+        step=1,
+        contacts=(False, True),
+        x=0.0,
+        foot_positions=((0.0, 0.03), (0.0, 0.0)),
+    )
+    _update(
+        tracker,
+        step=2,
+        contacts=(False, True),
+        x=0.0,
+        foot_positions=((0.1, 0.12), (0.0, 0.0)),
+    )
+    _update(
+        tracker,
+        step=3,
+        contacts=(True, True),
+        x=0.0,
+        foot_positions=((0.2, 0.02), (0.0, 0.0)),
+    )
+    _update(
+        tracker,
+        step=4,
+        contacts=(False, True),
+        x=0.0,
+        foot_positions=((0.2, 0.03), (0.0, 0.0)),
+    )
+    _update(
+        tracker,
+        step=5,
+        contacts=(False, True),
+        x=0.0,
+        foot_positions=((0.4, 0.15), (0.0, 0.0)),
+    )
+    _update(
+        tracker,
+        step=6,
+        contacts=(True, True),
+        x=0.0,
+        foot_positions=((0.5, 0.02), (0.0, 0.0)),
+    )
 
     metrics = tracker.episode_metrics()
     assert metrics["gait_swing_duration"] == pytest.approx(0.2)
@@ -165,12 +207,48 @@ def test_sustained_swing_progress_requires_duration_and_clearance() -> None:
     )
     tracker.reset(initial_contacts=(True, True), action_size=2)
 
-    _update(tracker, step=1, contacts=(False, True), x=0.0, foot_positions=((0.0, 0.02), (0.0, 0.0)))
-    _update(tracker, step=2, contacts=(False, True), x=0.0, foot_positions=((0.1, 0.08), (0.0, 0.0)))
-    first = _update(tracker, step=3, contacts=(True, True), x=0.1, foot_positions=((0.2, 0.02), (0.0, 0.0)))
-    _update(tracker, step=4, contacts=(True, False), x=0.1, foot_positions=((0.2, 0.0), (0.0, 0.02)))
-    _update(tracker, step=5, contacts=(True, False), x=0.1, foot_positions=((0.2, 0.0), (0.1, 0.08)))
-    second = _update(tracker, step=6, contacts=(True, True), x=0.3, foot_positions=((0.2, 0.0), (0.2, 0.02)))
+    _update(
+        tracker,
+        step=1,
+        contacts=(False, True),
+        x=0.0,
+        foot_positions=((0.0, 0.02), (0.0, 0.0)),
+    )
+    _update(
+        tracker,
+        step=2,
+        contacts=(False, True),
+        x=0.0,
+        foot_positions=((0.1, 0.08), (0.0, 0.0)),
+    )
+    first = _update(
+        tracker,
+        step=3,
+        contacts=(True, True),
+        x=0.1,
+        foot_positions=((0.2, 0.02), (0.0, 0.0)),
+    )
+    _update(
+        tracker,
+        step=4,
+        contacts=(True, False),
+        x=0.1,
+        foot_positions=((0.2, 0.0), (0.0, 0.02)),
+    )
+    _update(
+        tracker,
+        step=5,
+        contacts=(True, False),
+        x=0.1,
+        foot_positions=((0.2, 0.0), (0.1, 0.08)),
+    )
+    second = _update(
+        tracker,
+        step=6,
+        contacts=(True, True),
+        x=0.3,
+        foot_positions=((0.2, 0.0), (0.2, 0.02)),
+    )
 
     assert first.sustained_swing_touchdown is True
     assert first.touchdown_foot_lead == pytest.approx(0.1)
@@ -186,13 +264,9 @@ def test_gait_tracker_reports_completed_stance_advance_duration_and_slip() -> No
     tracker = WalkerGaitTracker(control_timestep=0.1, touchdown_debounce_steps=1)
     tracker.reset(initial_contacts=(False, True), action_size=2)
 
-    touchdown = _update(
-        tracker, step=1, contacts=(True, True), x=0.0, slips=(0.2, 0.0)
-    )
+    touchdown = _update(tracker, step=1, contacts=(True, True), x=0.0, slips=(0.2, 0.0))
     _update(tracker, step=2, contacts=(True, True), x=0.05, slips=(0.4, 0.0))
-    liftoff = _update(
-        tracker, step=3, contacts=(False, True), x=0.12, slips=(9.0, 0.0)
-    )
+    liftoff = _update(tracker, step=3, contacts=(False, True), x=0.12, slips=(9.0, 0.0))
 
     assert touchdown.stance_completion_side is None
     assert liftoff.stance_completion_side == 0
@@ -208,14 +282,20 @@ def test_swing_clearance_now_tracks_the_lifted_foot_every_step() -> None:
 
     # Both feet planted at z=0.02: nothing is swinging.
     step = _update(
-        tracker, step=1, contacts=(True, True), x=0.0,
+        tracker,
+        step=1,
+        contacts=(True, True),
+        x=0.0,
         foot_positions=((0.0, 0.02), (0.0, 0.02)),
     )
     assert step.swing_clearance_now == pytest.approx(0.0)
 
     # Left foot leaves the ground -> swing starts, clearance measured from there.
     step = _update(
-        tracker, step=2, contacts=(True, False), x=0.0,
+        tracker,
+        step=2,
+        contacts=(True, False),
+        x=0.0,
         foot_positions=((0.0, 0.02), (0.0, 0.02)),
     )
     assert step.swing_clearance_now == pytest.approx(0.0)
@@ -224,14 +304,20 @@ def test_swing_clearance_now_tracks_the_lifted_foot_every_step() -> None:
         [(0.05, 0.03), (0.09, 0.07), (0.06, 0.04)], start=3
     ):
         step = _update(
-            tracker, step=n, contacts=(True, False), x=0.0,
+            tracker,
+            step=n,
+            contacts=(True, False),
+            x=0.0,
             foot_positions=((0.0, 0.02), (0.0, height)),
         )
         assert step.swing_clearance_now == pytest.approx(expected)
 
     # Back down: swing ends, clearance returns to zero.
     step = _update(
-        tracker, step=6, contacts=(True, True), x=0.0,
+        tracker,
+        step=6,
+        contacts=(True, True),
+        x=0.0,
         foot_positions=((0.0, 0.02), (0.0, 0.02)),
     )
     assert step.swing_clearance_now == pytest.approx(0.0)
@@ -300,13 +386,9 @@ def test_contact_duty_imbalance_is_zero_for_a_symmetric_gait() -> None:
     step = None
     for cycle in range(4):
         for n in range(2):
-            step = _update(
-                tracker, step=cycle * 4 + n, contacts=(True, False), x=0.0
-            )
+            step = _update(tracker, step=cycle * 4 + n, contacts=(True, False), x=0.0)
         for n in range(2, 4):
-            step = _update(
-                tracker, step=cycle * 4 + n, contacts=(False, True), x=0.0
-            )
+            step = _update(tracker, step=cycle * 4 + n, contacts=(False, True), x=0.0)
 
     assert step is not None
     assert step.contact_duty_imbalance == pytest.approx(0.0)
@@ -365,20 +447,29 @@ def _swing_and_land(tracker, start_step, side, peak_z, land_z=0.02):
     pos = [(0.0, land_z), (0.0, land_z)]
     pos[side] = (0.0, land_z)
     tracker.update(
-        step=start_step, contacts=tuple(contacts), pelvis_x=0.0,
-        foot_slip_speeds=(0.0, 0.0), foot_positions=tuple(pos),
+        step=start_step,
+        contacts=tuple(contacts),
+        pelvis_x=0.0,
+        foot_slip_speeds=(0.0, 0.0),
+        foot_positions=tuple(pos),
         applied_action=np.zeros(10, dtype=np.float32),
     )
     pos[side] = (0.0, land_z + peak_z)
     tracker.update(
-        step=start_step + 1, contacts=tuple(contacts), pelvis_x=0.0,
-        foot_slip_speeds=(0.0, 0.0), foot_positions=tuple(pos),
+        step=start_step + 1,
+        contacts=tuple(contacts),
+        pelvis_x=0.0,
+        foot_slip_speeds=(0.0, 0.0),
+        foot_positions=tuple(pos),
         applied_action=np.zeros(10, dtype=np.float32),
     )
     pos[side] = (0.0, land_z)
     return tracker.update(
-        step=start_step + 2, contacts=(True, True), pelvis_x=0.0,
-        foot_slip_speeds=(0.0, 0.0), foot_positions=tuple(pos),
+        step=start_step + 2,
+        contacts=(True, True),
+        pelvis_x=0.0,
+        foot_slip_speeds=(0.0, 0.0),
+        foot_positions=tuple(pos),
         applied_action=np.zeros(10, dtype=np.float32),
     )
 
@@ -403,7 +494,8 @@ def test_bilateral_swing_clearance_tracks_the_worse_leg() -> None:
 
 def test_bilateral_swing_clearance_expires_a_dragged_leg() -> None:
     tracker = WalkerGaitTracker(
-        touchdown_debounce_steps=1, control_timestep=1 / 60,
+        touchdown_debounce_steps=1,
+        control_timestep=1 / 60,
         clearance_staleness_steps=20,
     )
     tracker.reset(initial_contacts=(True, True), action_size=10)
@@ -430,7 +522,7 @@ def test_contact_point_slip_is_separate_from_link_origin_slip() -> None:
             step=n,
             contacts=(True, False),
             pelvis_x=0.0,
-            foot_slip_speeds=(0.9, 0.0),          # link origin swinging through
+            foot_slip_speeds=(0.9, 0.0),  # link origin swinging through
             foot_contact_slip_speeds=(0.05, 0.0),  # contact patch nearly planted
             foot_positions=((0.0, 0.02), (0.0, 0.2)),
             applied_action=np.zeros(10, dtype=np.float32),
@@ -446,3 +538,60 @@ def test_contact_point_slip_defaults_to_zero_when_not_supplied() -> None:
     tracker.reset(initial_contacts=(True, True), action_size=10)
     _update(tracker, step=1, contacts=(True, True), x=0.0, slips=(0.4, 0.4))
     assert tracker.episode_metrics()["gait_contact_point_slip_speed"] == 0.0
+
+
+def test_mid_stance_contact_point_slip_excludes_the_landing_transient() -> None:
+    """The gate metric is contact-point but still whole-phase.
+
+    Correcting link-origin -> contact-point removed the rotation artifact; it
+    did not remove the landing transient, which carries roughly the body's
+    forward speed and therefore scales with locomotion speed. Measured on
+    2026-08-02 at 1.04 m/s the transient was 37% of v7's gated value and 10%
+    of v8's, so the gated metric can separate candidates on landing dynamics
+    rather than on sliding.
+    """
+    tracker = WalkerGaitTracker(
+        touchdown_debounce_steps=1, control_timestep=1 / 60, mid_stance_skip_steps=1
+    )
+    tracker.reset(initial_contacts=(False, False), action_size=10)
+
+    # Right foot arrives at 1.0 m/s at the contact patch, then plants at 0.02.
+    tracker.update(
+        step=1,
+        contacts=(True, False),
+        pelvis_x=0.0,
+        foot_slip_speeds=(3.0, 0.0),
+        foot_contact_slip_speeds=(1.0, 0.0),
+        foot_positions=((0.0, 0.02), (0.0, 0.2)),
+        applied_action=np.zeros(10, dtype=np.float32),
+    )
+    for n in (2, 3, 4, 5):
+        tracker.update(
+            step=n,
+            contacts=(True, False),
+            pelvis_x=0.0,
+            foot_slip_speeds=(0.5, 0.0),
+            foot_contact_slip_speeds=(0.02, 0.0),
+            foot_positions=((0.0, 0.02), (0.0, 0.2)),
+            applied_action=np.zeros(10, dtype=np.float32),
+        )
+
+    m = tracker.episode_metrics()
+    # The gate's metric is dragged up by the single landing sample.
+    assert m["gait_contact_point_slip_speed"] == pytest.approx((1.0 + 0.08) / 5)
+    # The new telemetry sees only the planted foot.
+    assert m["gait_mid_stance_contact_point_slip_speed"] == pytest.approx(0.02)
+
+
+def test_mid_stance_contact_point_slip_defaults_to_zero_when_not_supplied() -> None:
+    tracker = WalkerGaitTracker(
+        touchdown_debounce_steps=1, control_timestep=0.1, mid_stance_skip_steps=1
+    )
+    tracker.reset(initial_contacts=(False, False), action_size=10)
+    for n in (1, 2, 3):
+        _update(tracker, step=n, contacts=(True, True), x=0.0, slips=(0.4, 0.4))
+    metrics = tracker.episode_metrics()
+    assert metrics["gait_mid_stance_contact_point_slip_speed"] == 0.0
+    # The link-origin mid-stance cell still reports, so a zero here is the
+    # missing contact-point input rather than a broken mid-stance window.
+    assert metrics["gait_mid_stance_slip_speed"] == pytest.approx(0.4)

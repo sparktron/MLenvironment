@@ -1,6 +1,6 @@
 # Development Roadmap
 
-Last updated: 2026-07-31
+Last updated: 2026-08-02
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
@@ -19,6 +19,35 @@ must record both successful changes and failed hypotheses there.
 
 ## Priority 3: Learning Quality And Features
 
+- (2026-08-02) **Next walker candidate is `walker_reward_v9_flight_cost`; not
+  yet run.** V8's only failing criterion was flight (22.04% vs a 10% ceiling).
+  A proposed "unscheduled flight penalty" was rejected before implementation as
+  a duplicate: at `stance_duty: 0.6` the anti-phase reference schedule expects
+  at least one foot in stance at every phase (measured expected flight fraction
+  exactly 0.0000), so unscheduled flight is identical to flight, which
+  `flight_penalty_weight` already charges unconditionally. Priced from v8's own
+  metrics, its phase-double-support term earned +0.0580/step while the extra
+  flight cost only 0.0454/step — a net +0.0125/step, so the policy bought
+  overlap with airtime. Break-even weight is 0.64. The single intervention is
+  `flight_penalty_weight: 0.5 → 1.0` (~1.6x break-even); the config diff against
+  v8 is two lines. Chatter is guarded by gate v2's existing cadence band and
+  stride/clearance floors. Run seed 21 × 10M; seeds 22–23 and transfer stay
+  blocked pending all twelve criteria plus visual review.
+- (2026-08-02) **Slip-ceiling recalibration attempted; threshold deliberately
+  unchanged.** The method that calibrated the clearance floor (an open-loop
+  scripted gait) does not transfer: clearance is an actuator-capability measure
+  that survives a falling rollout, while slip requires sustained balanced
+  locomotion at speed, and the only policies that provide it are the candidates
+  themselves — calibrating from those is what made gate v1 certify chatter. The
+  measurement did find a real defect: the gate metric
+  `gait_contact_point_slip_speed` fixed the rotation artifact but still averages
+  the whole contact phase, so it carries the landing transient, which scales
+  with locomotion speed and is gait-dependent (37% of v7's gated value, 10% of
+  v8's). `gait_mid_stance_contact_point_slip_speed` is added as **telemetry
+  only**, per the 2026-07-28 precedent; `max_slip_speed` stays 0.18 on the
+  whole-phase metric. Both v7 and v8 pass on both metrics, so no past decision
+  turned on it, but v8's margin is 6%. Revisit the gate only as a deliberate
+  gate-design change, without a candidate in view.
 - (2026-07-29) **Walker gait gate v2 is frozen and the corrected v7 rerun is
   rejected.** The gate uses
   `gait_contact_point_slip_speed_mean` with the unchanged 0.18 m/s ceiling,

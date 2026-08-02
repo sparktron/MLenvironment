@@ -1360,3 +1360,121 @@ is permitted. Preserve gate v2; any successor must lower flight while retaining
 the recovered support and slip.
 
 **Artifacts:** `outputs/walker_reward_v8_support_overlap/seed_21/checkpoints/final_model.zip`.
+
+## 2026-08-02 — Slip Ceiling: Recalibration Attempted, Threshold Unchanged
+
+**Question:** `max_slip_speed: 0.18` was frozen when `target_velocity` was
+0.15 m/s and is now applied at 1.0 m/s. The source comment on
+`WALKER_GAIT_GATE` has required recalibration "from a reference gait measured at
+the target speed" since 2026-07-26. Can that be done before the next candidate?
+
+**The intended method is unavailable, and the reason is worth recording.** The
+clearance floor was calibrated from an open-loop scripted gait (33.7 mm at the
+study's own action scale). That worked because clearance is an *actuator
+capability* measure: it survives a rollout that falls within a second, because
+falling does not change how high the actuator can lift a foot. Slip is not a
+capability measure. It only means anything during sustained balanced locomotion
+at speed, and the only policies that do that are the candidates themselves.
+Calibrating a gate from candidate measurements is precisely the error that made
+gate v1 certify contact chatter. There is no third source, so the threshold was
+not moved.
+
+**What the measurement did establish.** The 2026-07-28 correction fixed the
+*rotation* artifact by switching from foot-link origin to contact point. It did
+not fix the *landing transient*: `gait_contact_point_slip_speed` averages the
+whole contact phase, including the step where the foot is still arriving. The
+tracker's own comment already recorded that transient at 1.034 m/s against
+0.153 m/s for the rest of stance on reward_v4. The two corrections are on
+orthogonal axes, and the cross cell had never been measured:
+
+| | whole-phase | mid-stance |
+|---|---|---|
+| link origin | `gait_stance_slip_speed` | `gait_mid_stance_slip_speed` |
+| contact point | `gait_contact_point_slip_speed` ← **gate v2** | *did not exist* |
+
+Twenty stochastic episodes per checkpoint, both at 1.04 m/s mean forward speed:
+
+| | whole-phase | mid-stance | transient share |
+|---|---:|---:|---:|
+| v7 corrected, link origin | 0.1949 | 0.1378 | 29% |
+| **v7 corrected, contact point** | **0.1206** | **0.0764** | **37%** |
+| v8, link origin | 0.2712 | 0.2276 | 16% |
+| **v8, contact point** | **0.1667** | **0.1503** | **10%** |
+
+**Why this matters.** The landing transient carries roughly the body's forward
+speed, so it scales with locomotion speed; ideal mid-stance slip is zero at any
+speed. The gated metric therefore inherits a speed-proportional term that the
+quantity it is meant to measure does not have — which is the real mechanism
+behind the suspicion that a ceiling set at 0.15 m/s misbehaves at 1.0 m/s. Worse
+for gate hygiene, the transient's share is *gait-dependent* (37% for v7, 10% for
+v8), so two candidates can be separated by how they land rather than by how much
+they slide.
+
+Median contact-point slip is 0.0088 (v7) and 0.0149 (v8) m/s: the foot is
+planted to within a centimetre or two per second half the time, and the mean is
+set by a small number of transient samples. A standing robot holding rest pose
+measures 0.0065 m/s mean, so the instrument's own floor is ~25x below the
+ceiling; the ceiling is not absurd on noise-floor grounds.
+
+**Decision:** add `gait_mid_stance_contact_point_slip_speed` as **telemetry
+only**. `max_slip_speed` stays 0.18 and stays on the whole-phase contact-point
+metric. This follows the 2026-07-28 precedent exactly: a corrected instrument is
+not swapped into a live gate with a candidate in view, because the question of
+what else lands on the passing side has to be asked separately from the question
+of what is physically correct. Both v7 and v8 pass 0.18 on both metrics, so no
+decision to date turned on the difference — but v8's 6% margin is thin, and a v9
+that reduces flight will spend more time landing, so the telemetry is in place
+before it is needed rather than after.
+
+**Lesson.** Two instrument corrections on orthogonal axes do not compose by
+themselves. Fixing rotation in 2026-07-28 made the metric physically better and
+left a second, independent contaminant untouched — and because the first fix was
+framed as "slip is now correct", the second was invisible for five days. When
+correcting a measurement, name the axis being corrected, so the axes not being
+corrected stay visible.
+
+**Artifacts:** measurement script and raw output under the session scratchpad;
+metric added in `src/rl_framework/envs/locomotion/gait.py`.
+
+## 2026-08-02 — V9 Flight Cost: Intervention Selected, Duplicate Rejected
+
+**Question:** v8's only failing criterion was flight (22.04% against a 10%
+ceiling). What is the single intervention that lowers it without giving back the
+scheduled double support v8 recovered?
+
+**A proposed "unscheduled flight penalty" was rejected as a duplicate.** The
+idea was the symmetric complement of v8's phase-gated double-support reward:
+charge flight only where the reference schedule does not expect it. With
+`stance_duty: 0.6`, `_expected_stance` puts at least one foot in stance at every
+phase — verified numerically, the schedule's expected flight fraction is exactly
+0.0000, and `walker_bullet.py` says so in the docstring ("the two windows
+overlap, producing double support and no flight phase"). So "flight outside the
+schedule" is identical to "flight", and `flight_penalty_weight` has been
+charging exactly that, unconditionally, at 0.5 since v7. The new term would have
+been mathematically equal to an existing active one. A duty cycle below 0.5
+would make the two distinct, but that is a different gait, not a different
+penalty.
+
+**The trade v8 made, priced from its own recorded metrics:**
+
+| | per step |
+|---|---:|
+| phase_double_support earned (0.5 × 11.59%) | +0.0580 |
+| extra flight cost (0.5 × [22.04% − 12.96%]) | −0.0454 |
+| **net** | **+0.0125** |
+
+The policy bought scheduled overlap with airtime because airtime was cheap. The
+weight at which that trade is neutral is 0.64.
+
+**Intervention:** `flight_penalty_weight: 0.5 → 1.0`, ~1.6x break-even, so it is
+a gradient rather than a tie-breaker. Every other value is byte-identical to v8,
+including `phase_double_support_reward_weight: 0.5`. Config:
+`walker_reward_v9_flight_cost.yaml`; the diff against v8 is two lines, one of
+them `experiment_name`.
+
+**Guard:** the obvious failure mode of a large flight penalty is chatter — never
+lift a foot, never fly. Gate v2 already blocks it with the 1.5–8.5 cadence band
+and the 0.10 m stride and 0.02 m clearance floors, none of which were touched.
+
+**Status:** not yet run. Seed 21, 10M, gate v2 frozen. Seeds 22–23 and transfer
+remain blocked unless seed 21 clears all twelve criteria and visual review.
