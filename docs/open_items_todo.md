@@ -34,8 +34,35 @@ must record both successful changes and failed hypotheses there.
   moves both, because flight, single support and double support are three
   states summing to one. Seeds 22–23, transfer, and visual approval remain
   blocked.
-- (2026-08-02) **The v9 shortfall is window duration, not aiming — this is the
-  finding that should drive the next candidate.** Phase telemetry:
+- (2026-08-02) **`walker_reward_v10_stance_duty` completed and is rejected at
+  10/13 — worse than v9, and the projection behind it was wrong.** The single
+  intervention was `gait.stance_duty: 0.6 → 0.65`, taking nominal overlap 20% →
+  30%. It projected 12.7% realized double support by assuming v9's 42.2% window
+  occupancy was a policy property that would carry to a longer window. Measured
+  occupancy was **22.4%**, and absolute in-window overlap *fell* (8.44% →
+  6.73%). Double support reads exactly 0.1000 (a bare pass), but the scheduled
+  share of it dropped 95.0% → 67.3%, so on the targeted quantity — correctly
+  scheduled overlap — v10 is strictly worse. Everything else regressed: flight
+  27.38%, clearance 12.4 mm (fail), slip 0.327 m/s (fail), stride 0.396 m, falls
+  20%, schedule match 0.704. **Mechanism: stance duty and swing time are one
+  knob.** 65% stance leaves 0.193 s of swing; the bilateral clearance reward
+  collapsed 0.143 → 0.058 and clearance halved, so single support fell 16.1
+  points and that mass went to flight, not double support. Do not raise
+  `stance_duty` further and do not rescue it with `cycle_period_s`.
+- (2026-08-02) **Standing after v10: v9 is the best candidate at 11/13**,
+  failing only double support (8.88%) and flight (12.39%). Three levers have now
+  been tried against those two criteria — scheduled-overlap reward (v8), flight
+  price (v9), window length (v10) — and each redistributed mass among flight,
+  single and double support without reaching the corner where both pass. **No
+  further single-scalar variant on this reward structure is justified without a
+  new measured mechanism.** The next work should be a telemetry-only study (the
+  2026-07-26 precedent, which rejected two reward candidates before training) of
+  what actually terminates double support: measure, per cycle, the time between
+  trailing-foot loading and trailing-foot liftoff, and what predicts an early
+  liftoff. If nothing predicts it, the reward structure is not the constraint and
+  the PD/actuation limits should be examined instead.
+- (2026-08-02) **The v9 shortfall is window duration, not aiming — superseded in
+  part by the v10 result above, which shows a longer window does not convert.** Phase telemetry:
   `reward_phase_contact_mean` 0.869 (86.9% schedule match) and
   `reward_phase_double_support_mean` 0.0422 at weight 0.5, i.e. 8.44% of steps
   are in-window *and* in double support — **95.0% of all the double support the

@@ -1622,3 +1622,74 @@ intervention and would make the result unattributable.
 
 **Status:** launched, not yet evaluated. Seeds 22–23, transfer, and visual
 approval remain blocked pending all thirteen stochastic criteria.
+
+## 2026-08-02 — V10 Stance Duty: Rejected, And The Projection Was Wrong
+
+**Question:** v9 filled 42.2% of the 20% overlap window its schedule provided.
+Does a 30% window (`stance_duty: 0.65`) yield proportionally more realized
+double support?
+
+**Result:** no. Rejected at **10/13**, worse than v9's 11/13. Training completed
+at 10,002,432 steps; 20 stochastic and 20 deterministic episodes.
+
+| stochastic metric | v9 | **v10** | gate |
+|---|---:|---:|---:|
+| double support | 8.88% | **10.00%** | ≥10% |
+| flight | 12.39% | **27.38%** | ≤10% |
+| single support | 78.73% | **62.62%** | — |
+| foot clearance | 22.3 mm | **12.4 mm** | ≥20 mm |
+| contact-point slip | 0.153 | **0.327** | ≤0.18 |
+| stride | 0.592 m | **0.396 m** | ≥0.10 |
+| displacement | 14.29 m | **11.36 m** | ≥1 m |
+| falls | 0% | **20%** | ≤30% |
+| episode steps | 800 | **691.9** | ≥600 |
+| schedule match | 0.869 | **0.704** | — |
+
+**The projection failed at its central assumption.** It treated the 42.2%
+window occupancy as a property of the policy that would carry to a longer
+window, projecting 12.7% realized overlap. Measured occupancy came out at
+**22.4%**, and the absolute in-window double support *fell*, 8.44% → 6.73%.
+Occupancy is not conserved across window lengths; it is not a policy constant.
+
+**The double-support "pass" is not evidence the mechanism worked.** It reads
+exactly 0.1000, on the threshold, and the scheduled share of that overlap fell
+from **95.0% to 67.3%** — a third of v10's double support now occurs at phases
+the schedule does not ask for. v9 produced less overlap but placed essentially
+all of it correctly; v10 produces marginally more and places a third of it
+wrong. On the quantity the intervention targeted — scheduled overlap — v10 is
+strictly worse.
+
+**Mechanism: stance duty and swing time are one knob, not two.** Commanding 65%
+stance leaves 35% of the 0.55 s cycle for swing (0.193 s, from 0.220 s). The
+declared risk was clearance, and clearance is what broke: the bilateral
+clearance reward collapsed 0.143 → 0.058 per step and mean clearance halved to
+12.4 mm, less than two thirds of its floor. Without lift there is no real step,
+so single support collapsed 16.1 points — and that mass went to **flight**, not
+to double support. Stride fell a third, slip doubled, and the policy lost the
+schedule it had been tracking at 86.9%.
+
+**Decision:** reject. Do not raise `stance_duty` further, and do not rescue this
+by lengthening `cycle_period_s` — the pre-declared reason for not compensating
+in the same run was to keep the result attributable, and it is: the failure is
+specifically that swing time bought the overlap window.
+
+**Lesson.** A ratio measured under one setting of a parameter is not a constant
+to extrapolate along that parameter. The projection table in the v10 config
+header multiplied a measured occupancy by three different nominal overlaps as
+though the two factors were independent; they are coupled through swing time,
+and the coupling is strong enough to reverse the sign of the intended effect.
+The tell was available beforehand — the same header declared clearance as the
+expected failure mode, which is to say it already contained the reason the
+arithmetic could not hold. When a projection and its own risk note disagree,
+the risk note is describing a coupling the projection omitted.
+
+**Artifacts:**
+`outputs/walker_reward_v10_stance_duty/seed_21/checkpoints/final_model.zip` and
+`outputs/walker_reward_v10_stance_duty/seed_21/eval_gate_v2.json`.
+
+**Standing after v10:** v9 remains the best candidate at 11/13, failing only the
+two support criteria. Three levers have now been tried against them —
+scheduled-overlap reward (v8), flight price (v9), and window length (v10) — and
+each moved mass between flight, single and double support without reaching the
+corner where both pass. No further single-scalar variant on this reward
+structure is justified without a new measured mechanism.
