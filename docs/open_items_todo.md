@@ -49,6 +49,35 @@ must record both successful changes and failed hypotheses there.
   collapsed 0.143 → 0.058 and clearance halved, so single support fell 16.1
   points and that mass went to flight, not double support. Do not raise
   `stance_duty` further and do not rescue it with `cycle_period_s`.
+- (2026-08-02) **Double-support telemetry study completed (no training budget);
+  it separates two defects that had been treated as one.** 791 DS intervals from
+  the v9 checkpoint over 20 stochastic episodes. (1) **DS is a 1–3 control-step
+  impact transient** — 48.3% last one step, 43.2% two, 8.5% three, **0% four or
+  more**, against a scheduled overlap window of **6.6 steps**. The
+  `phase_double_support_reward_weight` term has been paying for a state the gait
+  cannot occupy by a factor of 4.4, which explains why v8 and v10 could not
+  convert window length into realized overlap. (2) **The gate floor is nearly in
+  reach**: `DS fraction = cadence × mean interval` = 5.931/100 × 1.497 = 8.88%,
+  and the 10% floor needs 1.686 steps — **+0.19 steps, +12.6%**. The 6.6-step
+  schedule and the 10% gate are different asks by 4.4×. (3) **The handover is an
+  impact**: 2.14× body weight combined at onset (leading 1.38×, trailing 0.75×),
+  19.8% of intervals end with the *leading* foot bouncing off, and trailing-ankle
+  torque saturation is DS-specific (58.9% at cap in DS vs 21.2% in single
+  support; hip is ~47% in both, so hip saturation is not informative).
+  (4) Two headline correlations were duration artifacts and reverse per step:
+  `target_delta` +0.633 → −0.272, `sat_max` +0.376 → **−0.567** (more
+  saturation → shorter DS). **Conclusion: reward weights are exhausted; do not
+  run another single-scalar variant on this structure.**
+- (2026-08-02) **The no-retrain torque probe is inconclusive — do not cite it
+  either way.** Running the unchanged v9 policy at raised caps made DS rarer and
+  shorter (baseline 419 intervals / 9.02% DS → all×4 17 intervals / 3.32%), but
+  the interval collapse shows the policy is off-distribution under changed
+  dynamics. It cannot separate "torque is not the constraint" from "this policy
+  cannot exploit extra torque"; the script pre-declared that a null result would
+  be weak. A real actuation test requires **retraining** at a raised cap (~28
+  min). Note the ankle's 100 N·m cap is sourced from `atlas_v3.urdf` effort
+  values, so raising it is a **modelling change, not a tuning knob**, and must be
+  argued as such.
 - (2026-08-02) **Standing after v10: v9 is the best candidate at 11/13**,
   failing only double support (8.88%) and flight (12.39%). Three levers have now
   been tried against those two criteria — scheduled-overlap reward (v8), flight

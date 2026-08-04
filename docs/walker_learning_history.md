@@ -1693,3 +1693,133 @@ scheduled-overlap reward (v8), flight price (v9), and window length (v10) — an
 each moved mass between flight, single and double support without reaching the
 corner where both pass. No further single-scalar variant on this reward
 structure is justified without a new measured mechanism.
+
+## 2026-08-02 — Telemetry: What Terminates Double Support (No Training Budget)
+
+**Question:** three levers have failed the same two support criteria — the
+scheduled-overlap reward (v8), the flight price (v9), and the window length
+(v10). Before a fourth, what actually ends a double-support interval? Following
+the 2026-07-26 precedent, where foot-placement and stance-phase analyses
+rejected reward candidates before training.
+
+**Method:** the v9 checkpoint (best at 11/13), 20 stochastic episodes, 791
+double-support (DS) intervals. A DS interval opens when the *leading* foot lands
+while the *trailing* foot is still loaded, and closes when either foot breaks
+contact. PD `POSITION_CONTROL` means the commanded target is known exactly, and
+`getJointStates` exposes `appliedJointMotorTorque` against a known per-joint cap,
+so "the policy lifted the foot" and "the leg could not hold" are separable.
+
+### Finding 1 — double support is a 1–3 step impact transient, not a phase
+
+| interval length | share |
+|---|---:|
+| 1 control step | 48.3% |
+| 2 control steps | 43.2% |
+| 3 control steps | 8.5% |
+| 4+ | **0.0%** |
+
+Not one interval in 791 exceeded 3 control steps (0.05 s). **The scheduled
+overlap window is 6.6 control steps (0.11 s).** The
+`phase_double_support_reward_weight` term has therefore been paying for a state
+the gait cannot occupy, by a factor of 4.4 — this is a defect in the schedule's
+target, not in the weight, and it explains why v8 and v10 both failed to convert
+window length into realized overlap.
+
+### Finding 2 — but the *gate* floor is nearly in reach
+
+DS fraction decomposes exactly as cadence x mean interval length:
+
+    5.931 touchdowns/100 steps  x  1.497 steps  =  8.88%
+    to clear the 10% floor:        1.686 steps  =  +0.189 steps (+12.6%)
+
+The 10% gate needs about a fifth of a control step more mean overlap. The 6.6
+step schedule and the 10% gate are two very different asks, and they had been
+treated as one.
+
+### Finding 3 — the handover is an impact, and the trailing ankle absorbs it
+
+Vertical load at DS onset, against 646 N body weight:
+
+| | force | x BW |
+|---|---:|---:|
+| leading foot | 894.7 N | 1.38 |
+| trailing foot | 486.7 N | 0.75 |
+| **combined** | **1381.4 N** | **2.14** |
+
+A walk shares weight across the overlap; this lands on it. Consistently, 19.8%
+of intervals end with the *leading* foot lifting — the new foot bounces rather
+than accepting load — against 70.7% ending normally with the trailing foot.
+
+Torque saturation is **specific to double support, and specific to the ankle**:
+
+| joint | cap | DS mean | SS mean | >99% cap in DS | >99% cap in SS |
+|---|---:|---:|---:|---:|---:|
+| hip | 190 | 0.726 | 0.748 | 47.6% | 46.4% |
+| knee | 220 | 0.499 | 0.398 | 9.0% | 0.6% |
+| **ankle** | **100** | **0.647** | **0.550** | **58.9%** | **21.2%** |
+
+The hip is near-saturated in *all* stance, so its saturation says nothing about
+double support. The ankle nearly triples its at-cap rate in DS.
+
+### Finding 4 — two headline correlations were duration artifacts
+
+`target_delta` and `sat_max` accumulate over an interval, so they rise with
+duration mechanically. Recomputed per step, both reverse sign:
+
+| | r vs duration (total) | r vs duration (per step) |
+|---|---:|---:|
+| `target_delta` | +0.633 | **−0.272** |
+| `sat_max` | +0.376 | **−0.567** |
+
+Per step, **more saturation means shorter double support** — the direction
+consistent with a leg being unable to hold, and the opposite of what the raw
+numbers suggested. Recorded because the raw +0.633 would have supported a
+"policy chooses to lift" reading that the control refutes.
+
+### Finding 5 — the torque probe is inconclusive, and its caveat was pre-declared
+
+Running the unchanged v9 policy with more torque headroom (no retraining) was
+meant to be decisive. It is not:
+
+| variant | intervals | mean steps | max | DS fraction |
+|---|---:|---:|---:|---:|
+| baseline | 419 | 1.59 | 3 | 9.02% |
+| ankle x2 | 158 | 1.18 | 3 | 3.42% |
+| all x2 | 56 | 1.16 | 2 | 3.47% |
+| all x4 | 17 | 1.00 | 1 | 3.32% |
+
+More torque made double support *rarer and shorter*. But the interval count
+collapsing 419 → 17 shows the gait itself fell apart: the policy was trained
+under the baseline caps and is off-distribution under changed dynamics, so this
+cannot separate "torque is not the constraint" from "this policy cannot exploit
+extra torque." The script declared in advance that a null result would be weak
+evidence, and it is. **It does not license raising the caps, and does not
+exonerate them either.** A real test requires retraining.
+
+### Decision
+
+The reward *weights* are exhausted — no further single-scalar variant on this
+structure is justified, which is what this study was run to determine. Two
+distinct defects are now separable:
+
+1. **The schedule asks for a state that cannot occur.** 6.6 steps of commanded
+   overlap against a 3-step mechanical ceiling. Any reward keyed to that window
+   is paying for an unreachable target.
+2. **The handover is an impact.** 2.14x body weight at onset, a leading foot
+   that bounces one time in five, and a trailing ankle at its cap three times as
+   often as in single support.
+
+Actuation is now the leading hypothesis, but it is a hypothesis, not a result.
+The ankle's 100 N·m cap is sourced from `atlas_v3.urdf` effort values, so raising
+it is a **modelling change, not a tuning knob**, and should be argued as such
+rather than slipped in as a weight.
+
+**Lesson.** The gate floor (10%) and the schedule's window (20% of cycle,
+6.6 steps) had been treated as one target for three experiments. They differ by
+4.4x in what they demand, and only one of them is reachable. Decomposing the
+metric (`DS fraction = cadence x interval length`) showed the gate needs +0.19
+control steps while the schedule needs +3.6 — a distinction no amount of weight
+tuning would have surfaced, because both were being pushed by the same term.
+
+**Artifacts:**
+`outputs/walker_reward_v9_flight_cost/seed_21/double_support_telemetry.json`.
