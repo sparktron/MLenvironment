@@ -49,6 +49,37 @@ must record both successful changes and failed hypotheses there.
   collapsed 0.143 → 0.058 and clearance halved, so single support fell 16.1
   points and that mass went to flight, not double support. Do not raise
   `stance_duty` further and do not rescue it with `cycle_period_s`.
+- (2026-08-02) **STOP TUNING REWARDS FOR THE SUPPORT CRITERIA. Zero of 24
+  existing checkpoints ever satisfied flight ≤10% and double support ≥10%
+  together, and the two are positively coupled among converged policies**
+  (r = +0.442 over all 24, +0.554 at ≥8M, **+0.636 over the 8 final
+  checkpoints** — it strengthens with maturity, so it is not a training
+  artifact). Reaching the gate needs the two moved in opposite directions,
+  against that coupling. Repeat measurements of the same policy differ by only
+  0.08–0.59pp (DS) and 0.16–0.97pp (flight), so between-run spread is real.
+  Closest is **v9 at violation 0.0223** (DS 9.54%, flight 11.77%). Honest limit:
+  8 mature policies from 4 related reward structures is not the space of all
+  gaits, so this justifies stopping 28-minute reward runs, not declaring the
+  problem impossible.
+- (2026-08-02) **A landing-softness reward is NOT justified — the hypothesis was
+  refuted by its own measurement.** Following the 2026-07-26 precedent (measure
+  that the predictor predicts before proposing the reward), landing impact was
+  tested against two outcomes with rank-based AUC, since interval length takes
+  only three values and Pearson r is meaningless on it. Landing impact does not
+  discriminate interval length: `land_vz` AUC 0.434, `combined_bw` 0.444,
+  `lead_force` 0.483 — in the null band, with `land_vz` pointing the wrong way.
+  What predicts a bounce is the *trailing* leg (`trail_force` 0.776,
+  `trail_ankle_sat` 0.733), not the landing (`land_vz` 0.479): a bounce is
+  failed unloading, not a hard landing. What predicts longer intervals is pelvis
+  height (AUC 0.295, lower is longer) and horizontal foot speed (0.698).
+- (2026-08-02) **Correction to the decomposition recorded earlier the same day.**
+  `DS fraction = cadence × mean interval` is wrong: cadence (debounced
+  alternating touchdowns) is not the double-support interval *rate*, and a raw
+  touchdown count over-reports by ~3.5×. The identity that holds, verified to
+  err 0.0000 on four checkpoints, is `DS fraction = DS interval rate × mean
+  interval length`. Interval length does not shrink as rate rises (r = +0.222,
+  n=4), so the rate lever survives its screen — but n=4 is a screen for a
+  disqualifying negative, not a confirmation.
 - (2026-08-02) **Double-support telemetry study completed (no training budget);
   it separates two defects that had been treated as one.** 791 DS intervals from
   the v9 checkpoint over 20 stochastic episodes. (1) **DS is a 1–3 control-step

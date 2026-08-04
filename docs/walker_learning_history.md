@@ -1823,3 +1823,126 @@ tuning would have surfaced, because both were being pushed by the same term.
 
 **Artifacts:**
 `outputs/walker_reward_v9_flight_cost/seed_21/double_support_telemetry.json`.
+
+## 2026-08-02 — Telemetry Round 2: The Impact Hypothesis Dies, And The Corner May Not Exist
+
+Three follow-up studies, no training budget. The first was proposed at the end
+of the previous entry and is refuted by its own measurement.
+
+### Study A — landing impact does not predict anything about double support
+
+The previous entry found the handover is an impact (2.14x body weight) and
+suggested a landing-softness reward. Per the 2026-07-26 precedent, a reward may
+not be proposed from a predictor that has not been shown to predict, so this
+tested it first. Interval length takes only three values, so Pearson r is the
+wrong tool; both outcomes were treated as classification with rank-based AUC.
+
+**Outcome A, does the interval last >=2 steps:**
+
+| predictor | AUC |
+|---|---:|
+| `land_vz` (foot vertical velocity at touchdown) | 0.434 |
+| `combined_bw` (the 2.14x impact itself) | 0.444 |
+| `lead_force` | 0.483 |
+| `pelvis_z` | **0.295** |
+| `land_vx` | **0.698** |
+
+Landing impact sits in the null band, and `land_vz` points the *wrong way* —
+softer landings gave marginally shorter intervals. **A landing-softness reward
+is not justified.** What does discriminate is pelvis height (lower pelvis, longer
+overlap) and horizontal foot speed at touchdown.
+
+**Outcome B, does the leading foot bounce (19.8% of intervals):**
+
+| predictor | AUC |
+|---|---:|
+| `trail_force` | 0.776 |
+| `pelvis_vz` | 0.743 |
+| `trail_ankle_sat` | 0.733 |
+| `land_vz` | 0.479 |
+
+Bounces are predicted by the *trailing* leg's state, not by how hard the leading
+foot lands. A bounce is a failure to unload, not a hard landing.
+
+### Study B — the decomposition, corrected
+
+The previous entry wrote `DS fraction = cadence x mean interval`. That is wrong
+as stated: cadence (debounced alternating touchdowns, both feet) is not the same
+quantity as the double-support interval *rate*, and the raw touchdown count
+over-reports by ~3.5x. The identity that actually holds is
+
+    DS fraction = (DS interval rate) x (mean interval length)
+
+verified to err 0.0000 on all four checkpoints:
+
+| run | duty | DS rate /100 | mean interval | DS fraction |
+|---|---:|---:|---:|---:|
+| v7corr | 0.60 | 4.06 | 1.21 | 4.90% |
+| v8 | 0.60 | 6.19 | 1.98 | 12.24% |
+| v9 | 0.60 | 5.67 | 1.59 | 9.02% |
+| v10 | 0.65 | 7.92 | 1.35 | 10.73% |
+
+Interval length does not shrink as rate rises (r = +0.222, n=4), so the rate
+lever survives its screen — the failure mode that killed v10 does not obviously
+repeat. But n=4 makes this a screen for a disqualifying negative, not a
+confirmation.
+
+### Study C — no policy has ever reached the corner
+
+Twenty-four existing checkpoints (every 2M steps across four runs), six
+stochastic episodes each, scored only on the two failing criteria:
+
+**Zero of 24 satisfy flight <=10% and double support >=10% together.**
+
+And the two are *positively* coupled across mature policies — the correlation
+strengthens as training matures, so it is not an immaturity artifact:
+
+| subset | r(DS, flight) | n |
+|---|---:|---:|
+| all checkpoints | +0.442 | 24 |
+| mature (>=8M) | +0.554 | 12 |
+| final only | **+0.636** | 8 |
+
+Repeat measurements of the same policy (`ppo_model_9999960` vs `final_model`)
+differ by 0.08–0.59pp on DS and 0.16–0.97pp on flight, so the between-run
+spread is well outside sampling noise.
+
+Closest five, by total violation (DS shortfall + flight excess):
+
+| run | DS | flight | violation |
+|---|---:|---:|---:|
+| **v9** | 9.54% | 11.77% | **0.0223** |
+| v9 | 9.14% | 12.74% | 0.0360 |
+| v7corr | 4.96% | 12.23% | 0.0727 |
+| v7corr | 5.04% | 13.10% | 0.0806 |
+| v8 | 12.42% | 20.17% | 0.1017 |
+
+### Decision
+
+Reaching the gate requires moving double support up and flight down —
+*opposite* directions — against a measured positive coupling among every
+converged policy this project has produced. Combined with the mechanical
+interval ceiling (1–3 control steps against a 6.6-step commanded window) and the
+DS-specific ankle saturation, the evidence says the corner is not reachable by
+reward shaping in this actuation regime. **Stop tuning rewards here.**
+
+The honest limit of that claim: eight mature policies from four closely related
+reward structures is not the space of all gaits, and a correlation over n=8 is
+not a proof of infeasibility. It is strong enough to stop spending 28-minute
+runs on reward weights, not strong enough to declare the problem impossible.
+
+**Next is a modelling question, not a tuning one.** The ankle's 100 N·m cap is
+sourced from `atlas_v3.urdf` effort values; it is the joint that saturates
+specifically during double support (58.9% at cap vs 21.2% in single support) and
+that predicts bounces (AUC 0.733). Raising it changes what robot is being
+claimed, so it needs an explicit decision rather than a config edit — and the
+no-retrain probe already showed it cannot be tested without retraining.
+
+**Lesson.** Two entries ago the recommendation was a landing-softness reward,
+argued from a real measurement (2.14x body weight) that turned out to predict
+nothing. A number can be true, striking, and causally irrelevant at once. The
+precedent that saved the run was procedural, not clever: measure that the
+predictor predicts before proposing the reward.
+
+**Artifacts:** scratchpad scripts; the 24-checkpoint sweep is reproducible from
+existing outputs.
