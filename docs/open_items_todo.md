@@ -19,6 +19,29 @@ must record both successful changes and failed hypotheses there.
 
 ## Priority 3: Learning Quality And Features
 
+- (2026-08-02) **OBJECTIVE RESTATED: the goal is a framework that demonstrably
+  improves a locomotion policy over iterations. Running is acceptable and
+  preferred over walking.** Everything below dated 2026-07-29 to 2026-08-02 that
+  chases the 10% double-support floor and 10% flight ceiling was pursuing
+  *walking specifically*, which is no longer the target. Read those entries as
+  history, not as open work.
+- (2026-08-02) **Gate v3 supersedes v2.** `min_double_support_fraction` is
+  REMOVED (running has none by definition, so any floor forbids the preferred
+  gait); `max_flight_fraction` returns to **0.60** (its pre-v2 value, derived
+  from open-loop commanded gaits measuring 17–56%); and
+  `max_contact_duty_imbalance: 0.15` is ADDED to do the anti-degenerate work the
+  support criteria were doing implicitly — it excludes the 2026-07-28 asymmetric
+  bound (0.289) directly rather than using flight as a proxy for asymmetry.
+  0.15 means one leg carries 57.5% of stance; healthy gaits measure ~0.02. All
+  chatter, launch, standing and sliding guards are unchanged. This was a gate
+  change made with a candidate in view, permitted only because the *objective*
+  changed; no threshold was placed using v9's numbers.
+- (2026-08-02) **v9 seed 21 PASSES gate v3 at 13/13**: 800 steps, 0% falls,
+  14.29 m at 1.072 m/s, 0.592 m strides, 22.3 mm clearance, slip 0.153 m/s,
+  symmetry 0.0214. Double support 8.88% is no longer gated. Seeds 22 and 23 are
+  training on the identical config (`--seed` overrides only the global and env
+  seed) to test whether this result is robust or seed luck.
+
 - (2026-08-02) **`walker_reward_v9_flight_cost` completed and is rejected at
   11/13.** The single intervention was `flight_penalty_weight: 0.5 → 1.0`, set
   at ~1.6x the 0.64 break-even weight computed from v8's reward economics. (A

@@ -29,6 +29,7 @@ _GAIT_EPISODE_METRICS = (
     "gait_left_only_fraction",
     "gait_double_support_fraction",
     "gait_flight_fraction",
+    "gait_contact_duty_imbalance",
     "gait_right_touchdowns",
     "gait_left_touchdowns",
     "gait_alternating_touchdowns",

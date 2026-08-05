@@ -170,27 +170,56 @@ WALKER_GAIT_VARIANTS: dict[str, dict[str, Any]] = {
 # permitted cadence (3 m / ~67 touchdowns), and a same-foot stride is one full
 # cycle, i.e. about twice the per-touchdown pelvis advance.
 #
-# Support occupancy is derived from gait semantics rather than candidate
-# outcomes. Both thresholds are ABSOLUTE -- they do not track the configured
-# schedule.
+# GATE V3 (2026-08-02): THE OBJECTIVE CHANGED, SO THE SUPPORT CRITERIA CHANGED.
 #
-# 2026-08-02: these two numbers are unchanged, but their justification is
-# re-grounded, because the original one was schedule-relative ("half the 20%
-# nominal overlap implied by stance_duty=0.6") and that does not survive a
-# candidate that changes the duty. A floor indexed to the commanded schedule
-# could be passed by commanding a shorter one, so the gate would certify
-# progressively less walking -- the same failure class as gate v1, which
-# calibrated from whatever the system happened to produce. What the gate must
-# certify is walking, and the schedule is a training device, not the definition.
+# This is a gate change made with a candidate in view, which this project
+# otherwise forbids. It is legitimate here for one specific reason, and the
+# reason must survive scrutiny: the *target* was redefined by the project owner,
+# not the candidate's numbers. The stated goal is a framework that demonstrably
+# improves a locomotion policy over iterations, and running is an acceptable --
+# explicitly preferred -- outcome. Gate v2's `min_double_support_fraction` and
+# `max_flight_fraction: 0.10` encoded "walking specifically", a target nobody
+# is pursuing any more. They were correct for the old objective and are simply
+# the wrong question for the new one.
 #
-# Absolute grounding: human walking holds roughly 20% double support per cycle
-# at comfortable speed, declining toward zero at the walk-run transition. The
-# 10% floor is half that, conservative for a 65.9 kg Atlas-class biped at the
-# ~1.0 m/s target, and still strictly excludes running, which has no double
-# support by definition. The 10% flight ceiling is a contact-estimation
-# tolerance, not a schedule quantity: walking has no flight phase at all, and
-# the allowance exists for raw-contact noise. Neither number may be moved to
-# make a candidate pass.
+# Guard against the obvious abuse of that argument: v9 is NOT the reason. Its
+# values were not used to place any v3 threshold, and the anti-degenerate work
+# the old criteria performed is preserved rather than dropped (see below). If a
+# future reader suspects this was a goalpost move, the check is whether the
+# thresholds were derived from degenerate cases or from a candidate -- they were
+# derived from degenerate cases.
+#
+# What changed and why:
+#
+# 1. `min_double_support_fraction` is REMOVED, not relaxed. Running has zero
+#    double support by definition, so a floor on it is incoherent for a target
+#    that admits running -- any nonzero value would forbid the preferred gait.
+#
+# 2. `max_flight_fraction` returns to 0.60, its pre-v2 value, which had an
+#    independent derivation the v2 tightening discarded: open-loop scripted
+#    gaits at this robot's own settings measured 17-56% flight, so 60% is the
+#    envelope of commanded gaits rather than an invented number. Human sprinting
+#    peaks near 40%. The ceiling now excludes only degenerate leaping.
+#
+# 3. `max_contact_duty_imbalance: 0.15` is ADDED, and it is what actually
+#    replaces the removed criteria. The 2026-07-28 entry recorded the real
+#    hazard: an asymmetric BOUND (right foot in contact 27.3% against the left
+#    at 15.0%, 57.6% flight, 0.1% double support) that a naive gate would score
+#    perfectly. The old flight ceiling excluded it only as a side effect, using
+#    flight as a proxy for asymmetry. A symmetry criterion targets the defect
+#    directly, so the flight ceiling no longer has to do two jobs at once.
+#
+#    Threshold derivation, independent of any candidate: 0.15 means one leg
+#    carries 57.5% of stance time and the other 42.5%. That is the line past
+#    which a gait is meaningfully one-legged. Validity check (NOT calibration):
+#    the 2026-07-28 bound measures 0.289 and is excluded; healthy alternating
+#    gaits measure ~0.02. Both sit far from the threshold, which is what a
+#    discriminating criterion should look like.
+#
+# Cadence, stride, clearance, progress, slip, survival, fall rate, displacement,
+# peak height and same-foot-sequence limits are ALL UNCHANGED. Every guard
+# against contact chatter, self-launching, standing, and sliding is retained --
+# the loosening is confined to the two criteria that encoded walking specifically.
 #
 # Slip is the planar velocity of the slowest material contact point, not the
 # foot-link origin. Link-origin velocity includes ordinary heel/toe pivoting and
@@ -225,7 +254,7 @@ WALKER_GAIT_VARIANTS: dict[str, dict[str, Any]] = {
 # 0.18 on both metrics, so no decision to date turned on the difference.
 WALKER_GAIT_GATE: dict[str, Any] = {
     **WALKER_VELOCITY_GATE,
-    "gate_version": 2,
+    "gate_version": 3,
     "min_alternating_touchdowns_per_100_steps": 1.5,
     "max_alternating_touchdowns_per_100_steps": 8.5,
     "min_progress_per_alternating_touchdown": 0.05,
@@ -233,8 +262,8 @@ WALKER_GAIT_GATE: dict[str, Any] = {
     "min_foot_clearance": 0.02,
     "slip_metric": "gait_contact_point_slip_speed_mean",
     "max_slip_speed": 0.18,
-    "min_double_support_fraction": 0.10,
-    "max_flight_fraction": 0.10,
+    "max_flight_fraction": 0.60,
+    "max_contact_duty_imbalance": 0.15,
     "max_longest_same_foot_sequence": 5.0,
 }
 WALKER_VELOCITY_RAMP_VARIANTS: dict[str, dict[str, Any]] = {
@@ -826,10 +855,12 @@ def _walker_gait_passed(result: dict[str, Any]) -> bool:
         >= WALKER_GAIT_GATE["min_progress_per_alternating_touchdown"]
         and metrics[WALKER_GAIT_GATE["slip_metric"]]
         <= WALKER_GAIT_GATE["max_slip_speed"]
-        and metrics["gait_double_support_fraction_mean"]
-        >= WALKER_GAIT_GATE["min_double_support_fraction"]
         and metrics["gait_flight_fraction_mean"]
         <= WALKER_GAIT_GATE["max_flight_fraction"]
+        # Replaces the v2 support criteria: excludes an asymmetric bound
+        # directly rather than using the flight ceiling as a proxy for it.
+        and metrics["gait_contact_duty_imbalance_mean"]
+        <= WALKER_GAIT_GATE["max_contact_duty_imbalance"]
         and metrics["gait_longest_same_foot_sequence_mean"]
         <= WALKER_GAIT_GATE["max_longest_same_foot_sequence"]
     )
@@ -1653,10 +1684,10 @@ def _walker_action_memory_gate_result(
         >= WALKER_GAIT_GATE["min_stride_length"],
         "foot_clearance": metrics["gait_foot_clearance_mean"]
         >= WALKER_GAIT_GATE["min_foot_clearance"],
-        "double_support_fraction": metrics["gait_double_support_fraction_mean"]
-        >= WALKER_GAIT_GATE["min_double_support_fraction"],
         "flight_fraction": metrics["gait_flight_fraction_mean"]
         <= WALKER_GAIT_GATE["max_flight_fraction"],
+        "contact_duty_imbalance": metrics["gait_contact_duty_imbalance_mean"]
+        <= WALKER_GAIT_GATE["max_contact_duty_imbalance"],
         "same_foot_sequence": metrics["gait_longest_same_foot_sequence_mean"]
         <= WALKER_GAIT_GATE["max_longest_same_foot_sequence"],
     }

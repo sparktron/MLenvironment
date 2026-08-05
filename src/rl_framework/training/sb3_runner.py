@@ -352,6 +352,7 @@ class WalkerMetricsCallback(BaseCallback):
         "gait_left_only_fraction": "gait_left_only_fraction",
         "gait_double_support_fraction": "gait_double_support_fraction",
         "gait_flight_fraction": "gait_flight_fraction",
+        "gait_contact_duty_imbalance": "gait_contact_duty_imbalance",
         "gait_right_touchdowns": "gait_right_touchdowns_mean",
         "gait_left_touchdowns": "gait_left_touchdowns_mean",
         "gait_alternating_touchdowns": "gait_alternating_touchdowns_mean",

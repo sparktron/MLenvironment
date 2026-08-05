@@ -457,11 +457,22 @@ class WalkerGaitTracker:
     def episode_metrics(self) -> dict[str, float]:
         steps = max(self._steps, 1)
         alternating = max(self._alternating_touchdowns, 1)
+        # Episode-level version of the per-step `contact_duty_imbalance` above,
+        # using the same definition. Double support adds equally to both legs,
+        # so the value is driven entirely by the single-support split. Gate v3
+        # relies on this to exclude an asymmetric bound, a job the support
+        # fractions used to do implicitly.
+        right_stance = self._support_counts[0] + self._support_counts[2]
+        left_stance = self._support_counts[1] + self._support_counts[2]
+        stance_total = right_stance + left_stance
         return {
             "gait_right_only_fraction": self._support_counts[0] / steps,
             "gait_left_only_fraction": self._support_counts[1] / steps,
             "gait_double_support_fraction": self._support_counts[2] / steps,
             "gait_flight_fraction": self._support_counts[3] / steps,
+            "gait_contact_duty_imbalance": (
+                abs(right_stance - left_stance) / stance_total if stance_total else 0.0
+            ),
             "gait_right_touchdowns": float(self._touchdown_counts[0]),
             "gait_left_touchdowns": float(self._touchdown_counts[1]),
             "gait_alternating_touchdowns": float(self._alternating_touchdowns),

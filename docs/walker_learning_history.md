@@ -1946,3 +1946,74 @@ predictor predicts before proposing the reward.
 
 **Artifacts:** scratchpad scripts; the 24-checkpoint sweep is reproducible from
 existing outputs.
+
+## 2026-08-02 — Gate v3: The Objective Changed, So The Support Criteria Did
+
+**This is a gate change made with a candidate in view, which this project
+otherwise forbids.** The justification has to be stated plainly enough that a
+later reader can reject it if it does not hold.
+
+**What changed:** the project owner redefined the target. The goal is a
+framework that demonstrably improves a locomotion policy over iterations, and
+running is an acceptable — explicitly preferred — outcome. Gate v2's
+`min_double_support_fraction: 0.10` and `max_flight_fraction: 0.10` encoded
+*walking specifically*. They were correct for the old objective and are the
+wrong question for the new one.
+
+**What did not change it:** v9's numbers. No v3 threshold was placed using
+them. The test of whether this was a goalpost move is whether the new
+thresholds were derived from degenerate cases or from a candidate — they were
+derived from degenerate cases, and the anti-degenerate work the old criteria did
+is preserved rather than dropped.
+
+**The three changes:**
+
+1. `min_double_support_fraction` **removed, not relaxed.** Running has zero
+   double support by definition, so any floor forbids the preferred gait.
+2. `max_flight_fraction` **0.10 → 0.60**, its pre-v2 value, which had an
+   independent derivation the v2 tightening discarded: open-loop scripted gaits
+   at this robot's own settings measured 17–56% flight. Human sprinting peaks
+   near 40%. The ceiling now excludes only degenerate leaping.
+3. `max_contact_duty_imbalance: 0.15` **added**, and this is what actually
+   replaces the removed criteria. The 2026-07-28 entry recorded the real hazard:
+   an asymmetric bound (right foot in contact 27.3% vs left 15.0%, 57.6% flight,
+   0.1% double support) that a naive gate scores perfectly. The old flight
+   ceiling excluded it only as a side effect, using flight as a proxy for
+   asymmetry. A symmetry criterion targets the defect directly, so the flight
+   ceiling no longer has to do two jobs.
+
+   Threshold derived independently of any candidate: 0.15 means one leg carries
+   57.5% of stance and the other 42.5% — the line past which a gait is
+   meaningfully one-legged. Validity check, *not* calibration: the 2026-07-28
+   bound measures 0.289 and is excluded; healthy alternating gaits measure ~0.02.
+
+Cadence band, stride, clearance, progress, slip, survival, fall rate,
+displacement, peak height and same-foot-sequence limits are **all unchanged**.
+Every guard against contact chatter, self-launching, standing and sliding is
+retained; the loosening is confined to the two walk-specific criteria.
+
+`gait_contact_duty_imbalance` is added as an episode metric (the per-step value
+already existed for the reward) and propagates to diagnostics and TensorBoard.
+
+**Regression tests:** the frozen-contract test now asserts
+`min_double_support_fraction` is *absent* rather than any value; the bound test
+asserts the bound passes the loosened flight ceiling and is rejected by symmetry
+instead, so symmetry is load-bearing rather than incidental; a new test asserts
+a symmetric gait with 35% flight **passes**, guarding the other direction so the
+loosening is not cosmetic; and the schedule-independence test was rewritten
+against the surviving criteria with a passing control so it is not vacuous.
+
+**Result:** v9 seed 21 scores **13/13 under gate v3** — 800 steps, 0% falls,
+14.29 m at 1.072 m/s, 0.592 m strides, symmetry 0.0214 against the 0.15 limit.
+Double support is 8.88% and is no longer gated.
+
+**Lesson, and it is about process rather than gait.** Four training runs and two
+telemetry rounds went into the 10%/10% corner. Gate v2's support criteria were
+introduced on 2026-07-29 as a schedule-derived detail, re-grounded on 2026-08-02
+in human walking biomechanics — each step locally defensible, and the net effect
+was a stricter target than the plan's own stated objective ("repeatable
+alternating-foot locomotion"), which v9 had already met. The failure was never
+asking whether the gate still encoded the goal. A gate is a proxy; proxies drift
+from objectives silently, and nothing in the measure-first discipline catches it,
+because that discipline is about how to answer the question rather than whether
+it is the right one.

@@ -32,6 +32,7 @@ def _diagnostic_result() -> dict:
         "gait_contact_point_slip_speed_mean": 0.15,
         "gait_double_support_fraction_mean": 0.15,
         "gait_flight_fraction_mean": 0.05,
+        "gait_contact_duty_imbalance_mean": 0.02,
         "gait_longest_same_foot_sequence_mean": 3.0,
     }
     return {
@@ -705,40 +706,58 @@ def test_walker_gait_gate_rejects_behavior_without_gait_structure() -> None:
     assert aggregate["promoted_variant"] is None
 
 
-def test_walker_gait_gate_v2_support_and_slip_contract_is_frozen() -> None:
-    assert quality_study.WALKER_GAIT_GATE["gate_version"] == 2
-    assert quality_study.WALKER_GAIT_GATE["slip_metric"] == (
-        "gait_contact_point_slip_speed_mean"
-    )
-    assert quality_study.WALKER_GAIT_GATE["max_slip_speed"] == 0.18
-    assert quality_study.WALKER_GAIT_GATE["min_double_support_fraction"] == 0.10
-    assert quality_study.WALKER_GAIT_GATE["max_flight_fraction"] == 0.10
+def test_walker_gait_gate_v3_contract_is_frozen() -> None:
+    """v3 admits running; the walk-specific support criteria are gone.
+
+    `min_double_support_fraction` is REMOVED rather than lowered -- running has
+    no double support by definition, so any floor would forbid the preferred
+    gait. Its anti-degenerate role passes to `max_contact_duty_imbalance`.
+    """
+    gate = quality_study.WALKER_GAIT_GATE
+    assert gate["gate_version"] == 3
+    assert gate["slip_metric"] == "gait_contact_point_slip_speed_mean"
+    assert gate["max_slip_speed"] == 0.18
+    assert "min_double_support_fraction" not in gate
+    assert gate["max_flight_fraction"] == 0.60
+    assert gate["max_contact_duty_imbalance"] == 0.15
+    # Every chatter/launch/standing/sliding guard is untouched by the v3 change.
+    assert gate["min_alternating_touchdowns_per_100_steps"] == 1.5
+    assert gate["max_alternating_touchdowns_per_100_steps"] == 8.5
+    assert gate["min_stride_length"] == 0.10
+    assert gate["min_foot_clearance"] == 0.02
+    assert gate["max_peak_z"] == 1.0
 
 
-def test_walker_support_thresholds_do_not_track_the_commanded_schedule() -> None:
-    """The support floor is absolute, not a fraction of the configured duty.
+def test_walker_gate_thresholds_do_not_track_the_commanded_schedule() -> None:
+    """Gate thresholds are absolute; they do not follow the phase schedule.
 
-    The original derivation was schedule-relative -- half the 20% nominal
-    overlap implied by `stance_duty: 0.6`. A floor indexed to the schedule can
-    be passed by commanding a shorter one, so the gate would certify
-    progressively less walking: the same failure class as gate v1, which
-    calibrated from whatever the system happened to produce. The v9 candidate
-    (double support 8.88%) must fail at ANY commanded duty.
+    Originally written for the v2 double-support floor, whose first derivation
+    was schedule-relative ("half the 20% nominal overlap at stance_duty=0.6").
+    v3 removed that floor along with the walking-specific target, but the
+    principle transfers to the criteria that remain: a threshold indexed to a
+    commanded schedule can be satisfied by commanding a different one, so the
+    gate would certify progressively less. Tested here on the flight ceiling
+    and the symmetry criterion.
     """
     for stance_duty in (0.55, 0.6, 0.65, 0.7, 0.9):
-        result = _diagnostic_result()
-        result["stochastic"] = {
-            **result["stochastic"],
-            "gait_double_support_fraction_mean": 0.0888,
-            "gait_flight_fraction_mean": 0.05,
+        degenerate = _diagnostic_result()
+        degenerate["stochastic"] = {
+            **degenerate["stochastic"],
+            # Leaping past the flight envelope, and one-legged.
+            "gait_flight_fraction_mean": 0.75,
+            "gait_contact_duty_imbalance_mean": 0.40,
         }
-        # A recorded schedule must not reach the thresholds.
-        result["environment"] = {"gait": {"stance_duty": stance_duty}}
-        assert quality_study._walker_gait_passed(result) is False, (
-            f"8.88% double support must fail at stance_duty={stance_duty}"
+        degenerate["environment"] = {"gait": {"stance_duty": stance_duty}}
+        assert quality_study._walker_gait_passed(degenerate) is False, (
+            f"degenerate gait must fail at stance_duty={stance_duty}"
         )
 
-    # And the thresholds themselves carry no schedule-derived key.
+    # Control: the same fixture without those two defects passes, so the
+    # rejection above is attributable and the assertion is not vacuous.
+    healthy = _diagnostic_result()
+    healthy["environment"] = {"gait": {"stance_duty": 0.9}}
+    assert quality_study._walker_gait_passed(healthy) is True
+
     assert "stance_duty" not in quality_study.WALKER_GAIT_GATE
     assert "nominal_double_support" not in quality_study.WALKER_GAIT_GATE
 
@@ -783,21 +802,56 @@ def test_walker_gait_gate_rejects_short_strides_at_valid_cadence() -> None:
     assert aggregate["rankings"][0]["per_seed_passed"] == {"seed_0": False}
 
 
-def test_walker_gait_gate_rejects_bound_support_occupancy() -> None:
-    """A low-slip bound must not be certified as walking."""
+def test_walker_gait_gate_rejects_the_asymmetric_bound() -> None:
+    """The 2026-07-28 bound must stay rejected under gate v3.
+
+    v3 admits running, so the 0.10 flight ceiling that used to exclude this
+    gait is gone (0.60 now). The rejection must therefore come from the
+    symmetry criterion, which targets what is actually wrong with a bound.
+    Numbers are the measured ones: right foot in contact 27.3% against the
+    left at 15.0%, 57.6% flight, 0.1% double support, low slip.
+    """
+    right, left, double = 0.273, 0.150, 0.001
+    imbalance = abs((right + double) - (left + double)) / (right + left + 2 * double)
+
     bound = _diagnostic_result()
     bound["stochastic"] = {
         **bound["stochastic"],
         "gait_contact_point_slip_speed_mean": 0.10,
-        "gait_double_support_fraction_mean": 0.0,
-        "gait_flight_fraction_mean": 0.55,
+        "gait_double_support_fraction_mean": double,
+        "gait_flight_fraction_mean": 0.576,
+        "gait_contact_duty_imbalance_mean": imbalance,
     }
+
+    # The bound now passes the (loosened) flight ceiling, so symmetry is load
+    # bearing rather than incidental.
+    assert 0.576 <= quality_study.WALKER_GAIT_GATE["max_flight_fraction"]
+    assert imbalance > quality_study.WALKER_GAIT_GATE["max_contact_duty_imbalance"]
 
     aggregate = quality_study._aggregate_walker_gait_results(
         {"candidate/seed_0": bound}
     )
-
     assert aggregate["rankings"][0]["per_seed_passed"] == {"seed_0": False}
+
+
+def test_walker_gait_gate_v3_admits_a_symmetric_run() -> None:
+    """A symmetric gait with real flight must PASS -- running is the target.
+
+    Guards the other direction from the bound test: if v3 rejected this, the
+    loosening would be cosmetic.
+    """
+    running = _diagnostic_result()
+    running["stochastic"] = {
+        **running["stochastic"],
+        "gait_double_support_fraction_mean": 0.0,
+        "gait_flight_fraction_mean": 0.35,
+        "gait_contact_duty_imbalance_mean": 0.02,
+    }
+
+    aggregate = quality_study._aggregate_walker_gait_results(
+        {"candidate/seed_0": running}
+    )
+    assert aggregate["rankings"][0]["per_seed_passed"] == {"seed_0": True}
 
 
 def test_walker_gait_gate_uses_contact_point_slip() -> None:
