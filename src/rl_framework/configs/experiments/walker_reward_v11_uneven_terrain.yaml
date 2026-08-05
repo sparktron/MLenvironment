@@ -1,0 +1,120 @@
+# Terrain continuation from the v9 flat result. Seed-matched, all three seeds.
+#
+# v9 is a three-seed, visually-approved flat result at 13/13 on gate v4, and the
+# transfer suite measured a hard zero-shot baseline off flat:
+#
+#   flat            3/3   754-800 steps,  0-10% falls, 12.90-14.29 m
+#   uneven          0/3   170-178 steps, 95-100% falls,  1.70-1.95 m
+#   obstacles       0/3   111-122 steps,    100% falls,  1.62-1.65 m
+#   push recovery   0/3   404-486 steps,    100% falls,  6.65-7.82 m
+#
+# Every one of those policies trained flat-only, so the failures are zero-shot
+# and expected. This run is the iteration that should beat them: same policy,
+# same reward, continued on uneven terrain.
+#
+# WHY THIS IS A STAGED CONTINUATION RATHER THAN A CURRICULUM. `CurriculumCallback`
+# cannot switch terrain. `_terrain_preset` is read once in `WalkerBulletEnv.
+# __init__` and never refreshed, and `update_live_params` handles only
+# `reward.*`, `termination.*`, `domain_randomization.*` and `sim.*` -- there is
+# no `terrain` section. Adding one is a legitimate change but it is not this
+# experiment. Staged continuation is the project's existing pattern anyway
+# (balance -> low velocity -> gait), and it keeps the intervention to one thing.
+#
+# THE VELOCITY RAMP IS DELIBERATELY REMOVED. `VelocityTargetRampCallback.
+# _on_training_start` measures the ramp from the *continuation's* start, so
+# inheriting v9's `velocity_target_ramp` would reset the target from 1.0 back to
+# 0.15 and re-ramp it -- undoing the speed v9 learned and confounding the terrain
+# result with a velocity change. `target_velocity` is pinned at 1.0, the value
+# v9 finished at, so the ONLY difference from v9's end state is the terrain.
+#
+# Resume is seed-matched and must be passed explicitly:
+#   --resume outputs/walker_reward_v9_flight_cost/seed_<N>/checkpoints/final_model.zip
+# Provenance checking is non-strict by default, so the changed `terrain` block
+# logs a warning rather than blocking. That warning is expected and correct.
+#
+# Budget: 5M continuation steps against v9's 10M from scratch, ~24 min per seed.
+experiment_name: walker_reward_v11_uneven_terrain
+seed: 21
+
+environment:
+  type: walker_bullet
+  seed: 21
+  observation:
+    version: v2
+    coordinate_free: true
+    include_gait_phase: true
+  gait:
+    cycle_period_s: 0.55
+    stance_duty: 0.6
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    action_scale: 0.5
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  terrain:
+    # THE SINGLE INTERVENTION: flat -> uneven, at the same 2.5 cm the transfer
+    # suite measures, so training and evaluation terrain match exactly.
+    preset: uneven
+    height: 0.025
+  reward:
+    alive_bonus: 0.10
+    forward_velocity_weight: 1.0
+    # Pinned at v9's final ramped value; see the note above.
+    target_velocity: 1.0
+    velocity_mode: clipped_linear
+    orientation_penalty_weight: 1.0
+    torque_penalty_weight: 0.02
+    fall_penalty: 2.0
+    action_rate_penalty_weight: 0.10
+    swing_clearance_weight: 0.0
+    bilateral_clearance_weight: 8.0
+    bilateral_clearance_target: 0.05
+    touchdown_rate_penalty_weight: 1.0
+    max_cycle_frequency_hz: 2.5
+    flight_penalty_weight: 1.0
+    gait_symmetry_penalty_weight: 0.5
+    double_support_reward_weight: 0.0
+    phase_contact_weight: 1.0
+    phase_double_support_reward_weight: 0.5
+    stance_slip_penalty_weight: 0.35
+    stance_slip_penalty_clip: 1.5
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 5000000
+  num_envs: 24
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 10
+  learning_rate: 0.0003
+  gamma: 0.995
+  log_std_init: -1.0
+  ent_coef: 0.001
+  checkpoint_every: 1000000
+  normalize_observations: true
+  device: cpu
+
+evaluation:
+  episodes: 20
+
+output:
+  base_dir: outputs
