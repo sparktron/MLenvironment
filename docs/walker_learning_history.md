@@ -2017,3 +2017,64 @@ asking whether the gate still encoded the goal. A gate is a proxy; proxies drift
 from objectives silently, and nothing in the measure-first discipline catches it,
 because that discipline is about how to answer the question rather than whether
 it is the right one.
+
+## 2026-08-02 — V9 Across Three Seeds: 2/3 Pass Gate v3
+
+**Question:** is v9's result robust across seeds, or was seed 21 lucky? Seeds
+22 and 23 trained on the identical config — `--seed` overrides only the global
+and environment seed, and `num_envs` was held at 24 (running the two in parallel
+would have oversubscribed the machine, and halving workers would have changed
+the effective batch size and broken comparability).
+
+| seed | steps | falls | disp | speed | stride | clearance | slip (gated) | flight | symmetry | gate v3 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 21 | 800 | 0% | 14.29 m | 1.07 m/s | 0.592 | 22.3 mm | 0.1534 | 12.4% | 0.021 | **13/13 PASS** |
+| 22 | 800 | 0% | 13.99 m | 1.05 m/s | 0.580 | 27.8 mm | 0.1570 | 13.7% | 0.027 | **13/13 PASS** |
+| 23 | 754 | 10% | 12.90 m | 1.03 m/s | 0.531 | 33.8 mm | 0.2178 | 21.9% | 0.023 | 12/13 fail: slip |
+
+**All three learned to run.** Every seed reaches ~1.0 m/s over 12.9–14.3 m with
+0.53–0.59 m strides, symmetric legs (0.021–0.027 against a 0.15 limit) and
+proper alternation. Seed variation shows up as a spread in *style* — seed 23
+lifts higher (33.8 mm vs 22.3) and flies more (21.9% vs 12.4%) — not as the
+difference between locomotion and collapse. This is the first three-seed
+walker result in the project where every seed produced real locomotion.
+
+**Seed 23's single failure lands on the one threshold documented as
+uncalibrated.** `max_slip_speed: 0.18` was frozen when `target_velocity` was
+0.15 m/s and is applied here at 1.03 m/s, on a metric that averages the whole
+contact phase including the landing transient. Seed 23's breakdown:
+
+| | value |
+|---|---:|
+| whole-phase contact-point slip (gated) | 0.2178 — fails by +0.0378 |
+| mid-stance contact-point slip (telemetry) | 0.1283 — would pass with 0.0517 spare |
+| landing-transient share | **41.1%** |
+
+That is the largest transient share measured (previous range 10–37%), and it is
+coherent with seed 23's own gait: it lifts higher and flies more, so it lands
+harder, so the transient is larger. The metric penalises it for how it lands,
+not for how much its feet slide.
+
+**Decision: the threshold is NOT moved and the metric is NOT swapped.** The
+telemetry added on 2026-08-02 exists precisely for this case, and it says seed
+23 would pass on the uncontaminated measure — which is exactly why changing
+either now would be indefensible. The 2026-07-28 precedent is explicit: a
+corrected instrument is not swapped into a live gate with a candidate in view,
+because the question of what else lands on the passing side has to be asked
+separately from the question of what is physically correct. Seed 23 *is* the
+candidate in view. Gate v3 was changed hours earlier on the strength of an
+objective change from the project owner; doing it again on the strength of an
+inconvenient result is a different act entirely, and the distinction is the
+whole reason the first one was defensible.
+
+**Open, and it should be settled without a candidate in view:** switching the
+slip gate from `gait_contact_point_slip_speed_mean` to
+`gait_mid_stance_contact_point_slip_speed_mean` while keeping 0.18 is arguable
+on physical grounds alone — the transient is not sliding, it scales with speed,
+and its share varies 10–41% by gait, so the gated metric can separate two
+policies on landing dynamics rather than on sliding. That is the same shape of
+argument as the 2026-07-28 link-origin → contact-point correction, which was
+made without changing the number. It is left open here deliberately.
+
+**Result:** v9 is a three-seed result with 2/3 passing. Seeds 21 and 22 are
+eligible for visual review and transfer evaluation.

@@ -36,11 +36,33 @@ must record both successful changes and failed hypotheses there.
   chatter, launch, standing and sliding guards are unchanged. This was a gate
   change made with a candidate in view, permitted only because the *objective*
   changed; no threshold was placed using v9's numbers.
-- (2026-08-02) **v9 seed 21 PASSES gate v3 at 13/13**: 800 steps, 0% falls,
-  14.29 m at 1.072 m/s, 0.592 m strides, 22.3 mm clearance, slip 0.153 m/s,
-  symmetry 0.0214. Double support 8.88% is no longer gated. Seeds 22 and 23 are
-  training on the identical config (`--seed` overrides only the global and env
-  seed) to test whether this result is robust or seed luck.
+- (2026-08-02) **v9 is a three-seed result: 2/3 pass gate v3, and all three
+  learned to run.** Identical config, `--seed` only.
+
+  | seed | steps | falls | disp | speed | clearance | slip | flight | gate v3 |
+  |---:|---:|---:|---:|---:|---:|---:|---:|---|
+  | 21 | 800 | 0% | 14.29 m | 1.07 m/s | 22.3 mm | 0.1534 | 12.4% | **13/13 PASS** |
+  | 22 | 800 | 0% | 13.99 m | 1.05 m/s | 27.8 mm | 0.1570 | 13.7% | **13/13 PASS** |
+  | 23 | 754 | 10% | 12.90 m | 1.03 m/s | 33.8 mm | 0.2178 | 21.9% | 12/13 fail: slip |
+
+  Seed variation is a spread in style (seed 23 lifts higher and flies more), not
+  the difference between locomotion and collapse. All three are symmetric
+  (0.021–0.027 vs a 0.15 limit). First three-seed walker result where every seed
+  produced real locomotion. **Seeds 21 and 22 are eligible for visual review and
+  transfer evaluation.**
+- (2026-08-02) **Seed 23 fails only on the slip threshold that is documented as
+  uncalibrated, and it was NOT moved.** `max_slip_speed: 0.18` was frozen at a
+  0.15 m/s target and is applied at 1.03 m/s to a metric that includes the
+  landing transient. Seed 23: whole-phase 0.2178 (fails by 0.0378), mid-stance
+  0.1283 (would pass with 0.0517 spare), transient share **41.1%** — the largest
+  measured, and coherent with its higher-lifting, higher-flight gait. Neither the
+  threshold nor the metric was changed: the 2026-07-28 precedent forbids swapping
+  a corrected instrument into a live gate with a candidate in view, and seed 23
+  is that candidate. **Open question to settle with no candidate in view:**
+  switching the slip gate to `gait_mid_stance_contact_point_slip_speed_mean`
+  while keeping 0.18 is arguable on physical grounds alone (the transient is not
+  sliding, scales with speed, and varies 10–41% by gait), the same shape of
+  argument as the 2026-07-28 link-origin → contact-point correction.
 
 - (2026-08-02) **`walker_reward_v9_flight_cost` completed and is rejected at
   11/13.** The single intervention was `flight_penalty_weight: 0.5 → 1.0`, set
