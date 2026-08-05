@@ -30,6 +30,7 @@ def _diagnostic_result() -> dict:
         "gait_foot_clearance_mean": 0.04,
         "gait_stance_slip_speed_mean": 0.15,
         "gait_contact_point_slip_speed_mean": 0.15,
+        "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
         "gait_double_support_fraction_mean": 0.15,
         "gait_flight_fraction_mean": 0.05,
         "gait_contact_duty_imbalance_mean": 0.02,
@@ -279,7 +280,10 @@ def test_walker_slip_recovery_gate_rejects_sliding_and_selects_sole_winner() -> 
         **control["stochastic"],
         "fall_rate": 0.4,
         "forward_displacement_mean": 6.0,
+        # Genuinely sliding: high on BOTH metrics, so the sliding flag is not an
+        # artifact of the landing transient the gate stopped counting in v4.
         "gait_contact_point_slip_speed_mean": 0.4,
+        "gait_mid_stance_contact_point_slip_speed_mean": 0.4,
     }
     candidate = _diagnostic_result()
     candidate["stochastic"] = {
@@ -287,6 +291,7 @@ def test_walker_slip_recovery_gate_rejects_sliding_and_selects_sole_winner() -> 
         "fall_rate": 0.2,
         "forward_displacement_mean": 6.0,
         "gait_contact_point_slip_speed_mean": 0.15,
+        "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
         "peak_z_mean": 0.8,
         "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
     }
@@ -706,16 +711,19 @@ def test_walker_gait_gate_rejects_behavior_without_gait_structure() -> None:
     assert aggregate["promoted_variant"] is None
 
 
-def test_walker_gait_gate_v3_contract_is_frozen() -> None:
-    """v3 admits running; the walk-specific support criteria are gone.
+def test_walker_gait_gate_v4_contract_is_frozen() -> None:
+    """v4 admits running AND gates slip on the mid-stance contact-point metric.
 
     `min_double_support_fraction` is REMOVED rather than lowered -- running has
     no double support by definition, so any floor would forbid the preferred
     gait. Its anti-degenerate role passes to `max_contact_duty_imbalance`.
     """
     gate = quality_study.WALKER_GAIT_GATE
-    assert gate["gate_version"] == 3
-    assert gate["slip_metric"] == "gait_contact_point_slip_speed_mean"
+    assert gate["gate_version"] == 4
+    # The whole-phase metric carried a landing transient (10-41% of its value,
+    # gait-dependent) that is not sliding and scales with locomotion speed.
+    assert gate["slip_metric"] == "gait_mid_stance_contact_point_slip_speed_mean"
+    # Correcting the instrument is not a reason to move the threshold.
     assert gate["max_slip_speed"] == 0.18
     assert "min_double_support_fraction" not in gate
     assert gate["max_flight_fraction"] == 0.60
@@ -854,19 +862,32 @@ def test_walker_gait_gate_v3_admits_a_symmetric_run() -> None:
     assert aggregate["rankings"][0]["per_seed_passed"] == {"seed_0": True}
 
 
-def test_walker_gait_gate_uses_contact_point_slip() -> None:
-    """Heel/toe pivoting at a planted contact must not count as sliding."""
+def test_walker_gait_gate_ignores_pivoting_and_landing_transients() -> None:
+    """Neither heel/toe pivoting nor a hard landing may count as sliding.
+
+    Two contaminants were removed in sequence. 2026-07-28: link-origin velocity
+    counted a foot rotating about a stationary edge. 2026-08-02: the whole-phase
+    contact-point mean still counted the landing transient, which carries the
+    body's forward speed and was 10-41% of the reported value depending on gait.
+    The gate now reads mid-stance contact-point slip, which excludes both.
+
+    `pivoting` here is v9 seed 23's real shape: it fails on both superseded
+    metrics and passes on the current one, because it lands hard rather than
+    slides.
+    """
     pivoting = _diagnostic_result()
     pivoting["stochastic"] = {
         **pivoting["stochastic"],
         "gait_stance_slip_speed_mean": 0.50,
-        "gait_contact_point_slip_speed_mean": 0.17,
+        "gait_contact_point_slip_speed_mean": 0.2178,
+        "gait_mid_stance_contact_point_slip_speed_mean": 0.1283,
     }
     sliding = _diagnostic_result()
     sliding["stochastic"] = {
         **sliding["stochastic"],
         "gait_stance_slip_speed_mean": 0.10,
         "gait_contact_point_slip_speed_mean": 0.19,
+        "gait_mid_stance_contact_point_slip_speed_mean": 0.19,
     }
 
     aggregate = quality_study._aggregate_walker_gait_results(

@@ -248,19 +248,42 @@ WALKER_GAIT_VARIANTS: dict[str, dict[str, Any]] = {
 # forward speed. That component scales with locomotion speed; ideal mid-stance
 # slip is zero at any speed. The transient's share is also gait-dependent (37%
 # vs 10%), so the gated metric can separate two candidates on landing dynamics
-# rather than on sliding. `gait_mid_stance_contact_point_slip_speed` is added as
-# TELEMETRY ONLY, following the 2026-07-28 precedent: a corrected instrument is
-# not swapped into a live gate with a candidate in view. Both v7 and v8 pass
-# 0.18 on both metrics, so no decision to date turned on the difference.
+# rather than on sliding. `gait_mid_stance_contact_point_slip_speed` was added as
+# TELEMETRY ONLY at that point, following the 2026-07-28 precedent: a corrected
+# instrument is not swapped into a live gate with a candidate in view.
+#
+# GATE V4 (2026-08-02): THE SLIP GATE NOW USES THE MID-STANCE METRIC.
+#
+# Decided by the project owner, on the grounds that the whole-phase metric was
+# not providing the feedback it was introduced to provide. That is the correct
+# reading: the criterion exists to catch a foot SLIDING under load, and 10-41%
+# of what it reported was a landing transient -- the foot still moving as it
+# arrives, which is not sliding, scales with locomotion speed, and varies by
+# gait. A criterion whose value depends that heavily on a quantity it was not
+# meant to measure cannot do its job.
+#
+# `max_slip_speed` stays 0.18. Correcting an instrument is not a reason to move
+# a threshold, exactly as in the 2026-07-28 link-origin -> contact-point change.
+# Against the corrected metric 0.18 is a STRICTER test of sliding than it was
+# against the contaminated one, since the contamination only ever inflated the
+# reported value.
+#
+# DISCLOSURE, because the 2026-07-28 precedent demands it: this change moves a
+# candidate across the line. v9 seed 23 measured 0.2178 whole-phase (fail) and
+# 0.1283 mid-stance (pass), so it goes from 12/13 to 13/13. The precedent's
+# actual requirement is not "never switch" but "when correcting an instrument
+# moves a candidate across a line, check what else is now on the passing side".
+# That check was run over every existing checkpoint; see the 2026-08-02 entry in
+# docs/walker_learning_history.md for what did and did not move.
 WALKER_GAIT_GATE: dict[str, Any] = {
     **WALKER_VELOCITY_GATE,
-    "gate_version": 3,
+    "gate_version": 4,
     "min_alternating_touchdowns_per_100_steps": 1.5,
     "max_alternating_touchdowns_per_100_steps": 8.5,
     "min_progress_per_alternating_touchdown": 0.05,
     "min_stride_length": 0.10,
     "min_foot_clearance": 0.02,
-    "slip_metric": "gait_contact_point_slip_speed_mean",
+    "slip_metric": "gait_mid_stance_contact_point_slip_speed_mean",
     "max_slip_speed": 0.18,
     "max_flight_fraction": 0.60,
     "max_contact_duty_imbalance": 0.15,

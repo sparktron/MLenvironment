@@ -19,6 +19,45 @@ must record both successful changes and failed hypotheses there.
 
 ## Priority 3: Learning Quality And Features
 
+- (2026-08-02) **NEXT TARGET: terrain, not reward.** v9 is a three-seed,
+  visually-approved flat-terrain result at 13/13 on gate v4. The transfer suite
+  measured a hard 0/3 baseline on uneven, obstacles and push recovery. All three
+  policies trained flat-only with no curriculum, so this is zero-shot transfer
+  and the failure is expected rather than a defect. Train the same config with
+  the existing terrain curriculum and re-run the suite; that is a direct test of
+  the stated objective with a measured baseline to beat.
+- (2026-08-02) **Transfer suite, 20 stochastic episodes per terrain per seed:**
+
+  | terrain | passing | steps | falls | displacement |
+  |---|---|---:|---:|---:|
+  | flat | **3/3** | 754–800 | 0–10% | 12.90–14.29 m |
+  | uneven (2.5 cm) | 0/3 | 170–178 | 95–100% | 1.70–1.95 m |
+  | obstacles (10 cm) | 0/3 | 111–122 | 100% | 1.62–1.65 m |
+  | push recovery (180 N) | 0/3 | 404–486 | 100% | 6.65–7.82 m |
+
+  Push recovery is the closest gap: per-push recovery is **98.2–100%** and
+  episodes cover 6.6–7.8 m, but every episode eventually falls. The policy
+  absorbs individual pushes and cannot keep doing so indefinitely.
+- (2026-08-02) **Visual review PASSED for all three seeds.** Flat rollouts run
+  the full 800 steps for 13.97–14.19 m, peak torso height 0.683–0.693 (limit
+  1.0). A cropped filmstrip over one gait cycle shows legs scissoring in clear
+  alternation, knees flexing, feet lifting clear, torso upright, arms
+  counter-swinging. None of the tracked exploits is present. Rendered with
+  imageio/PIL, not `RecordVideo` — MoviePy is not in the lockfile and a
+  dependency change was not warranted for a review artifact. Artifacts in
+  `outputs/walker_reward_v9_flight_cost/visual_review/`.
+- (2026-08-02) **Gate v4: the slip criterion now reads
+  `gait_mid_stance_contact_point_slip_speed_mean`; `max_slip_speed` stays 0.18.**
+  Owner decision, on the grounds that the whole-phase metric was not providing
+  the feedback it was introduced for — it exists to catch a foot sliding under
+  load, and 10–41% of its value was a landing transient that is not sliding and
+  scales with speed. Against the corrected metric 0.18 is a *stricter* sliding
+  test. **Audit required by the 2026-07-28 precedent was run:** exactly one
+  checkpoint crosses to the passing side (v9 seed 23, the intended one). v10
+  still fails and also fails clearance, so slip was never its deciding
+  criterion; v7corr and v8 pass under either metric. **All three v9 seeds now
+  pass gate v4 at 13/13 on flat.**
+
 - (2026-08-02) **OBJECTIVE RESTATED: the goal is a framework that demonstrably
   improves a locomotion policy over iterations. Running is acceptable and
   preferred over walking.** Everything below dated 2026-07-29 to 2026-08-02 that

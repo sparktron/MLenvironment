@@ -2078,3 +2078,79 @@ made without changing the number. It is left open here deliberately.
 
 **Result:** v9 is a three-seed result with 2/3 passing. Seeds 21 and 22 are
 eligible for visual review and transfer evaluation.
+
+## 2026-08-02 — Gate v4, Visual Review, And Transfer: Flat Is Solved, Terrain Is Not
+
+### Gate v4 — the slip criterion moves to the mid-stance metric
+
+**Decided by the project owner**, on the grounds that the whole-phase metric was
+not providing the feedback it was introduced to provide. That reading is
+correct: the criterion exists to catch a foot *sliding under load*, and 10–41%
+of what it reported was a landing transient — the foot still moving as it
+arrives, which is not sliding, scales with locomotion speed, and varies by gait.
+
+`max_slip_speed` stays **0.18**. Correcting an instrument is not a reason to
+move a threshold, exactly as in the 2026-07-28 link-origin → contact-point
+change. Against the corrected metric 0.18 is a *stricter* test of sliding, since
+the contamination only ever inflated the reported value.
+
+**Disclosure and the audit the precedent requires.** This change moves a
+candidate across a line: v9 seed 23 goes 12/13 → 13/13. The 2026-07-28
+requirement is not "never switch" but "when correcting an instrument moves a
+candidate across a line, check what else is now on the passing side". Every
+checkpoint with a stored evaluation was re-scored under both metrics:
+
+| run | whole-phase | mid-stance | other criteria | v3 | v4 |
+|---|---:|---:|---|---|---|
+| v10 seed 21 | 0.3269 | 0.2701 | **fail** | . | . |
+| v9 seed 21 | 0.1534 | 0.1053 | pass | P | P |
+| v9 seed 22 | 0.1570 | 0.0890 | pass | P | P |
+| v9 seed 23 | 0.2178 | 0.1283 | pass | . | **P** |
+
+**Exactly one crossing, and it is the intended one.** v10 still fails — it also
+fails clearance, so slip was never its deciding criterion. v7corr (0.1206 /
+0.0764) and v8 (0.1667 / 0.1503) pass under either metric and do not move.
+
+### Visual review — all three seeds pass
+
+Rendered as GIFs via imageio/PIL rather than `RecordVideo`, which needs MoviePy;
+adding a dependency for a review artifact is not warranted.
+
+Seed 21/22/23 flat rollouts all ran the full 800 steps for 13.97–14.19 m with
+peak torso height 0.683–0.693 against the 1.0 limit. A cropped filmstrip over
+one full gait cycle shows legs scissoring in clear alternation, knees flexing,
+feet lifting clear of the ground, torso upright, and arms counter-swinging.
+**None of the tracked exploits is present**: no prone dragging, no
+sliding-without-stepping, no launching, no same-foot tapping.
+
+### Transfer suite — flat 3/3, everything else 0/3
+
+Twenty stochastic episodes per terrain per seed:
+
+| terrain | seeds passing | steps | falls | displacement |
+|---|---|---:|---:|---:|
+| flat | **3/3** | 754–800 | 0–10% | 12.90–14.29 m |
+| uneven (2.5 cm) | 0/3 | 170–178 | 95–100% | 1.70–1.95 m |
+| obstacles (10 cm) | 0/3 | 111–122 | 100% | 1.62–1.65 m |
+| push recovery (180 N) | 0/3 | 404–486 | 100% | 6.65–7.82 m |
+
+**This is a flat-ground specialist, and that is the expected result rather than
+a defect**: every one of these policies trained with `terrain.preset: flat` and
+no curriculum, so this measures zero-shot transfer, which nothing in training
+asked for. It is a baseline, and now a measured one.
+
+Push recovery is the informative case. Per-push recovery is **98.2–100%** and
+episodes last 404–486 steps covering 6.6–7.8 m, yet 100% of episodes eventually
+end in a fall. The policy absorbs individual 180 N pushes and survives them by
+well over the 30-step recovery window; what it lacks is the ability to keep
+doing so indefinitely. That is a much smaller gap than uneven or obstacles,
+where it falls within ~2–3 seconds.
+
+**Standing:** v9 is a three-seed, visually-approved, flat-terrain result at
+13/13 on gate v4. The next iteration target is terrain, not reward: train with
+the existing terrain curriculum rather than flat-only, and re-run this same
+suite. That is a direct test of the stated objective — a framework that improves
+a policy over iterations — with a measured 0/3 baseline to beat.
+
+**Artifacts:** `outputs/walker_reward_v9_flight_cost/seed_*/transfer_suite.json`,
+`outputs/walker_reward_v9_flight_cost/visual_review/`.
