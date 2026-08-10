@@ -2154,3 +2154,81 @@ a policy over iterations — with a measured 0/3 baseline to beat.
 
 **Artifacts:** `outputs/walker_reward_v9_flight_cost/seed_*/transfer_suite.json`,
 `outputs/walker_reward_v9_flight_cost/visual_review/`.
+
+## 2026-08-06 — V11 Uneven Continuation: Specialisation, Not Generalisation
+
+**Question:** v9 was a flat-ground specialist with a measured 0/3 zero-shot
+baseline off flat. Does continuing it on uneven terrain make it better, and does
+that improvement carry to terrain it still has not seen?
+
+**Constants:** seed-matched continuation from each v9 checkpoint, 5M steps,
+identical reward/physics/optimizer. **Only intervention:** `terrain.preset:
+flat → uneven` at 2.5 cm, matching the evaluation terrain exactly. The velocity
+ramp was removed and `target_velocity` pinned at 1.0 (v9's final value), because
+`VelocityTargetRampCallback` measures its ramp from the *continuation's* start
+and would otherwise have reset the target to 0.15 and re-ramped it. Resume
+provenance reported exactly three intended drifts and nothing else.
+
+**Result, 20 stochastic episodes per terrain per seed:**
+
+| terrain | steps v9 → v11 | falls v9 → v11 | displacement v9 → v11 | |
+|---|---:|---:|---:|---|
+| flat | 785 → **712** | 3% → **22%** | 13.72 → 13.76 | **worse** |
+| uneven | 174 → **410** | 98% → **65%** | 1.79 → **6.62** | **much better** |
+| obstacles | 116 → 113 | 100% → 100% | 1.63 → 1.62 | **unchanged** |
+| push recovery | 451 → **390** | 100% → 100% | 7.29 → **6.78** | **worse** |
+
+**Gate passes fell from 3/12 to 2/12.** By the gate, this iteration made things
+worse.
+
+**Three separate findings, and they do not point the same way.**
+
+1. **The trained terrain improved a lot and still failed.** Uneven survival more
+   than doubled (174 → 410 steps), falls dropped 98% → 65%, and displacement
+   nearly quadrupled (1.79 → 6.62 m). That is a large, real gain from one
+   iteration. It is also nowhere near the 30% fall limit, so it is 0/3 both
+   before and after — the gate cannot see the progress.
+
+2. **Zero transfer to obstacles.** 116 → 113 steps, 100% falls, displacement
+   unchanged to two decimals. Training on 2.5 cm undulation taught the policy
+   nothing whatsoever about a 10 cm step. At ~1 m/s the first obstacle at x=1.2
+   arrives around step 112, which is exactly where both versions fall: it walks
+   into the obstacle and goes down, before and after.
+
+3. **Flat regressed, and push recovery with it.** Flat falls went 3% → 22%,
+   costing seed 23 its flat pass, and every seed got leapier (flight 12.4% →
+   20.9%, 13.7% → 20.7%, 21.9% → 27.7%). Displacement held at ~13.7 m, so the
+   policy still covers the ground — it just falls more doing it. Push recovery
+   moved the same direction. This is ordinary catastrophic forgetting: the
+   higher-flight gait that copes with undulation is worse on the flat ground it
+   used to own.
+
+**What this says about the actual objective.** The framework demonstrably
+improves the thing it is trained on — a 3.7x displacement gain on uneven from a
+single 5M-step iteration is not a subtle effect. It does **not** generalise to
+unseen terrain, and gains on a new task come out of performance on the old one.
+"More iterations" buys depth on the trained distribution, not breadth.
+
+**Decision:** do not continue the sequential-stage approach to obstacles. It
+would very likely repeat the pattern — obstacles improve, uneven and flat decay
+— and end with a policy good at nothing in particular. The standard remedy for
+both defects at once is **mixed-terrain training**: sample terrain per episode
+so one policy sees the whole distribution, rather than staging one terrain at a
+time.
+
+**Blocker for that, and it is a real code change rather than a config edit.**
+`WalkerBulletEnv._terrain_preset` is read once in `__init__` and never
+refreshed, and `update_live_params` has no `terrain` section, so terrain cannot
+vary per reset or per curriculum step. Mixed-terrain training requires either
+per-reset terrain sampling in the env or per-worker terrain assignment through
+`_build_single_env(env_cfg, rank=...)`. That is the next piece of work, and it
+is framework capability rather than tuning.
+
+**Lesson.** A staged continuation is the right tool when the stages compose —
+balance then velocity then gait each built on the last. It is the wrong tool
+when the stages *compete*, and terrain types compete: the gait that handles
+undulation is not the gait that is most stable on flat. The tell was available
+in advance and was not checked — nothing about flat and uneven suggests one is a
+prerequisite for the other, unlike balance for locomotion.
+
+**Artifacts:** `outputs/walker_reward_v11_uneven_terrain/seed_*/transfer_suite.json`.

@@ -1,6 +1,6 @@
 # Development Roadmap
 
-Last updated: 2026-08-02
+Last updated: 2026-08-06
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
@@ -18,6 +18,39 @@ must record both successful changes and failed hypotheses there.
 - All tracked Priority 2 items are complete (see Completed Foundations).
 
 ## Priority 3: Learning Quality And Features
+
+- (2026-08-06) **v11 uneven continuation: the trained terrain improved a lot,
+  nothing transferred, and flat regressed. Gate passes fell 3/12 → 2/12.**
+  Seed-matched 5M continuation from each v9 checkpoint, single intervention
+  `terrain.preset: flat → uneven` at the 2.5 cm the suite evaluates.
+
+  | terrain | steps v9→v11 | falls v9→v11 | disp v9→v11 | |
+  |---|---:|---:|---:|---|
+  | flat | 785→**712** | 3%→**22%** | 13.72→13.76 | worse |
+  | uneven | 174→**410** | 98%→**65%** | 1.79→**6.62** | much better |
+  | obstacles | 116→113 | 100%→100% | 1.63→1.62 | unchanged |
+  | push recovery | 451→**390** | 100%→100% | 7.29→**6.78** | worse |
+
+  Uneven survival more than doubled and displacement nearly quadrupled — a large
+  real gain from one iteration — but 65% falls is still far outside the 30% gate,
+  so it is 0/3 before and after and **the gate cannot see the progress**.
+  Obstacles showed literally zero transfer (both versions fall at ~step 112,
+  where the first 10 cm obstacle arrives). Flat regressed via catastrophic
+  forgetting: every seed got leapier (flight 12.4%→20.9%, 13.7%→20.7%,
+  21.9%→27.7%) and seed 23 lost its flat pass.
+- (2026-08-06) **DO NOT continue the sequential-stage approach to obstacles.** It
+  would repeat the pattern — obstacles improve, uneven and flat decay — ending
+  with a policy good at nothing. Staged continuation is right when stages
+  *compose* (balance → velocity → gait each built on the last) and wrong when
+  they *compete*, which terrain types do: the gait that handles undulation is not
+  the most stable gait on flat.
+- (2026-08-06) **NEXT: mixed-terrain training — and it is a framework change, not
+  a config edit.** Sampling terrain per episode fixes both defects at once
+  (breadth, and no forgetting). Blocked by
+  `WalkerBulletEnv._terrain_preset`, read once in `__init__` and never refreshed,
+  plus `update_live_params` having no `terrain` section. Requires either
+  per-reset terrain sampling in the env or per-worker assignment via
+  `_build_single_env(env_cfg, rank=...)`.
 
 - (2026-08-02) **NEXT TARGET: terrain, not reward.** v9 is a three-seed,
   visually-approved flat-terrain result at 13/13 on gate v4. The transfer suite
