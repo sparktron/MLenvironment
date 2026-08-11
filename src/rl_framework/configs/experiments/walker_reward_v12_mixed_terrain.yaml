@@ -1,0 +1,133 @@
+# Mixed-terrain continuation from the v9 flat result.
+#
+# WHY THIS EXISTS. v11 continued v9 on uneven terrain alone and produced the
+# clearest negative result in this arc:
+#
+#   terrain         steps v9->v11   falls v9->v11   disp v9->v11
+#   flat                 785->712         3%->22%   13.72->13.76   worse
+#   uneven               174->410        98%->65%    1.79->6.62    much better
+#   obstacles            116->113       100%->100%   1.63->1.62    unchanged
+#   push recovery        451->390       100%->100%   7.29->6.78    worse
+#
+# The trained terrain improved a lot, nothing transferred to obstacles, and flat
+# regressed. Terrain types COMPETE rather than compose: the gait that copes with
+# undulation is not the most stable gait on flat. Staging them one at a time
+# ends with a policy good at nothing, so gate passes fell 3/12 -> 2/12.
+#
+# `terrain.mix` samples a terrain per episode, so one policy trains on the whole
+# distribution. That addresses both defects at once — breadth, because every
+# terrain is seen, and no forgetting, because flat never leaves the distribution.
+#
+# All four terrains the transfer suite evaluates are included, at the exact
+# parameters it evaluates them with, so training and evaluation match. Weights
+# are equal: flat is already solved, but down-weighting it is precisely how the
+# forgetting in v11 happened, and there is no measurement yet that justifies an
+# uneven split.
+#
+# THE VELOCITY RAMP IS DELIBERATELY REMOVED, for the same reason as v11:
+# `VelocityTargetRampCallback` measures its ramp from the *continuation's*
+# start, so inheriting v9's ramp would reset the target from 1.0 to 0.15 and
+# re-ramp it. `target_velocity` is pinned at 1.0, v9's final value.
+#
+# Budget: 10M rather than v11's 5M, because four terrains split the samples —
+# 10M here is ~2.5M per terrain against the 5M v11 spent on uneven alone.
+#
+# Resume is seed-matched and must be passed explicitly:
+#   --resume outputs/walker_reward_v9_flight_cost/seed_<N>/checkpoints/final_model.zip
+experiment_name: walker_reward_v12_mixed_terrain
+seed: 21
+
+environment:
+  type: walker_bullet
+  seed: 21
+  observation:
+    version: v2
+    coordinate_free: true
+    include_gait_phase: true
+  gait:
+    cycle_period_s: 0.55
+    stance_duty: 0.6
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    action_scale: 0.5
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  terrain:
+    # THE SINGLE INTERVENTION: one terrain per episode, sampled from all four
+    # the transfer suite measures, at the parameters it measures them with.
+    mix:
+      - preset: flat
+        weight: 1.0
+      - preset: uneven
+        height: 0.025
+        weight: 1.0
+      - preset: obstacles
+        obstacle_height: 0.10
+        weight: 1.0
+      - preset: push_recovery
+        push_recovery:
+          interval_steps: 120
+          force: 180.0
+          start_step: 60
+        weight: 1.0
+  reward:
+    alive_bonus: 0.10
+    forward_velocity_weight: 1.0
+    target_velocity: 1.0
+    velocity_mode: clipped_linear
+    orientation_penalty_weight: 1.0
+    torque_penalty_weight: 0.02
+    fall_penalty: 2.0
+    action_rate_penalty_weight: 0.10
+    swing_clearance_weight: 0.0
+    bilateral_clearance_weight: 8.0
+    bilateral_clearance_target: 0.05
+    touchdown_rate_penalty_weight: 1.0
+    max_cycle_frequency_hz: 2.5
+    flight_penalty_weight: 1.0
+    gait_symmetry_penalty_weight: 0.5
+    double_support_reward_weight: 0.0
+    phase_contact_weight: 1.0
+    phase_double_support_reward_weight: 0.5
+    stance_slip_penalty_weight: 0.35
+    stance_slip_penalty_clip: 1.5
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 10000000
+  num_envs: 24
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 10
+  learning_rate: 0.0003
+  gamma: 0.995
+  log_std_init: -1.0
+  ent_coef: 0.001
+  checkpoint_every: 2000000
+  normalize_observations: true
+  device: cpu
+
+evaluation:
+  episodes: 20
+
+output:
+  base_dir: outputs

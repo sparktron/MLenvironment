@@ -1345,3 +1345,191 @@ def test_gait_stance_duty_must_leave_no_flight_phase() -> None:
         make(0.4)
     with pytest.raises(ValueError, match="stance_duty"):
         make(1.0)
+
+
+def _mix_env(mix, seed=1):
+    return make_env(
+        "walker_bullet",
+        {"type": "walker_bullet", "seed": seed, "terrain": {"mix": mix}},
+    )
+
+
+def test_walker_terrain_mix_samples_across_episodes() -> None:
+    """One policy must see the whole terrain distribution.
+
+    The 2026-08-06 v11 result showed staged single-terrain training does not
+    work here: continuing a flat policy on uneven improved uneven but
+    transferred nothing to obstacles and regressed flat. Terrain types compete
+    rather than compose, so they have to be sampled per episode.
+    """
+    env = _mix_env(
+        [
+            {"preset": "flat"},
+            {"preset": "uneven", "height": 0.025},
+            {"preset": "obstacles", "obstacle_height": 0.10},
+        ]
+    )
+    try:
+        seen = set()
+        bodies = {}
+        for _ in range(40):
+            env.reset()
+            seen.add(env._terrain_preset)
+            bodies[env._terrain_preset] = len(env._terrain_body_ids)
+        assert seen == {"flat", "uneven", "obstacles"}, f"only sampled {seen}"
+        # Geometry must match the sampled preset, not a stale build.
+        assert bodies == {"flat": 0, "uneven": 5, "obstacles": 3}
+    finally:
+        env.close()
+
+
+def test_walker_terrain_mix_is_reproducible_for_a_seed() -> None:
+    mix = [
+        {"preset": "flat"},
+        {"preset": "uneven", "height": 0.025},
+        {"preset": "obstacles"},
+    ]
+
+    def sequence() -> list[str]:
+        env = _mix_env(mix)
+        try:
+            env.reset(seed=7)
+            return [
+                (env.reset(), env._terrain_preset)[1]  # reset then read
+                for _ in range(15)
+            ]
+        finally:
+            env.close()
+
+    first, second = sequence(), sequence()
+    assert first == second
+    # A reproducible sequence that never varies would pass trivially.
+    assert len(set(first)) > 1
+
+
+def test_walker_terrain_mix_carries_push_recovery_parameters() -> None:
+    """push_recovery is a terrain whose behaviour lives in its push fields.
+
+    Sampling the preset without them yields a silently unpushed flat episode,
+    which would look like a passing terrain while testing nothing.
+    """
+    env = _mix_env(
+        [
+            {"preset": "flat"},
+            {
+                "preset": "push_recovery",
+                "push_recovery": {
+                    "interval_steps": 120,
+                    "force": 180.0,
+                    "start_step": 60,
+                },
+            },
+        ]
+    )
+    try:
+        saw_push_cfg = saw_flat_cfg = False
+        for _ in range(40):
+            env.reset()
+            if env._terrain_preset == "push_recovery":
+                assert env._push_force == 180.0
+                assert env._push_interval_steps == 120
+                assert env._push_start_step == 60
+                saw_push_cfg = True
+            else:
+                assert env._push_force == 0.0
+                saw_flat_cfg = True
+        assert saw_push_cfg and saw_flat_cfg
+    finally:
+        env.close()
+
+
+def test_walker_terrain_mix_weights_are_respected() -> None:
+    env = _mix_env(
+        [
+            {"preset": "flat", "weight": 0.0},
+            {"preset": "uneven", "weight": 1.0},
+        ]
+    )
+    try:
+        for _ in range(15):
+            env.reset()
+            assert env._terrain_preset == "uneven"
+    finally:
+        env.close()
+
+
+def test_walker_without_terrain_mix_is_unchanged() -> None:
+    """The no-mix path must behave exactly as before."""
+    env = make_env(
+        "walker_bullet",
+        {"type": "walker_bullet", "seed": 1, "terrain": {"preset": "uneven"}},
+    )
+    try:
+        for _ in range(5):
+            env.reset()
+            assert env._terrain_preset == "uneven"
+            assert len(env._terrain_body_ids) == 5
+    finally:
+        env.close()
+
+
+def test_walker_reports_the_terrain_it_ran_on() -> None:
+    env = _mix_env([{"preset": "flat"}, {"preset": "uneven"}])
+    try:
+        for _ in range(10):
+            env.reset()
+            _, _, _, _, info = env.step(
+                np.zeros(env.action_space.shape, dtype=np.float32)
+            )
+            assert info["terrain_preset"] == env._terrain_preset
+    finally:
+        env.close()
+
+
+@pytest.mark.parametrize(
+    "bad", [[], [{"preset": "flat", "weight": 0.0}], "flat", [["flat"]]]
+)
+def test_walker_terrain_mix_rejects_malformed_config(bad) -> None:
+    with pytest.raises(ValueError):
+        _mix_env(bad).close()
+
+
+def test_walker_terrain_mix_diverges_across_rollout_workers() -> None:
+    """Parallel workers must not all draw the same terrain each episode.
+
+    `_worker_env_config` deep-copies the env config without varying the seed,
+    so every worker builds its RNG from the same `environment.seed`. If nothing
+    re-seeds per rank, all 24 workers would sample identically and each rollout
+    batch would be single-terrain -- the run would still cycle terrains, but
+    with far less diversity per gradient step than the config implies.
+    """
+    from stable_baselines3.common.vec_env import DummyVecEnv
+
+    from rl_framework.training.sb3_runner import _build_single_env
+
+    env_cfg = {
+        "type": "walker_bullet",
+        "seed": 21,
+        "terrain": {
+            "mix": [
+                {"preset": "flat"},
+                {"preset": "uneven", "height": 0.025},
+                {"preset": "obstacles", "obstacle_height": 0.10},
+            ]
+        },
+    }
+    workers = 4
+    venv = DummyVecEnv([_build_single_env(env_cfg, rank=r) for r in range(workers)])
+    try:
+        venv.seed(21)
+        venv.reset()
+        sequences: list[list[str]] = [[] for _ in range(workers)]
+        for _ in range(8):
+            for r in range(workers):
+                sequences[r].append(venv.envs[r].unwrapped._terrain_preset)
+            venv.reset()
+        assert any(s != sequences[0] for s in sequences[1:]), (
+            f"all workers sampled identically: {sequences[0]}"
+        )
+    finally:
+        venv.close()

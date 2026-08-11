@@ -126,12 +126,18 @@ class WalkerBulletEnv(gym.Env):
             self._action_buffer: deque[np.ndarray] = deque()
 
             terrain_cfg = get_section(cfg, "terrain")
-            self._terrain_preset = str(terrain_cfg.get("preset", "flat"))
             self._terrain_body_ids: list[int] = []
-            push_cfg = get_section(terrain_cfg, "push_recovery")
-            self._push_interval_steps = int(push_cfg.get("interval_steps", 0))
-            self._push_force = float(push_cfg.get("force", 0.0))
-            self._push_start_step = int(push_cfg.get("start_step", 0))
+            # `terrain.mix` samples a terrain per episode so one policy trains
+            # on the whole distribution. The 2026-08-06 v11 result showed why
+            # staged single-terrain training does not work here: continuing a
+            # flat policy on uneven improved uneven (174 -> 410 steps) but
+            # transferred nothing to obstacles (116 -> 113) and regressed flat
+            # (3% -> 22% falls). Terrain types compete rather than compose.
+            self._terrain_mix = self._parse_terrain_mix(terrain_cfg)
+            # The spec currently in force. With no mix this is the static
+            # `terrain` block, so behaviour is byte-identical to before.
+            self._active_terrain: dict[str, Any] = dict(terrain_cfg)
+            self._apply_terrain_spec(self._active_terrain)
             gait_cfg = get_section(cfg, "gait")
             # Reference gait cycle. Four screens of per-step *property* terms
             # (clearance, cadence, symmetry, support fractions) were each
@@ -403,13 +409,90 @@ class WalkerBulletEnv(gym.Env):
             for link_id in self._DYNAMIC_LINK_IDS
         }
 
+    @staticmethod
+    def _parse_terrain_mix(
+        terrain_cfg: dict[str, Any],
+    ) -> list[tuple[dict[str, Any], float]] | None:
+        """Parse ``terrain.mix`` into (spec, weight) pairs, or None when absent.
+
+        Each entry is a full terrain spec — the same keys the static ``terrain``
+        block accepts — plus an optional ``weight`` (default 1.0). Weights are
+        relative, not probabilities; they are normalised at sample time.
+        """
+        raw = terrain_cfg.get("mix")
+        if raw is None:
+            return None
+        if not isinstance(raw, (list, tuple)):
+            raise ValueError("terrain.mix must be a list of terrain specs")
+        # An explicit-but-empty mix is a config error, not "no mix". Silently
+        # falling back to the default terrain is the failure mode that made the
+        # terrain curriculum a no-op: the run looks fine and trains on the
+        # wrong distribution.
+        if len(raw) == 0:
+            raise ValueError("terrain.mix must contain at least one entry")
+        parsed: list[tuple[dict[str, Any], float]] = []
+        for entry in raw:
+            if not isinstance(entry, dict):
+                raise ValueError(f"terrain.mix entries must be mappings, got {entry!r}")
+            spec = {k: v for k, v in entry.items() if k != "weight"}
+            weight = float(entry.get("weight", 1.0))
+            if weight < 0:
+                raise ValueError("terrain.mix weights must be non-negative")
+            spec.setdefault("preset", "flat")
+            parsed.append((spec, weight))
+        if not parsed:
+            raise ValueError("terrain.mix must contain at least one entry")
+        if sum(w for _, w in parsed) <= 0:
+            raise ValueError("terrain.mix weights must not sum to zero")
+        return parsed
+
+    def _apply_terrain_spec(self, spec: dict[str, Any]) -> None:
+        """Point the env's terrain-derived state at ``spec``.
+
+        Covers the push-recovery parameters as well as the preset, because
+        ``push_recovery`` is a terrain whose behaviour lives entirely in those
+        fields — sampling the preset without them would silently produce an
+        unpushed flat episode.
+        """
+        self._active_terrain = dict(spec)
+        self._terrain_preset = str(spec.get("preset", "flat"))
+        push_cfg = get_section(spec, "push_recovery")
+        self._push_interval_steps = int(push_cfg.get("interval_steps", 0))
+        self._push_force = float(push_cfg.get("force", 0.0))
+        self._push_start_step = int(push_cfg.get("start_step", 0))
+
+    def _sample_terrain(self) -> None:
+        """Draw the next episode's terrain from ``terrain.mix``.
+
+        Uses the env's seeded RNG, so a seeded run replays the same terrain
+        sequence.
+        """
+        if not self._terrain_mix:
+            return
+        weights = np.array([w for _, w in self._terrain_mix], dtype=np.float64)
+        index = int(self._rng.choice(len(self._terrain_mix), p=weights / weights.sum()))
+        self._apply_terrain_spec(self._terrain_mix[index][0])
+
+    def _rebuild_terrain(self) -> None:
+        """Replace terrain bodies in place, without rebuilding the world.
+
+        ``_build_world`` runs once per env and later resets only rewind state,
+        which saves tens of ms per episode. Per-episode terrain must preserve
+        that, so only the handful of static terrain boxes are recreated.
+        """
+        cid = self._connection
+        for body_id in self._terrain_body_ids:
+            p.removeBody(body_id, physicsClientId=cid)
+        self._terrain_body_ids = []
+        self._build_terrain()
+
     def _build_terrain(self) -> None:
         """Add deterministic static terrain without changing the spawn surface."""
         if self._terrain_preset == "flat" or self._terrain_preset == "push_recovery":
             return
 
         cid = self._connection
-        terrain_cfg = get_section(self.cfg, "terrain")
+        terrain_cfg = self._active_terrain
         friction = float(get_section(self.cfg, "sim").get("friction", 0.8))
 
         def add_box(
@@ -682,10 +765,18 @@ class WalkerBulletEnv(gym.Env):
         if seed is not None:
             self._rng = np.random.default_rng(seed)
 
+        # Draw this episode's terrain before anything builds it, so the first
+        # reset and every later one go through the same path.
+        self._sample_terrain()
+
         # Build the world once; subsequent resets just rewind state. Saves
         # ~tens of ms per episode (no resetSimulation/loadURDF/createMultiBody).
         if self.robot_id < 0:
             self._build_world()
+        elif self._terrain_mix:
+            # World already exists: swap only the terrain boxes, preserving the
+            # optimisation above.
+            self._rebuild_terrain()
         self._apply_domain_randomization()
         self.step_count = 0
         # Reset action latency buffer: pre-fill with zero actions so the first
@@ -865,12 +956,14 @@ class WalkerBulletEnv(gym.Env):
         # Score against the schedule the policy actually saw, then advance.
         expected_stance = self._expected_stance(self._gait_phase)
         phase_contact_match = 0.5 * sum(
-            float(actual == want) for actual, want in zip(foot_contacts, expected_stance)
+            float(actual == want)
+            for actual, want in zip(foot_contacts, expected_stance)
         )
         phase_expects_double_support = all(expected_stance)
         self._gait_phase = (
             self._gait_phase
-            + (self._sim_timestep * max(1, self._frame_skip)) / self._gait_cycle_period_s
+            + (self._sim_timestep * max(1, self._frame_skip))
+            / self._gait_cycle_period_s
         ) % 1.0
         obs = self._get_obs(
             pos=pos,
@@ -1002,6 +1095,10 @@ class WalkerBulletEnv(gym.Env):
             ),
             "termination_reason": termination_reason,
             "push_applied": push_applied,
+            # Which terrain this episode actually ran on. Constant without a
+            # mix; with one it is the only way to attribute an episode, since
+            # a mixed run's aggregate hides which terrain produced a fall.
+            "terrain_preset": self._terrain_preset,
         }
         if terminated or truncated:
             steps = max(self.step_count, 1)
