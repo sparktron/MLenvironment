@@ -44,13 +44,44 @@ must record both successful changes and failed hypotheses there.
   *compose* (balance → velocity → gait each built on the last) and wrong when
   they *compete*, which terrain types do: the gait that handles undulation is not
   the most stable gait on flat.
-- (2026-08-06) **NEXT: mixed-terrain training — and it is a framework change, not
-  a config edit.** Sampling terrain per episode fixes both defects at once
-  (breadth, and no forgetting). Blocked by
-  `WalkerBulletEnv._terrain_preset`, read once in `__init__` and never refreshed,
-  plus `update_live_params` having no `terrain` section. Requires either
-  per-reset terrain sampling in the env or per-worker assignment via
-  `_build_single_env(env_cfg, rank=...)`.
+- (2026-08-06, RESOLVED 2026-08-13) **Mixed-terrain training — implemented.**
+  `terrain.mix` samples a full terrain spec per `reset()` from the env's seeded
+  RNG (commit `ffbb988`). Rebuilds only the static terrain boxes, so the
+  once-per-env `_build_world()` optimisation survives (+0.23 ms/reset, ~0.04% of
+  an episode). Episode terrain is reported in `info["terrain_preset"]`.
+- (2026-08-13) **v12 mixed terrain: the hypothesis is refuted. Gate passes
+  3/12 — identical to v9, all on flat.** Three seeds, 10M continuation from the
+  matched v9 checkpoints, all four evaluated terrains in the mix.
+
+  | terrain | steps v9→v12 | falls v9→v12 | disp v9→v12 | |
+  |---|---:|---:|---:|---|
+  | flat | 785→737 | 3%→**13%** | 13.72→14.50 | worse |
+  | uneven | 174→**274** | 98%→**87%** | 1.79→**4.08** | better, below v11's 410 |
+  | obstacles | 116→119 | 100%→100% | 1.63→1.61 | unchanged |
+  | push recovery | 451→455 | 100%→100% | 7.29→8.12 | wash |
+
+  v11's regression was blamed on flat *leaving* the distribution. In v12 flat
+  was a quarter of every batch and **still** regressed (3%→13%). The competition
+  between terrains is intrinsic to sharing one set of weights, not an artifact
+  of the schedule. Mixing recovered the flat gate pass v11 lost and added
+  nothing new.
+- (2026-08-13) **Always read this experiment family at three seeds.** v12 flat
+  falls were (5%, 20%, 15%) and uneven steps (287, 348, 187). Seed 21 alone
+  reads as a clean fix; the three-seed read is a refutation.
+- (2026-08-13) **Obstacles is unlearnable with the v2 observation — stop
+  treating it as a tuning target.** Nine checkpoints across v9/v11/v12, three
+  configs, two training distributions, one of which trained on obstacles
+  directly for ~2.5M steps: displacement 1.58–1.65 m and 100% falls in every
+  cell, with 1.62 ± 0.05 m over twenty episodes (every episode dies in the same
+  place). `_build_terrain` places 10 cm boxes spanning y ∈ [−0.55, 0.55] — not
+  steppable around; measured foot clearance is 23.7 mm — not steppable over;
+  and the v2 observation has **no exteroception**, so the policy cannot perceive
+  one before striking it. The only reachable strategy, lifting every foot above
+  10 cm on every terrain, is charged against by the flight and torque penalties.
+  Fix is a capability change: a terrain height sample ahead of the stance foot
+  (checkpoint-incompatible, like `include_previous_action`), or an obstacle
+  height a blind gait can clear. Until then it consumes a quarter of every
+  mixed-terrain budget for a constant.
 
 - (2026-08-02) **NEXT TARGET: terrain, not reward.** v9 is a three-seed,
   visually-approved flat-terrain result at 13/13 on gate v4. The transfer suite

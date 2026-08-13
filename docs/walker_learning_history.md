@@ -2232,3 +2232,88 @@ in advance and was not checked — nothing about flat and uneven suggests one is
 prerequisite for the other, unlike balance for locomotion.
 
 **Artifacts:** `outputs/walker_reward_v11_uneven_terrain/seed_*/transfer_suite.json`.
+
+## 2026-08-13 — V12 Mixed Terrain: The Competition Is Intrinsic
+
+**Question:** v11 staged terrain and flat regressed. The hypothesis was that the
+regression came from flat *leaving* the training distribution, so sampling a
+terrain per episode — flat never absent — should buy breadth without forgetting.
+Three seeds, 10M continuation from the matched v9 checkpoints, all four
+evaluated terrains in the mix at the parameters the transfer suite uses.
+
+**Answer: no. The hypothesis is refuted.** Flat was a quarter of every batch and
+regressed anyway.
+
+| terrain | v9 | v11 (staged) | v12 (mixed) |
+|---|---|---|---|
+| flat | 785 / 3% / 13.72 m | 712 / 22% / 13.76 m | 737 / 13% / 14.50 m |
+| uneven | 174 / 98% / 1.79 m | 410 / 65% / 6.62 m | 274 / 87% / 4.08 m |
+| obstacles | 116 / 100% / 1.63 m | 113 / 100% / 1.62 m | 119 / 100% / 1.61 m |
+| push recovery | 451 / 100% / 7.29 m | 390 / 100% / 6.78 m | 455 / 100% / 8.12 m |
+
+Gate v4 across the twelve terrain-seed cells: v9 3/12, v11 2/12, **v12 3/12** —
+and in all three runs every pass is on flat. By the gate, v12 is not an
+improvement on v9; it recovers the flat pass v11 lost and adds nothing new.
+
+**The central negative result.** Flat fall rate went 3% (v9, flat-only) → 22%
+(v11, flat absent) → 13% (v12, flat one quarter of every episode draw). Keeping
+flat continuously in the distribution recovered part of the loss but did not
+prevent it. The cost of competence on other terrain is paid out of flat
+robustness whether the terrains are staged or interleaved, so the competition
+between terrains is a property of the policy sharing one set of weights, not an
+artifact of the training schedule. v11's lesson — stages compete rather than
+compose — survives; the proposed remedy for it does not.
+
+**Per-seed, because the pooled means hide the variance that matters.** Flat
+falls: v9 (0%, 0%, 10%), v11 (15%, 10%, 40%), v12 (5%, 20%, 15%). Seed 21 alone
+would have read as a clean fix at 5%; seed 22 at 20% is worse than its v11
+counterpart. Uneven is wider still — v12 seeds reach 287, 348, and 187 steps,
+the last barely above v9's 178. **A one-seed read of this experiment supports
+the opposite conclusion from the three-seed read**, which is the whole reason
+the three-seed protocol exists.
+
+**Uneven improved over v9 but landed below v11** (274 vs 410 steps), as the
+config predicted from the budget split: ~2.5M samples on uneven here against
+v11's 5M. This is the one place the mixing did what it was supposed to, at the
+rate the arithmetic implied. Push recovery is a wash within seed noise (455 vs
+v9's 451), still 100% falls.
+
+**Obstacles is unlearnable with this observation space, and that is now
+measured rather than inferred.** Across v9, v11 and v12 — nine checkpoints,
+three configs, two training distributions, including one that trained on
+obstacles directly for ~2.5M steps — displacement is 1.58–1.65 m and fall rate
+is 100% in every single cell. Seed 21's twenty episodes gave 1.62 ± 0.05 m: a
+5 cm spread, meaning every episode dies in the same place. The mechanism is not
+subtle. `_build_terrain` places boxes 10 cm tall spanning y ∈ [−0.55, 0.55], so
+they cannot be stepped around; measured foot clearance is 23.7 mm, so they
+cannot be stepped over. The v2 observation has **no exteroception** — z, quat,
+linear and angular velocity, joint positions and velocities, mass and friction
+scales, foot contacts — so the policy cannot perceive an obstacle before
+striking it. The only strategy available to a blind policy is to lift every
+foot above 10 cm on every step of every terrain, which the flight and torque
+penalties charge against on the flat episodes that make up a quarter of
+training. Training pushes away from the only reachable solution.
+
+**Consequence for the roadmap: obstacles is not a tuning target and must stop
+being treated as one.** It needs terrain sensing in the observation (a height
+sample ahead of the stance foot would be the cheapest form and is checkpoint-
+incompatible, like `include_previous_action`), or an obstacle height a blind
+stepping gait can clear. Continuing to include it in a transfer suite as though
+more training could move it costs a quarter of every mixed-terrain budget for a
+result that has not changed in nine checkpoints.
+
+**Lesson, and it is the same shape as the gate-drift lesson above.** The
+mixed-terrain plan was written to fix v11's forgetting and did partially fix it,
+so the run reads as a success if you look only at the quantity it targeted.
+Judged against the objective — a policy that clears the gate on terrain it could
+not previously handle — it moved nothing: 3/12 before, 3/12 after, all on flat.
+An intervention that improves its proximate metric while leaving the objective
+untouched is a negative result, and recording it as a partial success would put
+the next run back on the same road.
+
+**Standing:** v9 remains the best flat result and the reference baseline. There
+is no mixed-terrain policy worth promoting. The next question is capability, not
+schedule: obstacles needs observation, and uneven needs either a longer
+dedicated budget or an admission that flat robustness is the price.
+
+**Artifacts:** `outputs/walker_reward_v12_mixed_terrain/seed_*/transfer_suite.json`.
