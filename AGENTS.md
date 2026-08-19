@@ -79,3 +79,87 @@ Two distinct vec-env paths in `sb3_runner.py`, chosen by whether self-play is on
 - **Small change** (single-file edit, tweak): `pytest` is sufficient before committing.
 - **Big change** (env behavior, training pipeline, reward/termination): `pytest` + a short functional smoke test (env reset/step, a few hundred timesteps of training, or an eval/replay of an existing checkpoint) before committing.
 - Skip hooks (`--no-verify`) is never warranted unless explicitly asked.
+
+## Repository layout
+
+| Path | Role |
+|---|---|
+| `src/rl_framework/` | The package. `cli/`, `configs/`, `envs/`, `evolution/`, `gui/`, `training/`, `utils/` |
+| `src/rl_framework/configs/experiments/` | Experiment YAMLs — the default `--config-dir` |
+| `tests/` | pytest suite; CI gates coverage at 60% |
+| `scripts/` | Repo tooling, including `check_repo_policy.py` |
+| `docs/` | Roadmap, studies, config references, the walker decision ledger |
+| `reviews/` | Point-in-time review artifacts |
+| `outputs/` | Run outputs — **gitignored, disposable, rebuildable** |
+| `rl_framework/` (root) | Contains only `__init__.py`. Not the package — see Known problems in `docs/STATUS.md` |
+
+## Important invariants
+
+- **Activate `.venv/` first.** Without it the wrong interpreter silently
+  produces wrong results rather than an error.
+- **Install from `requirements-lock.txt`, not `pip install -e .`** — and the
+  lockfile must contain every direct dep from `pyproject.toml`, or CI fails.
+- `max_height: 1.5 m` is a deliberate backstop against the PD-jackhammer
+  self-launch exploit. Loosening it re-opens a known degenerate solution.
+- `sim.control` is **nested**. A flattened `control: null` is silently tolerated
+  and falls back to defaults — which looks like a working run and is not one.
+- An explicit but empty `terrain.mix: []` is an error, not "no mix".
+- Changing observation shape (35 → 45 with `include_previous_action`) is
+  **checkpoint-incompatible**. Old checkpoints cannot be loaded.
+- `CurriculumCallback` cannot change terrain. Use `terrain.mix`.
+- Results go in [`docs/walker_learning_history.md`](docs/walker_learning_history.md),
+  **including refuted hypotheses**. A study that only records successes is not
+  a decision ledger.
+
+## Validation requirements
+
+Beyond the gate below, a change to env behaviour, the training pipeline, or
+reward/termination needs a functional smoke test: env reset/step, a few hundred
+timesteps of training, or an eval/replay of an existing checkpoint. A learning
+claim needs **multi-seed** evidence — single-seed results have repeatedly proven
+misleading here, which is why `multi-seed` is a first-class subcommand.
+
+Record the outcome in `docs/walker_learning_history.md` whether or not the
+hypothesis held.
+
+## Cross-repository contracts
+
+None identified. This repository is self-contained; its only external contracts
+are library versions pinned in `requirements-lock.txt`.
+
+## Security / safety constraints
+
+- No credentials or personal data belong in this repository.
+- `outputs/` is gitignored and disposable — never put the only copy of anything
+  there.
+- Training saturates 24 cores. Prefix `SubprocVecEnv` launches with
+  `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` or workers will fight for threads.
+
+## Definition of done
+
+1. `pytest -q --cov=src/rl_framework --cov-fail-under=60` passes.
+2. `ruff check src tests scripts` is clean.
+3. `python scripts/check_repo_policy.py` passes.
+4. Big changes additionally have a functional smoke test (above).
+5. Experiment results — including negative ones — recorded in
+   `docs/walker_learning_history.md`.
+6. `docs/STATUS.md` updated if the current state changed.
+
+Note: the Workflow section above authorises direct commits and automatic pushes
+to `master` after tests pass. That is a deliberate repo-local policy and it
+overrides the more conservative default in `ai-hub/AGENTS.md` §9 — per §5,
+project-local instructions win.
+
+## Where to find deeper context
+
+| Topic | Document |
+|---|---|
+| Current state | [`docs/STATUS.md`](docs/STATUS.md) |
+| Validation evidence | [`docs/VALIDATION.md`](docs/VALIDATION.md) |
+| Decision records | [`docs/decisions/`](docs/decisions/) |
+| Active roadmap | [`docs/open_items_todo.md`](docs/open_items_todo.md) |
+| Walker decision ledger (canonical) | [`docs/walker_learning_history.md`](docs/walker_learning_history.md) |
+| Arena config reference | [`docs/organism_arena_config.md`](docs/organism_arena_config.md) |
+| Learning quality studies | [`docs/learning_quality_studies.md`](docs/learning_quality_studies.md) |
+| Training presets | [`docs/training_presets.md`](docs/training_presets.md) |
+| Visualization | [`VISUALIZATION_GUIDE.md`](VISUALIZATION_GUIDE.md) |
