@@ -1,6 +1,6 @@
 # Development Roadmap
 
-Last updated: 2026-08-06
+Last updated: 2026-08-13
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
@@ -68,8 +68,8 @@ must record both successful changes and failed hypotheses there.
 - (2026-08-13) **Always read this experiment family at three seeds.** v12 flat
   falls were (5%, 20%, 15%) and uneven steps (287, 348, 187). Seed 21 alone
   reads as a clean fix; the three-seed read is a refutation.
-- (2026-08-13) **Obstacles is unlearnable with the v2 observation — stop
-  treating it as a tuning target.** Nine checkpoints across v9/v11/v12, three
+- (2026-08-13, SUPERSEDED same day by the obstacle ladder below — the claim
+  was too broad) **Obstacles is unlearnable with the v2 observation.** Nine checkpoints across v9/v11/v12, three
   configs, two training distributions, one of which trained on obstacles
   directly for ~2.5M steps: displacement 1.58–1.65 m and 100% falls in every
   cell, with 1.62 ± 0.05 m over twenty episodes (every episode dies in the same
@@ -82,6 +82,34 @@ must record both successful changes and failed hypotheses there.
   (checkpoint-incompatible, like `include_previous_action`), or an obstacle
   height a blind gait can clear. Until then it consumes a quarter of every
   mixed-terrain budget for a constant.
+- (2026-08-13) **Obstacle ladder: the cliff is at 2–3 cm, and the transfer
+  suite could not see progress.** Six checkpoints (v9, v12 × seeds 21–23),
+  seven heights, 20 episodes each, no training budget. Every policy traverses
+  1 cm obstacles (10–45% falls) and half-clears 2 cm; everything saturates from
+  4 cm up at ~115 steps / 100% falls. So obstacles are unlearnable *above about
+  the policy's own foot clearance*, not unlearnable outright.
+
+  v12 improved 3 cm survival 176→266 steps (+51%) while its 10 cm number moved
+  116→119. The suite probed obstacles at 10 cm only — deep in the saturated
+  floor — so **v11's and v12's "zero transfer to obstacles" were partly
+  instrument artifacts.** FIXED: the suite now also probes 2 cm and 3 cm, 10 cm
+  retained for series continuity, guarded by a test.
+- (2026-08-13) **Exteroception is demoted as the next capability change.**
+  Seeing a 10 cm wall does not help a foot that lifts 2.2 cm, and the policy
+  already clears obstacles it cannot see when they are within its swing height.
+  The binding constraint is swing height — reward/actuation, not observation —
+  and far cheaper to test than a checkpoint-incompatible obs change.
+- (2026-08-13) **NEXT, and it is telemetry before training: why is
+  `bilateral_clearance_target: 0.05` not reached?** The reward has asked for
+  5 cm of clearance at weight 8.0 since v9; the policy delivers 21–26 mm, under
+  half. Determine whether the term saturates, is outcompeted by the flight and
+  torque penalties, or measures a height other than the one that matters for
+  obstacle traversal — before spending a run on raising its weight.
+- (2026-08-13) **Do not model obstacle traversal as a single clearance
+  threshold.** Clearance coincides with the cliff at population level but does
+  not rank seeds: v9 s23 has more clearance (25.6 mm) and worse obstacle
+  performance (90% falls at 2 cm) than v9 s21 (20.9 mm, 50%). A blind policy
+  cannot phase-align its swing, so arrival timing is luck.
 
 - (2026-08-02) **NEXT TARGET: terrain, not reward.** v9 is a three-seed,
   visually-approved flat-terrain result at 13/13 on gate v4. The transfer suite

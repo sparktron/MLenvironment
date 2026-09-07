@@ -2317,3 +2317,69 @@ schedule: obstacles needs observation, and uneven needs either a longer
 dedicated budget or an admission that flat robustness is the price.
 
 **Artifacts:** `outputs/walker_reward_v12_mixed_terrain/seed_*/transfer_suite.json`.
+
+## 2026-08-13 — Obstacle Ladder: The Cliff Is At 2–3 cm, And The Suite Could Not See It
+
+**Question:** the v12 entry above concluded obstacles are unlearnable with the
+v2 observation, arguing from clearance (23.7 mm foot lift against a 100 mm
+wall). That was an argument, not a measurement — no lower obstacle had ever
+been tested. Telemetry only, no training budget: six existing checkpoints (v9
+and v12, seeds 21–23), seven obstacle heights, twenty stochastic episodes each.
+
+**Fall rate by obstacle height:**
+
+| checkpoint | 10 mm | 20 mm | 30 mm | 40 mm | 50 mm | 75 mm | 100 mm | clearance |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| v9 s21 | 25% | 50% | 100% | 100% | 100% | 100% | 100% | 20.9 mm |
+| v9 s22 | 10% | 50% | 95% | 100% | 100% | 100% | 100% | 26.3 mm |
+| v9 s23 | 45% | 90% | 100% | 100% | 100% | 100% | 100% | 25.6 mm |
+| v12 s21 | 10% | 45% | 80% | 100% | 100% | 100% | 100% | 22.4 mm |
+| v12 s22 | 25% | 60% | 90% | 100% | 100% | 100% | 100% | 25.1 mm |
+| v12 s23 | 30% | 70% | 95% | 100% | 100% | 100% | 100% | 26.3 mm |
+
+**Correction to the v12 entry.** "Obstacles are unlearnable with this
+observation space" is too broad. Every checkpoint traverses 1 cm obstacles
+(10–45% falls, 550–740 steps) and roughly half-clears 2 cm. The cliff is
+between 2 and 3 cm and everything saturates from 4 cm up at ~115 steps and
+1.60 m — the "walks into the first wall" floor. Obstacles are unlearnable
+*above roughly the policy's own foot clearance*; 10 cm was simply 4× past it.
+
+**The finding that changes the roadmap: the transfer suite could not see real
+progress.** v12 improved 3 cm survival from 176 to 266 mean steps (+51%) and
+3 cm falls from 98% to 88%, and improved at 1 cm and 2 cm as well. Its 10 cm
+number moved 116 → 119 steps. The suite probes obstacles at exactly one height,
+10 cm, which is deep inside the saturated floor, so it reported "unchanged" for
+a policy that had measurably learned something. **Both v11's and v12's "zero
+transfer to obstacles" were partly instrument artifacts.** Fixed the same day:
+`evaluate_walker_transfer_suite` now also probes 2 cm and 3 cm, with the 10 cm
+entry retained unchanged so the v9/v11/v12 series stays comparable, and a test
+in `tests/test_evaluation_workers.py` fails if every obstacle height sits above
+3 cm.
+
+**Clearance is necessary but not sufficient, and the seed ordering proves it.**
+The cliff coincides with the 21–26 mm clearance band at the population level,
+but clearance does not rank the seeds: v9 s23 has above-average clearance
+(25.6 mm) and the worst obstacle performance (90% falls at 2 cm), while v9 s21
+at 20.9 mm gets 50%. Mean swing height is not the whole mechanism — a blind
+policy also cannot phase-align its swing to an obstacle it cannot perceive, so
+whether the foot is rising or falling on arrival is luck. Do not model this as
+a single clearance threshold.
+
+**Consequence: exteroception is demoted, not promoted.** The v12 entry proposed
+adding a terrain height sample as the next capability change. The ladder argues
+against doing that first — seeing a 10 cm wall does not help a foot that lifts
+2.2 cm, and the policy already traverses obstacles at heights it can physically
+clear without seeing them at all. The binding constraint is swing height, which
+is reward and actuation rather than observation, and far cheaper to test than a
+checkpoint-incompatible observation change.
+
+**The open puzzle for the next experiment.** `bilateral_clearance_target` is
+already **0.05 m** at weight 8.0, and has been since v9. The reward has been
+asking for 5 cm of clearance the whole time and the policy delivers 21–26 mm —
+under half. Before adding weight, the question is why the existing target is
+not reached: whether the term saturates, is outcompeted by the flight and
+torque penalties, or is measuring something other than the height that matters
+for obstacle traversal. That is another telemetry question, not a training run.
+
+**Artifacts:** `scratchpad/obstacle_ladder.json` (disposable; the table above is
+the record).

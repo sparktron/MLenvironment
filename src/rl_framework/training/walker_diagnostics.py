@@ -896,6 +896,17 @@ def evaluate_walker_transfer_suite(
     terrains: dict[str, dict[str, Any]] = {
         "flat": {"preset": "flat"},
         "uneven": {"preset": "uneven", "height": 0.025},
+        # The obstacle ladder measured on 2026-08-13 (v9 and v12, three seeds
+        # each) puts the failure cliff between 2 and 3 cm, with every policy
+        # saturating at ~115 steps and 100% falls from 4 cm upward. A single
+        # 10 cm point therefore sits deep in the floor and cannot resolve
+        # progress: v12 improved 3 cm survival by 51% (176 -> 266 steps) while
+        # the 10 cm number was flat, and the run was recorded as "zero
+        # transfer to obstacles". The 10 cm entry is retained unchanged so the
+        # v9/v11/v12 series stays comparable; the 2 cm and 3 cm entries are
+        # where a blind policy can actually register a change.
+        "obstacles_2cm": {"preset": "obstacles", "obstacle_height": 0.02},
+        "obstacles_3cm": {"preset": "obstacles", "obstacle_height": 0.03},
         "obstacles": {"preset": "obstacles", "obstacle_height": 0.10},
         "push_recovery": {
             "preset": "push_recovery",
