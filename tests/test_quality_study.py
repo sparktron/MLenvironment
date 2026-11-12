@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from rl_framework.envs.organisms import quality_study as arena_study
 from rl_framework.training import quality_study
 from rl_framework.training.quality_study import StopOnWallClock, run_quality_study
 from rl_framework.training.walker_diagnostics import _verdict
@@ -557,7 +558,7 @@ def test_walker_verdict_does_not_call_standing_drift_walking() -> None:
 
 
 def test_arena_measurements_aggregate_resource_signals() -> None:
-    measurements = quality_study._arena_measurements(
+    measurements = arena_study._arena_measurements(
         [
             {
                 "matches": [
@@ -934,7 +935,7 @@ def test_arena_behavior_gate_requires_hits_damage_and_fewer_timeouts() -> None:
         },
     }
 
-    results = quality_study._arena_behavior_results(
+    results = arena_study._arena_behavior_results(
         measurements, {"candidate": {}, "timeout": {}}
     )
 
@@ -965,7 +966,7 @@ def test_arena_native_tournaments_use_each_variant_environment(monkeypatch) -> N
             },
         }
 
-    monkeypatch.setattr(quality_study, "run_tournament", fake_tournament)
+    monkeypatch.setattr(arena_study, "run_tournament", fake_tournament)
     base = {
         "seed": 0,
         "environment": {
@@ -975,7 +976,7 @@ def test_arena_native_tournaments_use_each_variant_environment(monkeypatch) -> N
         },
     }
 
-    tournaments = quality_study._arena_native_tournaments(
+    tournaments = arena_study._arena_native_tournaments(
         {
             "baseline": {},
             "contested": {"environment.resources.food_placement": "center"},
@@ -991,3 +992,41 @@ def test_arena_native_tournaments_use_each_variant_environment(monkeypatch) -> N
         "baseline",
         "contested",
     ]
+
+
+def test_resumes_pre_split_study_state(tmp_path: Path, monkeypatch) -> None:
+    import json
+
+    fixture = Path(__file__).parent / "fixtures/quality_study/presplit_state.json"
+    state = json.loads(fixture.read_text().replace("__OUTPUT_DIR__", str(tmp_path)))
+    saved_key, saved_run = next(iter(state["runs"].items()))
+    saved_model = Path(saved_run["model_path"])
+    saved_model.parent.mkdir(parents=True)
+    saved_model.write_bytes(b"model")
+    (tmp_path / "state.json").write_text(json.dumps(state))
+    trained = []
+
+    def fake_train(cfg, extra_callbacks=None, resume_from=None):
+        trained.append(cfg["experiment_name"])
+        model = (Path(cfg["output"]["base_dir"]) / cfg["experiment_name"]
+                 / f"seed_{cfg['seed']}" / "checkpoints" / "final_model")
+        model.parent.mkdir(parents=True, exist_ok=True)
+        model.with_suffix(".zip").write_bytes(b"model")
+        return model
+
+    monkeypatch.setattr(quality_study, "train", fake_train)
+    monkeypatch.setattr(
+        quality_study, "evaluate_walker_transfer_suite",
+        lambda cfg, path, episodes: {
+            terrain: _diagnostic_result()
+            for terrain in ("flat", "uneven", "obstacles", "push_recovery")
+        },
+    )
+    result = run_quality_study(
+        "walker", seeds=[0], output_dir=tmp_path, step_budget=300_000,
+        eval_episodes=1, resume=True,
+    )
+    assert result["completed"] is True
+    assert saved_key.removeprefix("walker/") in result["results"]["walker"]["runs"]
+    assert len(trained) == len(quality_study.WALKER_VARIANTS) - 1
+    assert saved_run["config"]["experiment_name"] not in trained

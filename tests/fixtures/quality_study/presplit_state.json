@@ -1,0 +1,450 @@
+{
+  "completed": false,
+  "identity": {
+    "eval_episodes": 1,
+    "schema_version": 1,
+    "seeds": [
+      0
+    ],
+    "step_budget": 300000,
+    "studies": [
+      "walker"
+    ],
+    "wall_clock_seconds": 900.0
+  },
+  "results": {},
+  "runs": {
+    "walker/balance_low_std/seed_0": {
+      "config": {
+        "curriculum": {
+          "enabled": true,
+          "level_params": {
+            "1": {
+              "reward.alive_bonus": 0.75,
+              "reward.forward_velocity_weight": 1.0,
+              "reward.orientation_penalty_weight": 0.8,
+              "reward.target_velocity": 0.2,
+              "sim.action_scale": 0.5
+            },
+            "2": {
+              "reward.alive_bonus": 0.5,
+              "reward.forward_velocity_weight": 2.0,
+              "reward.orientation_penalty_weight": 0.5,
+              "reward.target_velocity": 0.5,
+              "sim.action_scale": 1.0
+            }
+          },
+          "level_up_conditions": {
+            "0": {
+              "rollout/ep_len_mean": {
+                "min": 700
+              },
+              "walker/fall_rate": {
+                "max": 0.1
+              }
+            },
+            "1": {
+              "rollout/ep_len_mean": {
+                "min": 600
+              },
+              "walker/fall_rate": {
+                "max": 0.3
+              },
+              "walker/forward_displacement_mean": {
+                "min": 1.0
+              }
+            }
+          },
+          "max_level": 2,
+          "warmup_steps": 200000
+        },
+        "environment": {
+          "domain_randomization": {
+            "friction_range": [
+              0.9,
+              1.1
+            ],
+            "mass_scale_range": [
+              0.95,
+              1.05
+            ]
+          },
+          "observation": {
+            "coordinate_free": true,
+            "version": "v2"
+          },
+          "reset_randomization": {
+            "position_xy_noise": 0.02,
+            "yaw_noise": 0.08
+          },
+          "reward": {
+            "alive_bonus": 1.0,
+            "fall_penalty": 25.0,
+            "forward_velocity_weight": 0.5,
+            "orientation_penalty_weight": 1.0,
+            "target_velocity": 0.0,
+            "torque_penalty_weight": 0.02,
+            "velocity_sigma": 0.25
+          },
+          "seed": 0,
+          "sim": {
+            "action_scale": 0.25,
+            "control": {
+              "mode": "pd",
+              "position_gain": 0.1,
+              "velocity_gain": 1.0
+            },
+            "frame_skip": 4,
+            "friction": 0.9,
+            "gravity": -9.81,
+            "mass": 28.0,
+            "max_force": 35.0,
+            "settle_steps": 30,
+            "timestep": 0.004166667
+          },
+          "termination": {
+            "max_height": 1.5,
+            "max_steps": 800,
+            "min_height": 0.18
+          },
+          "terrain": {
+            "preset": "flat"
+          },
+          "type": "walker_bullet"
+        },
+        "evaluation": {
+          "episodes": 20
+        },
+        "experiment_name": "quality_walker_balance_low_std",
+        "output": {
+          "base_dir": "__OUTPUT_DIR__/models"
+        },
+        "seed": 0,
+        "training": {
+          "algorithm": "PPO",
+          "batch_size": 256,
+          "checkpoint_every": 50000,
+          "device": "cpu",
+          "learning_rate": 0.0003,
+          "log_std_init": -1.0,
+          "n_epochs": 10,
+          "n_steps": 128,
+          "normalize_observations": true,
+          "num_envs": 24,
+          "policy": "MlpPolicy",
+          "total_timesteps": 300000
+        }
+      },
+      "diagnostics": {
+        "flat": {
+          "algorithm": "PPO",
+          "deterministic": {
+            "episode_length_mean": 700.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          },
+          "episodes": 1,
+          "model_path": "model.zip",
+          "model_timesteps": 64,
+          "stochastic": {
+            "episode_length_mean": 700.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          },
+          "verdict": "partial_learning_deterministic",
+          "zero_action": {
+            "episode_length_mean": 100.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          }
+        },
+        "obstacles": {
+          "algorithm": "PPO",
+          "deterministic": {
+            "episode_length_mean": 700.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          },
+          "episodes": 1,
+          "model_path": "model.zip",
+          "model_timesteps": 64,
+          "stochastic": {
+            "episode_length_mean": 700.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          },
+          "verdict": "partial_learning_deterministic",
+          "zero_action": {
+            "episode_length_mean": 100.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          }
+        },
+        "push_recovery": {
+          "algorithm": "PPO",
+          "deterministic": {
+            "episode_length_mean": 700.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          },
+          "episodes": 1,
+          "model_path": "model.zip",
+          "model_timesteps": 64,
+          "stochastic": {
+            "episode_length_mean": 700.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          },
+          "verdict": "partial_learning_deterministic",
+          "zero_action": {
+            "episode_length_mean": 100.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          }
+        },
+        "uneven": {
+          "algorithm": "PPO",
+          "deterministic": {
+            "episode_length_mean": 700.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          },
+          "episodes": 1,
+          "model_path": "model.zip",
+          "model_timesteps": 64,
+          "stochastic": {
+            "episode_length_mean": 700.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          },
+          "verdict": "partial_learning_deterministic",
+          "zero_action": {
+            "episode_length_mean": 100.0,
+            "episode_length_std": 0.0,
+            "fall_rate": 0.1,
+            "forward_displacement_mean": 2.0,
+            "forward_displacement_std": 0.0,
+            "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
+            "gait_contact_duty_imbalance_mean": 0.02,
+            "gait_contact_point_slip_speed_mean": 0.15,
+            "gait_double_support_fraction_mean": 0.15,
+            "gait_flight_fraction_mean": 0.05,
+            "gait_foot_clearance_mean": 0.04,
+            "gait_longest_same_foot_sequence_mean": 3.0,
+            "gait_mid_stance_contact_point_slip_speed_mean": 0.09,
+            "gait_progress_per_alternating_touchdown_mean": 0.15,
+            "gait_stance_slip_speed_mean": 0.15,
+            "gait_stride_length_mean": 0.3,
+            "peak_z_mean": 0.9,
+            "push_recovery_rate": 0.8,
+            "pushes_mean": 1.0,
+            "return_mean": 10.0,
+            "return_std": 0.0
+          }
+        }
+      },
+      "model_path": "__OUTPUT_DIR__/models/quality_walker_balance_low_std/seed_0/checkpoints/final_model.zip",
+      "resume_from": null,
+      "status": "completed",
+      "training_seconds": 0.00017233897233381867
+    }
+  }
+}
