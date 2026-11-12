@@ -816,7 +816,7 @@ def test_organism_env_infos_episode_outcome_on_timeout() -> None:
 
 def test_arena_metrics_callback_computes_win_rates() -> None:
     """ArenaMetricsCallback aggregates outcomes and records win rates."""
-    from rl_framework.training.sb3_runner import ArenaMetricsCallback
+    from rl_framework.envs.organisms.training import ArenaMetricsCallback
 
     class _StubLogger:
         def __init__(self) -> None:
@@ -856,7 +856,7 @@ def test_arena_metrics_callback_generalizes_beyond_two_agents() -> None:
     2-entry wins dict, so agent_2+ wins were silently dropped."""
     from types import SimpleNamespace
 
-    from rl_framework.training.sb3_runner import ArenaMetricsCallback
+    from rl_framework.envs.organisms.training import ArenaMetricsCallback
 
     class _StubLogger:
         def __init__(self) -> None:

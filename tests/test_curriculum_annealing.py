@@ -9,7 +9,8 @@ import pytest
 
 from rl_framework.training.curriculum_callback import CurriculumCallback
 from rl_framework.training.reward_annealing_callback import RewardAnnealingCallback
-from rl_framework.training.sb3_runner import WalkerMetricsCallback
+from rl_framework.envs.locomotion.training import WalkerMetricsCallback
+from rl_framework.envs.organisms.training import ArenaMetricsCallback
 
 
 class _FakeVecEnv:
@@ -370,7 +371,7 @@ def test_arena_callbacks_order_metrics_before_curriculum(tmp_path, monkeypatch):
     metrics_idx = next(
         i
         for i, cb in enumerate(callbacks)
-        if isinstance(cb, sb3_runner.ArenaMetricsCallback)
+        if isinstance(cb, ArenaMetricsCallback)
     )
     curriculum_idx = next(
         i for i, cb in enumerate(callbacks) if isinstance(cb, CurriculumCallback)

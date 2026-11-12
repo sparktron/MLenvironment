@@ -6,7 +6,7 @@ import numpy as np
 def build_eval_vec_env(env_cfg):
     import supersuit as ss
     from rl_framework.core.registry import make_env
-    from rl_framework.training.sb3_runner import _ArenaVecEnvAdapter
+    from rl_framework.envs.organisms.training import _ArenaVecEnvAdapter
 
     par_env = make_env(env_cfg["type"], env_cfg)
     vec_env = ss.pettingzoo_env_to_vec_env_v1(par_env)

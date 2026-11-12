@@ -5,7 +5,7 @@ import warnings
 import supersuit as ss
 
 from rl_framework.core.registry import make_env
-from rl_framework.training.sb3_runner import _ArenaVecEnvAdapter
+from rl_framework.envs.organisms.training import _ArenaVecEnvAdapter
 
 
 def test_arena_adapter_supplies_render_mode_without_supersuit_warning() -> None:
