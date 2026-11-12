@@ -3,18 +3,16 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-import supersuit as ss
 from stable_baselines3 import PPO, SAC, TD3
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.vec_env import VecNormalize
 
-from rl_framework.core.registry import make_env
+from rl_framework.core.registry import get_task
 from rl_framework.training.evaluation_workers import (
     episode_quotas,
     make_seeded_vec_env,
     resolve_evaluation_workers,
 )
-from rl_framework.training.sb3_runner import _ArenaVecEnvAdapter
 from rl_framework.utils.checkpoint import find_vecnormalize_path_for_model
 from rl_framework.utils.logging_utils import append_metrics_csv, create_experiment_paths
 
@@ -46,21 +44,13 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
         run_id=cfg["output"].get("run_id"),
     )
 
-    if env_cfg["type"] == "organism_arena_parallel":
-        # Multi-agent eval: wrap env the same way as training and load the shared PPO model.
-        par_env = make_env(env_cfg["type"], env_cfg)
-        vec_env = ss.pettingzoo_env_to_vec_env_v1(par_env)
-        vec_env = ss.concat_vec_envs_v1(
-            vec_env, 1, num_cpus=1, base_class="stable_baselines3"
-        )
-        vec_env = _ArenaVecEnvAdapter(vec_env)
+    spec = get_task(env_cfg["type"])
+    if spec.build_eval_vec_env is not None:
+        vec_env = spec.build_eval_vec_env(env_cfg)
     else:
         workers = resolve_evaluation_workers(cfg, episodes)
         vec_env = make_seeded_vec_env(
-            env_cfg["type"],
-            env_cfg,
-            workers,
-            cfg.get("training", {}),
+            env_cfg["type"], env_cfg, workers, cfg.get("training", {})
         )
 
     vn_path = find_vecnormalize_path_for_model(model_path)
@@ -68,9 +58,6 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
         vec_env = VecNormalize.load(str(vn_path), vec_env)
         vec_env.training = False
         vec_env.norm_reward = False
-
-    is_multiagent = env_cfg["type"] == "organism_arena_parallel"
-    num_agents = vec_env.num_envs if is_multiagent else 1
 
     try:
         algorithm = str(cfg.get("training", {}).get("algorithm", "PPO")).upper()
@@ -84,12 +71,13 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
             model = TD3.load(model_path, device=device)
         else:
             raise ValueError(f"Unsupported training.algorithm: {algorithm!r}")
-        returns = []
-        per_agent_returns: dict[int, list[float]] = {i: [] for i in range(num_agents)}
-        terminated_episodes = 0
-        truncated_episodes = 0
-        episode_lengths = []
-        if not is_multiagent:
+        if spec.evaluate_rollouts is not None:
+            metrics = spec.evaluate_rollouts(vec_env, model, episodes)
+        else:
+            returns = []
+            terminated_episodes = 0
+            truncated_episodes = 0
+            episode_lengths = []
             completed = [0] * vec_env.num_envs
             quotas = episode_quotas(episodes, vec_env.num_envs)
             running_returns = np.zeros(vec_env.num_envs, dtype=np.float64)
@@ -119,42 +107,13 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
                     completed[worker] += 1
                     running_returns[worker] = 0.0
                     running_lengths[worker] = 0
-        else:
-            for _ in range(episodes):
-                obs = vec_env.reset()
-                done = False
-                ep_ret = 0.0
-                ep_agent_ret = np.zeros(num_agents, dtype=np.float64)
-                ep_len = 0
-                while not done:
-                    action, _ = model.predict(obs, deterministic=True)
-                    obs, reward, dones, infos = vec_env.step(action)
-                    reward_arr = np.asarray(reward).flatten()
-                    ep_ret += float(np.sum(reward_arr))
-                    ep_agent_ret[: len(reward_arr)] += reward_arr.astype(np.float64)
-                    ep_len += 1
-                    done = bool(np.any(dones))
-                if _was_truncated(infos):
-                    truncated_episodes += 1
-                else:
-                    terminated_episodes += 1
-                episode_lengths.append(ep_len)
-                returns.append(ep_ret)
-                for i in range(num_agents):
-                    per_agent_returns[i].append(float(ep_agent_ret[i]))
-        metrics: dict[str, float] = {
-            "mean_return": float(np.mean(returns)),
-            "std_return": float(np.std(returns)),
-            "terminated_rate": float(terminated_episodes / episodes),
-            "truncated_rate": float(truncated_episodes / episodes),
-            "mean_episode_length": float(np.mean(episode_lengths)),
-        }
-        # For multi-agent envs, add per-agent return metrics so zero-sum
-        # cancellation doesn't hide individual agent performance.
-        if is_multiagent:
-            for i in range(num_agents):
-                metrics[f"agent_{i}_mean_return"] = float(np.mean(per_agent_returns[i]))
-                metrics[f"agent_{i}_std_return"] = float(np.std(per_agent_returns[i]))
+            metrics: dict[str, float] = {
+                "mean_return": float(np.mean(returns)),
+                "std_return": float(np.std(returns)),
+                "terminated_rate": float(terminated_episodes / episodes),
+                "truncated_rate": float(truncated_episodes / episodes),
+                "mean_episode_length": float(np.mean(episode_lengths)),
+            }
         append_metrics_csv(paths.logs_dir / "eval_metrics.csv", metrics)
     finally:
         vec_env.close()

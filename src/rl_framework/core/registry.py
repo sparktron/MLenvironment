@@ -17,6 +17,7 @@ class TaskSpec:
     gui_schema: Callable[..., Any] | None = None
     build_train_vec_env: Callable[..., Any] | None = None
     build_eval_vec_env: Callable[..., Any] | None = None
+    evaluate_rollouts: Callable[..., Any] | None = None
     train_callbacks: Callable[..., Any] | None = None
     capabilities: frozenset[str] = frozenset()
 
