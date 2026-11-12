@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from stable_baselines3 import PPO
 
-from rl_framework.envs.registry import make_env
+from rl_framework.core.registry import make_env
 from rl_framework.training.eval_runner import evaluate
 from rl_framework.training.sb3_runner import train
 from rl_framework.training.self_play_env_wrapper import (

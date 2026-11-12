@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from rl_framework.envs.registry import make_env
+from rl_framework.core.registry import make_env
 from rl_framework.training.self_play_env_wrapper import load_frozen_policy
 
 _AGENTS = ("agent_0", "agent_1")

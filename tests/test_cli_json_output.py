@@ -362,7 +362,7 @@ def test_walker_render_replay_loads_vecnormalize_sidecar(monkeypatch, tmp_path):
         def predict(self, obs, deterministic=True):
             return np.zeros((1, 1), dtype=np.float32), None
 
-    import rl_framework.envs.registry as registry_mod
+    import rl_framework.core.registry as registry_mod
 
     monkeypatch.setattr(registry_mod, "make_env", lambda _env_type, _cfg: _FakeEnv())
     monkeypatch.setattr("gymnasium.wrappers.RecordVideo", _FakeRecordVideo)

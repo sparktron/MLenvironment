@@ -8,7 +8,7 @@ from stable_baselines3 import PPO, SAC, TD3
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.vec_env import VecNormalize
 
-from rl_framework.envs.registry import make_env
+from rl_framework.core.registry import make_env
 from rl_framework.training.evaluation_workers import (
     episode_quotas,
     make_seeded_vec_env,

@@ -12,7 +12,7 @@ import numpy as np
 from stable_baselines3 import PPO, SAC, TD3
 from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, VecNormalize
 
-from rl_framework.envs.registry import make_env
+from rl_framework.core.registry import make_env
 from rl_framework.training.evaluation_workers import (
     EpisodeSeedWrapper,
     episode_quotas,

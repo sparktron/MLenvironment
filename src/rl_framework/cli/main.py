@@ -280,7 +280,7 @@ def _render_replay(
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, VecNormalize
 
-    from rl_framework.envs.registry import make_env
+    from rl_framework.core.registry import make_env
     from rl_framework.utils.checkpoint import find_vecnormalize_path_for_model
 
     env_cfg = cfg["environment"]

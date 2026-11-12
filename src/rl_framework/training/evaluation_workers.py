@@ -11,7 +11,7 @@ from typing import Any
 import gymnasium as gym
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv
 
-from rl_framework.envs.registry import make_env
+from rl_framework.core.registry import make_env
 
 
 class EpisodeSeedWrapper(gym.Wrapper):

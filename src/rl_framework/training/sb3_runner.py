@@ -25,7 +25,7 @@ from stable_baselines3.common.vec_env import (
 )
 from stable_baselines3.common.vec_env.base_vec_env import VecEnvWrapper
 
-from rl_framework.envs.registry import make_env
+from rl_framework.core.registry import make_env
 from rl_framework.training.curriculum_callback import CurriculumCallback
 from rl_framework.training.evaluation_workers import resolve_evaluation_workers
 from rl_framework.training.reward_annealing_callback import RewardAnnealingCallback

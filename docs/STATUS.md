@@ -29,7 +29,8 @@ experiment configs through one CLI, with a Flask GUI for experiment management.
 
 The [core / physics / games restructure](plans/2026-11-12-core-physics-games-restructure.md)
 has its Prompt 0 regression tests for environment rollouts, legacy checkpoints,
-and callback order. The next implementation step is Prompt 1's task registry.
+and callback order. Prompt 1's task registry is implemented; Prompt 2's
+task-specific hook extraction is next.
 
 Mixed-terrain generalisation study. Two consecutive negative results recorded:
 

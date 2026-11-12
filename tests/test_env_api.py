@@ -4,7 +4,7 @@ import numpy as np
 import pybullet as p
 import pytest
 
-from rl_framework.envs.registry import make_env
+from rl_framework.core.registry import make_env
 
 
 def test_walker_env_api() -> None:

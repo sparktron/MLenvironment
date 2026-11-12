@@ -84,7 +84,7 @@ def test_arena_eval_writes_output_json(tmp_path) -> None:
 
 def test_play_episode_classifies_simultaneous_ko_as_draw() -> None:
     """A simultaneous knockout must be a draw, not a loss for the policy."""
-    from rl_framework.envs.registry import make_env
+    from rl_framework.core.registry import make_env
 
     class _AlwaysAttack:
         def predict(self, obs, deterministic=True):
@@ -116,7 +116,7 @@ def test_play_episode_classifies_simultaneous_ko_as_draw() -> None:
 
 
 def test_load_frozen_policy_random_returns_random_policy() -> None:
-    from rl_framework.envs.registry import make_env
+    from rl_framework.core.registry import make_env
 
     env = make_env("organism_arena_parallel", {"type": "organism_arena_parallel"})
     actor = load_frozen_policy("random", env.action_space("agent_0"))

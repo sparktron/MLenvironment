@@ -4,7 +4,7 @@ import warnings
 
 import supersuit as ss
 
-from rl_framework.envs.registry import make_env
+from rl_framework.core.registry import make_env
 from rl_framework.training.sb3_runner import _ArenaVecEnvAdapter
 
 
