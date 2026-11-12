@@ -29,8 +29,9 @@ experiment configs through one CLI, with a Flask GUI for experiment management.
 
 The [core / physics / games restructure](plans/2026-11-12-core-physics-games-restructure.md)
 has its Prompt 0 regression tests for environment rollouts, legacy checkpoints,
-and callback order. Prompt 1's task registry is implemented; Prompt 2's
-task-specific hook extraction is next.
+and callback order. Prompt 1's task registry is implemented. Prompt 2 is in
+progress: configuration validation, GUI schemas, and arena evaluation use task
+hooks; training environment construction and callback extraction remain.
 
 Mixed-terrain generalisation study. Two consecutive negative results recorded:
 
@@ -74,7 +75,7 @@ None identified from repository evidence.
 
 | Check | Status |
 |---|---|
-| `pytest -q --cov=src/rl_framework --cov-fail-under=60` | Passed locally with 503 tests and 82.83% coverage. The untouched baseline had 492 tests and 82.70% coverage. |
+| `pytest -q --cov=src/rl_framework --cov-fail-under=60` | Passed locally with 507 tests and 83.38% coverage after the arena evaluation extraction. The untouched baseline had 492 tests and 82.70% coverage. |
 | `ruff check src tests scripts` | Passed locally. |
 | `python scripts/check_repo_policy.py` | Passed locally. |
 | `mypy src --ignore-missing-imports` | Runs in CI, **non-blocking**. |
