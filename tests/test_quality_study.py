@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from rl_framework.envs.locomotion import quality_study as walker_study
 from rl_framework.envs.organisms import quality_study as arena_study
 from rl_framework.training import quality_study
 from rl_framework.training.quality_study import StopOnWallClock, run_quality_study
@@ -88,7 +89,7 @@ def test_walker_quality_study_persists_results_and_is_resumable(
 
     monkeypatch.setattr(quality_study, "train", fake_train)
     monkeypatch.setattr(
-        quality_study,
+        walker_study,
         "evaluate_walker_transfer_suite",
         lambda cfg, path, episodes: {
             terrain: _diagnostic_result()
@@ -104,14 +105,14 @@ def test_walker_quality_study_persists_results_and_is_resumable(
         eval_episodes=1,
     )
     assert first["completed"] is True
-    assert len(train_calls) == len(quality_study.WALKER_VARIANTS)
+    assert len(train_calls) == len(walker_study.WALKER_VARIANTS)
     assert {
         cfg["experiment_name"].removeprefix("quality_walker_") for cfg in train_calls
-    } == set(quality_study.WALKER_VARIANTS)
+    } == set(walker_study.WALKER_VARIANTS)
     for cfg in train_calls:
         assert {
-            key: cfg["training"][key] for key in quality_study.WALKER_STUDY_TRAINING
-        } == quality_study.WALKER_STUDY_TRAINING
+            key: cfg["training"][key] for key in walker_study.WALKER_STUDY_TRAINING
+        } == walker_study.WALKER_STUDY_TRAINING
         assert cfg["environment"]["sim"]["mass"] == 28.0
         assert 0 < cfg["environment"]["sim"]["action_scale"] <= 1.0
         assert cfg["training"]["log_std_init"] <= -1.0
@@ -130,7 +131,7 @@ def test_walker_quality_study_persists_results_and_is_resumable(
         resume=True,
     )
     assert resumed["completed"] is True
-    assert len(train_calls) == len(quality_study.WALKER_VARIANTS)
+    assert len(train_calls) == len(walker_study.WALKER_VARIANTS)
 
 
 def test_walker_velocity_study_resumes_balance_checkpoints(
@@ -157,7 +158,7 @@ def test_walker_velocity_study_resumes_balance_checkpoints(
 
     monkeypatch.setattr(quality_study, "train", fake_train)
     monkeypatch.setattr(
-        quality_study,
+        walker_study,
         "evaluate_walker_checkpoint",
         lambda cfg, path, episodes: _diagnostic_result(),
     )
@@ -172,7 +173,7 @@ def test_walker_velocity_study_resumes_balance_checkpoints(
     )
 
     assert result["completed"] is True
-    assert len(train_calls) == len(quality_study.WALKER_VELOCITY_VARIANTS)
+    assert len(train_calls) == len(walker_study.WALKER_VELOCITY_VARIANTS)
     assert all(resume_from == source_model for _, resume_from in train_calls)
     assert {
         cfg["environment"]["reward"]["velocity_sigma"] for cfg, _ in train_calls
@@ -205,7 +206,7 @@ def test_walker_gait_study_resumes_seed_matched_continuations(
 
     monkeypatch.setattr(quality_study, "train", fake_train)
     monkeypatch.setattr(
-        quality_study,
+        walker_study,
         "evaluate_walker_checkpoint",
         lambda cfg, path, episodes: _diagnostic_result(),
     )
@@ -220,7 +221,7 @@ def test_walker_gait_study_resumes_seed_matched_continuations(
     )
 
     assert result["completed"] is True
-    assert len(train_calls) == len(quality_study.WALKER_GAIT_VARIANTS)
+    assert len(train_calls) == len(walker_study.WALKER_GAIT_VARIANTS)
     assert all(resume_from == source_model for _, resume_from in train_calls)
     assert {
         cfg["environment"]["reward"]["velocity_sigma"] for cfg, _ in train_calls
@@ -234,11 +235,11 @@ def test_walker_gait_study_resumes_seed_matched_continuations(
 
 
 def test_walker_velocity_ramp_requires_frozen_gates_and_control_improvement() -> None:
-    assert quality_study.WALKER_VELOCITY_RAMP_VARIANTS == {
+    assert walker_study.WALKER_VELOCITY_RAMP_VARIANTS == {
         "control": {},
         "ramp_to_100": {"target_velocity_end": 1.0},
     }
-    assert quality_study.WALKER_VELOCITY_RAMP_STEPS == 3_000_000
+    assert walker_study.WALKER_VELOCITY_RAMP_STEPS == 3_000_000
 
     control = _diagnostic_result()
     candidate = _diagnostic_result()
@@ -248,7 +249,7 @@ def test_walker_velocity_ramp_requires_frozen_gates_and_control_improvement() ->
         "forward_displacement_mean": 1.5,
     }
 
-    aggregate = quality_study._aggregate_walker_velocity_ramp_results(
+    aggregate = walker_study._aggregate_walker_velocity_ramp_results(
         {"control/seed_21": control, "ramp_to_100/seed_21": candidate}
     )
 
@@ -297,7 +298,7 @@ def test_walker_slip_recovery_gate_rejects_sliding_and_selects_sole_winner() -> 
         "gait_alternating_touchdowns_per_100_steps_mean": 4.0,
     }
 
-    result = quality_study._aggregate_walker_slip_recovery_results(
+    result = walker_study._aggregate_walker_slip_recovery_results(
         {"control": control, "slip_cost_025": candidate}
     )
 
@@ -308,7 +309,7 @@ def test_walker_slip_recovery_gate_rejects_sliding_and_selects_sole_winner() -> 
 
 
 def test_walker_slip_recovery_continuation_keeps_final_target_fixed() -> None:
-    cfg = quality_study._slip_recovery_base_cfg(
+    cfg = walker_study._slip_recovery_base_cfg(
         Path("src/rl_framework/configs/experiments"),
         1.25,
     )
@@ -334,16 +335,16 @@ def test_walker_action_memory_dry_run_reports_matched_new_lineages(
 
 
 def test_walker_action_memory_base_changes_only_observation_between_arms() -> None:
-    base = quality_study._action_memory_base_cfg(
+    base = walker_study._action_memory_base_cfg(
         Path("src/rl_framework/configs/experiments")
     )
     control = quality_study.deepcopy(base)
     candidate = quality_study.deepcopy(base)
     quality_study._apply_overrides(
-        control, quality_study.WALKER_ACTION_MEMORY_VARIANTS["control"]
+        control, walker_study.WALKER_ACTION_MEMORY_VARIANTS["control"]
     )
     quality_study._apply_overrides(
-        candidate, quality_study.WALKER_ACTION_MEMORY_VARIANTS["previous_action"]
+        candidate, walker_study.WALKER_ACTION_MEMORY_VARIANTS["previous_action"]
     )
 
     assert control["environment"]["observation"]["include_previous_action"] is False
@@ -369,14 +370,14 @@ def test_walker_action_memory_gate_rejects_chatter_and_accepts_real_gait() -> No
     chattering = quality_study.deepcopy(passing)
     chattering["stochastic"]["gait_alternating_touchdowns_per_100_steps_mean"] = 20.0
 
-    assert quality_study._walker_action_memory_gate_result(passing)[
+    assert walker_study._walker_action_memory_gate_result(passing)[
         "metrics_gate_passed"
     ]
-    rejected = quality_study._walker_action_memory_gate_result(chattering)
+    rejected = walker_study._walker_action_memory_gate_result(chattering)
     assert not rejected["metrics_gate_passed"]
     assert rejected["automatic_exploit_flags"]["contact_chatter"]
 
-    aggregate = quality_study._aggregate_walker_action_memory_results(
+    aggregate = walker_study._aggregate_walker_action_memory_results(
         {"control": chattering, "previous_action": passing}
     )
     assert aggregate["objective_winner"] == "previous_action"
@@ -413,12 +414,12 @@ def test_walker_action_memory_smoke_stays_in_phase1_below_evidence_budget(
     )
     monkeypatch.setattr(quality_study, "train", fake_train)
     monkeypatch.setattr(
-        quality_study,
+        walker_study,
         "evaluate_walker_checkpoint",
         lambda cfg, path, episodes: quality_study.deepcopy(diagnostics),
     )
     monkeypatch.setattr(
-        quality_study,
+        walker_study,
         "collect_walker_fall_recovery_telemetry",
         lambda cfg, path, episodes, render_dir: {"falls": []},
     )
@@ -471,20 +472,20 @@ def test_walker_action_memory_confirms_three_seeds_before_transfer(
             "gait_contact_point_slip_speed_mean": 0.17,
         }
     )
-    monkeypatch.setattr(quality_study, "WALKER_ACTION_MEMORY_SCREEN_STEPS", 100)
+    monkeypatch.setattr(walker_study, "WALKER_ACTION_MEMORY_SCREEN_STEPS", 100)
     monkeypatch.setattr(quality_study, "train", fake_train)
     monkeypatch.setattr(
-        quality_study,
+        walker_study,
         "evaluate_walker_checkpoint",
         lambda cfg, path, episodes: quality_study.deepcopy(passing),
     )
     monkeypatch.setattr(
-        quality_study,
+        walker_study,
         "collect_walker_fall_recovery_telemetry",
         lambda cfg, path, episodes, render_dir: {"falls": []},
     )
     monkeypatch.setattr(
-        quality_study,
+        walker_study,
         "evaluate_walker_transfer_suite",
         lambda cfg, path, episodes: {"flat": quality_study.deepcopy(passing)},
     )
@@ -595,7 +596,7 @@ def test_walker_behavior_gate_requires_robust_transfer() -> None:
             "peak_z_mean": 0.8,
         }
 
-    aggregate = quality_study._aggregate_walker_results(
+    aggregate = walker_study._aggregate_walker_results(
         {
             "candidate/seed_0": {
                 terrain: passing
@@ -623,7 +624,7 @@ def test_walker_balance_gate_requires_stochastic_stability_on_flat() -> None:
         "peak_z_mean": 0.8,
     }
 
-    aggregate = quality_study._aggregate_walker_results(
+    aggregate = walker_study._aggregate_walker_results(
         {"candidate/seed_0": {"flat": passing}}
     )
 
@@ -647,7 +648,7 @@ def test_walker_balance_gate_rejects_deterministic_only_balance() -> None:
         "fall_rate": 0.5,
     }
 
-    aggregate = quality_study._aggregate_walker_results(
+    aggregate = walker_study._aggregate_walker_results(
         {"candidate/seed_0": {"flat": failing}}
     )
 
@@ -672,7 +673,7 @@ def test_walker_velocity_gate_requires_every_seed_to_pass() -> None:
         },
     }
 
-    aggregate = quality_study._aggregate_walker_velocity_results(
+    aggregate = walker_study._aggregate_walker_velocity_results(
         {
             "candidate/seed_0": passing,
             "candidate/seed_1": failing,
@@ -697,7 +698,7 @@ def test_walker_gait_gate_rejects_behavior_without_gait_structure() -> None:
         },
     }
 
-    aggregate = quality_study._aggregate_walker_gait_results(
+    aggregate = walker_study._aggregate_walker_gait_results(
         {
             "candidate/seed_0": passing,
             "candidate/seed_1": not_stepping,
@@ -719,7 +720,7 @@ def test_walker_gait_gate_v4_contract_is_frozen() -> None:
     no double support by definition, so any floor would forbid the preferred
     gait. Its anti-degenerate role passes to `max_contact_duty_imbalance`.
     """
-    gate = quality_study.WALKER_GAIT_GATE
+    gate = walker_study.WALKER_GAIT_GATE
     assert gate["gate_version"] == 4
     # The whole-phase metric carried a landing transient (10-41% of its value,
     # gait-dependent) that is not sliding and scales with locomotion speed.
@@ -757,7 +758,7 @@ def test_walker_gate_thresholds_do_not_track_the_commanded_schedule() -> None:
             "gait_contact_duty_imbalance_mean": 0.40,
         }
         degenerate["environment"] = {"gait": {"stance_duty": stance_duty}}
-        assert quality_study._walker_gait_passed(degenerate) is False, (
+        assert walker_study._walker_gait_passed(degenerate) is False, (
             f"degenerate gait must fail at stance_duty={stance_duty}"
         )
 
@@ -765,10 +766,10 @@ def test_walker_gate_thresholds_do_not_track_the_commanded_schedule() -> None:
     # rejection above is attributable and the assertion is not vacuous.
     healthy = _diagnostic_result()
     healthy["environment"] = {"gait": {"stance_duty": 0.9}}
-    assert quality_study._walker_gait_passed(healthy) is True
+    assert walker_study._walker_gait_passed(healthy) is True
 
-    assert "stance_duty" not in quality_study.WALKER_GAIT_GATE
-    assert "nominal_double_support" not in quality_study.WALKER_GAIT_GATE
+    assert "stance_duty" not in walker_study.WALKER_GAIT_GATE
+    assert "nominal_double_support" not in walker_study.WALKER_GAIT_GATE
 
 
 def test_walker_gait_gate_rejects_contact_chatter() -> None:
@@ -787,7 +788,7 @@ def test_walker_gait_gate_rejects_contact_chatter() -> None:
         "gait_foot_clearance_mean": 0.0007,
     }
 
-    aggregate = quality_study._aggregate_walker_gait_results(
+    aggregate = walker_study._aggregate_walker_gait_results(
         {"candidate/seed_0": chatter}
     )
 
@@ -804,7 +805,7 @@ def test_walker_gait_gate_rejects_short_strides_at_valid_cadence() -> None:
         "gait_foot_clearance_mean": 0.001,
     }
 
-    aggregate = quality_study._aggregate_walker_gait_results(
+    aggregate = walker_study._aggregate_walker_gait_results(
         {"candidate/seed_0": mincing}
     )
 
@@ -834,10 +835,10 @@ def test_walker_gait_gate_rejects_the_asymmetric_bound() -> None:
 
     # The bound now passes the (loosened) flight ceiling, so symmetry is load
     # bearing rather than incidental.
-    assert 0.576 <= quality_study.WALKER_GAIT_GATE["max_flight_fraction"]
-    assert imbalance > quality_study.WALKER_GAIT_GATE["max_contact_duty_imbalance"]
+    assert 0.576 <= walker_study.WALKER_GAIT_GATE["max_flight_fraction"]
+    assert imbalance > walker_study.WALKER_GAIT_GATE["max_contact_duty_imbalance"]
 
-    aggregate = quality_study._aggregate_walker_gait_results(
+    aggregate = walker_study._aggregate_walker_gait_results(
         {"candidate/seed_0": bound}
     )
     assert aggregate["rankings"][0]["per_seed_passed"] == {"seed_0": False}
@@ -857,7 +858,7 @@ def test_walker_gait_gate_v3_admits_a_symmetric_run() -> None:
         "gait_contact_duty_imbalance_mean": 0.02,
     }
 
-    aggregate = quality_study._aggregate_walker_gait_results(
+    aggregate = walker_study._aggregate_walker_gait_results(
         {"candidate/seed_0": running}
     )
     assert aggregate["rankings"][0]["per_seed_passed"] == {"seed_0": True}
@@ -891,7 +892,7 @@ def test_walker_gait_gate_ignores_pivoting_and_landing_transients() -> None:
         "gait_mid_stance_contact_point_slip_speed_mean": 0.19,
     }
 
-    aggregate = quality_study._aggregate_walker_gait_results(
+    aggregate = walker_study._aggregate_walker_gait_results(
         {
             "pivoting/seed_0": pivoting,
             "sliding/seed_0": sliding,
@@ -914,7 +915,7 @@ def test_walker_gait_score_does_not_reward_raw_cadence() -> None:
         "gait_foot_clearance_mean": 0.005,
     }
 
-    aggregate = quality_study._aggregate_walker_gait_results(
+    aggregate = walker_study._aggregate_walker_gait_results(
         {
             "strides/seed_0": long_strides,
             "shuffle/seed_0": fast_shuffle,
@@ -1016,7 +1017,7 @@ def test_resumes_pre_split_study_state(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.setattr(quality_study, "train", fake_train)
     monkeypatch.setattr(
-        quality_study, "evaluate_walker_transfer_suite",
+        walker_study, "evaluate_walker_transfer_suite",
         lambda cfg, path, episodes: {
             terrain: _diagnostic_result()
             for terrain in ("flat", "uneven", "obstacles", "push_recovery")
@@ -1028,5 +1029,5 @@ def test_resumes_pre_split_study_state(tmp_path: Path, monkeypatch) -> None:
     )
     assert result["completed"] is True
     assert saved_key.removeprefix("walker/") in result["results"]["walker"]["runs"]
-    assert len(trained) == len(quality_study.WALKER_VARIANTS) - 1
+    assert len(trained) == len(walker_study.WALKER_VARIANTS) - 1
     assert saved_run["config"]["experiment_name"] not in trained

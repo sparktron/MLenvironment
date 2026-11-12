@@ -350,3 +350,11 @@ def _run_arena_study(
         "promotion_ready": bool(evidence_ready and promoted_depth_variant is not None),
     }
 
+
+
+def study_specs():
+    from rl_framework.core.studies import StudySpec
+
+    return (StudySpec("arena", "arena", _run_arena_study,
+        len(ARENA_RESOURCE_VARIANTS) + len(ARENA_DEPTH_VARIANTS),
+        30_000, 7, include_in_all=True),)

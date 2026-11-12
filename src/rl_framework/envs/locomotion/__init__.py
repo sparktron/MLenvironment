@@ -8,8 +8,13 @@ def _train_callbacks(cfg, paths, slot):
     return train_callbacks(cfg, paths, slot)
 
 
+def _studies():
+    from .quality_study import study_specs
+    return study_specs()
+
+
 register_task(TaskSpec(
-    name="walker_bullet", make_env=WalkerBulletEnv, validate_config=validate_config, gui_schema=gui_schema,
+    studies=_studies, name="walker_bullet", make_env=WalkerBulletEnv, validate_config=validate_config, gui_schema=gui_schema,
     train_callbacks=_train_callbacks,
     capabilities=frozenset({"off_policy", "best_model_eval", "velocity_target_ramp"}),
 ))

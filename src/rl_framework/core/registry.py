@@ -19,6 +19,7 @@ class TaskSpec:
     build_eval_vec_env: Callable[..., Any] | None = None
     evaluate_rollouts: Callable[..., Any] | None = None
     train_callbacks: Callable[..., Any] | None = None
+    studies: Callable[..., Any] | None = None
     capabilities: frozenset[str] = frozenset()
 
 

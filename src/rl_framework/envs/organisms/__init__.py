@@ -19,8 +19,13 @@ def _build_train_vec_env(cfg, paths, render_env_index):
     return build_train_vec_env(cfg, paths, render_env_index)
 
 
+def _studies():
+    from .quality_study import study_specs
+    return study_specs()
+
+
 register_task(TaskSpec(
-    name="organism_arena_parallel", make_env=_make_arena, validate_config=validate_config, gui_schema=gui_schema,
+    studies=_studies, name="organism_arena_parallel", make_env=_make_arena, validate_config=validate_config, gui_schema=gui_schema,
     build_train_vec_env=_build_train_vec_env, train_callbacks=_train_callbacks,
     build_eval_vec_env=build_eval_vec_env, evaluate_rollouts=evaluate_rollouts,
 ))
