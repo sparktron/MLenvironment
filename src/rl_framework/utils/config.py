@@ -7,6 +7,8 @@ from typing import Any
 
 from omegaconf import DictConfig, OmegaConf
 
+from rl_framework.core.registry import get_task, registered_tasks
+
 
 def load_config(config_name: str, config_dir: str | Path) -> DictConfig:
     path = Path(config_dir) / f"{config_name}.yaml"
@@ -41,8 +43,10 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
     algorithm = str(cfg["training"].get("algorithm", "PPO")).upper()
     if algorithm not in {"PPO", "SAC", "TD3"}:
         raise ValueError("training.algorithm must be one of ['PPO', 'SAC', 'TD3']")
-    if algorithm in {"SAC", "TD3"} and cfg["environment"].get("type") != "walker_bullet":
-        raise ValueError("training.algorithm SAC/TD3 currently support walker_bullet only")
+    spec = get_task(cfg["environment"]["type"])
+    if algorithm in {"SAC", "TD3"} and "off_policy" not in spec.capabilities:
+        supported = ", ".join(name for name in registered_tasks() if "off_policy" in get_task(name).capabilities)
+        raise ValueError(f"training.algorithm SAC/TD3 currently support {supported} only")
 
     if "learning_rate" in cfg["training"]:
         _ensure_positive_number(cfg["training"]["learning_rate"], "training.learning_rate")
@@ -163,9 +167,10 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
 
     best_model_cfg = eval_cfg.get("best_model", {})
     if best_model_cfg.get("enabled", False):
-        if cfg["environment"].get("type") != "walker_bullet":
+        if "best_model_eval" not in spec.capabilities:
+            supported = ", ".join(name for name in registered_tasks() if "best_model_eval" in get_task(name).capabilities)
             raise ValueError(
-                "evaluation.best_model is currently supported only for walker_bullet"
+                f"evaluation.best_model is currently supported only for {supported}"
             )
         _ensure_int(
             best_model_cfg.get("eval_every", 50_000),
@@ -184,7 +189,8 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
                 min_value=1,
             )
 
-    _validate_env_specific(cfg)
+    if spec.validate_config is not None:
+        spec.validate_config(cfg)
     _validate_curriculum(cfg)
 
 
@@ -249,154 +255,6 @@ def _ensure_positive_number(value: Any, key: str) -> None:
         raise TypeError(f"Config key '{key}' must be a number, got {type(value).__name__}")
     if value <= 0:
         raise ValueError(f"Config key '{key}' must be > 0, got {value}")
-
-
-def _validate_env_specific(cfg: dict[str, Any]) -> None:
-    """Validate environment-type-specific config fields."""
-    env_cfg = cfg.get("environment", {})
-    env_type = env_cfg.get("type", "")
-
-    if env_type == "walker_bullet":
-        sim = env_cfg.get("sim", {})
-        action_scale = sim.get("action_scale", 1.0)
-        if (
-            isinstance(action_scale, bool)
-            or not isinstance(action_scale, (int, float))
-            or not 0 < action_scale <= 1
-        ):
-            raise ValueError(
-                "environment.sim.action_scale must be a number in (0, 1], "
-                f"got {action_scale!r}"
-            )
-        observation = env_cfg.get("observation", {})
-        version = observation.get("version", "v1")
-        if version not in {"v1", "v2"}:
-            raise ValueError("environment.observation.version must be 'v1' or 'v2'")
-        coordinate_free = observation.get("coordinate_free", False)
-        if not isinstance(coordinate_free, bool):
-            raise TypeError("environment.observation.coordinate_free must be bool")
-        if coordinate_free and version != "v2":
-            raise ValueError("environment.observation.coordinate_free requires version 'v2'")
-        reward = env_cfg.get("reward", {})
-        for key in (
-            "alive_bonus",
-            "forward_velocity_weight",
-            "orientation_penalty_weight",
-            "torque_penalty_weight",
-            "gait_step_progress_weight",
-            "gait_step_progress_clip",
-            "swing_touchdown_progress_weight",
-            "swing_touchdown_progress_clip",
-            "stance_slip_penalty_weight",
-            "stance_slip_penalty_clip",
-        ):
-            if key in reward:
-                val = reward[key]
-                if isinstance(val, bool) or not isinstance(val, (int, float)) or val < 0:
-                    raise ValueError(
-                        f"environment.reward.{key} must be a non-negative number, got {val!r}"
-                    )
-        gait = env_cfg.get("gait", {})
-        if "touchdown_debounce_steps" in gait:
-            _ensure_int(
-                gait["touchdown_debounce_steps"],
-                "environment.gait.touchdown_debounce_steps",
-                min_value=1,
-            )
-        for key in ("min_swing_duration", "min_foot_clearance"):
-            if key in gait:
-                value = gait[key]
-                if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
-                    raise ValueError(
-                        f"environment.gait.{key} must be a non-negative number, got {value!r}"
-                    )
-        terrain = env_cfg.get("terrain", {})
-        preset = terrain.get("preset", "flat")
-        valid_presets = {"flat", "uneven", "obstacles", "push_recovery"}
-        if preset not in valid_presets:
-            raise ValueError(
-                "environment.terrain.preset must be one of "
-                f"{sorted(valid_presets)}, got {preset!r}"
-            )
-        push = terrain.get("push_recovery", {})
-        for key in ("interval_steps", "start_step"):
-            if key in push:
-                _ensure_int(push[key], f"environment.terrain.push_recovery.{key}", min_value=0)
-        if "force" in push:
-            force = push["force"]
-            if isinstance(force, bool) or not isinstance(force, (int, float)) or force < 0:
-                raise ValueError("environment.terrain.push_recovery.force must be non-negative")
-
-    if env_type == "organism_arena_parallel":
-        num_envs = int(cfg.get("training", {}).get("num_envs", 1))
-        self_play_enabled = bool(cfg.get("self_play", {}).get("enabled", False))
-        if num_envs != 1 and not self_play_enabled:
-            raise ValueError(
-                "Shared-policy organism_arena_parallel training requires "
-                f"training.num_envs == 1 (got {num_envs}). Enable self_play "
-                "to use the native parallel vector-env path."
-            )
-        battle = env_cfg.get("battle_rules", {})
-        for key in ("damage", "attack_range"):
-            if key in battle:
-                val = battle[key]
-                if isinstance(val, bool) or not isinstance(val, (int, float)) or val <= 0:
-                    raise ValueError(
-                        f"environment.battle_rules.{key} must be a positive number, got {val!r}"
-                    )
-        collision_damage = battle.get("collision_damage", 0.0)
-        if (
-            isinstance(collision_damage, bool)
-            or not isinstance(collision_damage, (int, float))
-            or collision_damage < 0
-        ):
-            raise ValueError(
-                "environment.battle_rules.collision_damage must be a "
-                f"non-negative number, got {collision_damage!r}"
-            )
-        morphology = env_cfg.get("morphology", {})
-        valid_morph_keys = {"base_size", "episode_growth_scale", "health"}
-        unknown = set(morphology) - valid_morph_keys
-        if unknown:
-            raise ValueError(
-                f"Unknown environment.morphology keys: {sorted(unknown)}. "
-                f"Valid keys: {sorted(valid_morph_keys)}"
-            )
-        resources = env_cfg.get("resources", {})
-        valid_resource_keys = {
-            "initial_energy", "max_energy", "movement_cost", "attack_cost",
-            "food_count", "food_energy", "food_radius", "food_respawn_steps",
-            "food_placement",
-        }
-        unknown_resources = set(resources) - valid_resource_keys
-        if unknown_resources:
-            raise ValueError(
-                f"Unknown environment.resources keys: {sorted(unknown_resources)}. "
-                f"Valid keys: {sorted(valid_resource_keys)}"
-            )
-        for key in ("initial_energy", "max_energy", "movement_cost", "attack_cost", "food_energy", "food_radius"):
-            if key in resources:
-                _ensure_positive_number(resources[key], f"environment.resources.{key}")
-        for key in ("food_count", "food_respawn_steps"):
-            if key in resources:
-                _ensure_int(resources[key], f"environment.resources.{key}", min_value=0)
-        if resources.get("initial_energy", 1.0) > resources.get("max_energy", 1.0):
-            raise ValueError("environment.resources.initial_energy must be <= max_energy")
-        if resources.get("food_placement", "uniform") not in {"uniform", "center"}:
-            raise ValueError(
-                "environment.resources.food_placement must be 'uniform' or 'center'"
-            )
-        reward = env_cfg.get("reward") or {}
-        approach_weight = reward.get("approach_weight", 0.0)
-        if (
-            isinstance(approach_weight, bool)
-            or not isinstance(approach_weight, (int, float))
-            or approach_weight < 0
-        ):
-            raise ValueError(
-                "environment.reward.approach_weight must be a non-negative "
-                f"number, got {approach_weight!r}"
-            )
 
 
 def _validate_curriculum(cfg: dict[str, Any]) -> None:
