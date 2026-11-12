@@ -1,7 +1,7 @@
 # Restructure into `core` / `physics` / `games` — agent prompt series
 
 **Written:** 2026-11-12 against commit `459511d`.
-**Status:** not started.
+**Status:** Prompt 0 validated. Next is Prompt 1, the task registry.
 
 This file is a sequence of eight prompts. Each one is handed to a fresh coding
 agent, in order, one at a time. Every prompt assumes the agent has read the two
@@ -63,6 +63,14 @@ or the shared-policy arena path; changing observation or action layouts;
 editing experiment YAMLs' hyperparameters; a GPU simulator backend.
 `docs/walker_learning_history.md` is an append-only experiment ledger — this
 work is not an experiment, so do not write to it.
+
+**GPU simulation follow-up.** This machine has an NVIDIA RTX 3090. A
+GPU-parallel simulator such as MJX, Isaac Lab, or Brax could yield orders of
+magnitude more rollout samples per second than 24 PyBullet processes. Verify
+the gain on representative workloads. More rollout samples would matter more
+for the generalisation research than any refactor in this series. A GPU
+simulator requires a backend rewrite, so consider it only after Step 4 has
+established the backend seam, as a separate project.
 
 **Reporting.** End every prompt with: what changed (by commit), the gate
 output tails, the smoke-test output, anything you were asked to do and did not,
@@ -619,6 +627,13 @@ this repo can be loaded without editing it — workers inherit the variable.
 ---
 
 ## Notes for whoever runs the series
+
+- **Prompt 0 baseline.** On 2026-11-12, the untouched `ae6f09b` passed 492 tests
+  at 82.70% coverage on Python 3.11.16 with the locked dependencies. Ruff and
+  the repository policy check passed. The parallel arena test needed a local
+  Unix socket for Python's forkserver, so the full test suite ran outside the
+  sandbox. With the fixtures in place, the full suite passed 503 tests at
+  82.83% coverage. All 11 new tests passed in three fresh processes.
 
 - **What was verified when this was written.** `ruff check src tests scripts`
   passed at `459511d`. The test suite was *not* run — there was no venv on the

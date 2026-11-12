@@ -1,6 +1,6 @@
 # Validation
 
-**Updated:** 2026-08-17 · **Commit:** `aecf61d` · **Branch:** `master`
+**Updated:** 2026-11-12 · **Restructure baseline:** `ae6f09b` · **Branch:** `master`
 
 > **The distinction this document exists to protect:** a green test suite means
 > the code runs. It does not mean a learning result is real. In RL the common
@@ -18,7 +18,17 @@
 `pytest -q --cov=src/rl_framework --cov-fail-under=60`. Coverage floor of 60%
 is a CI gate — note that is a *floor*, and 40% of the package may be uncovered.
 
-**Status: suite present and CI-gated. Not executed in this session.**
+On Python 3.11.16 with the pinned requirements, the untouched baseline
+passed 492 tests at 82.70% coverage. Ruff and the repository policy check
+also passed locally. The sandbox denied the Unix socket used by Python's
+forkserver, so the full test suite was run with local sockets available.
+
+With Prompt 0 in place, 503 tests passed at 82.83% coverage. The 11 new
+tests passed in three fresh pytest processes. The fixtures capture five
+seeded rollout cases, a normalized walker checkpoint, and a normalized arena
+league snapshot. Fixture capture ran two 2,048-step PPO jobs on CPU. The
+regression tests evaluated the walker, resumed it for 256 steps under strict
+provenance, and loaded the arena snapshot through both frozen policy paths.
 
 ### Integration tests
 
@@ -78,7 +88,6 @@ gap for contact-rich locomotion is large.
 
 ## Not yet verified
 
-- **Whether the suite passes at `aecf61d`** — not run here.
 - **What actually produces cross-terrain generalisation.** v11 and v12 both
   failed. The open question is unanswered, not merely untested.
 - **Whether the 60% coverage floor covers the parts that matter** — env
@@ -117,8 +126,8 @@ or anywhere it will be believed later.
 
 | # | Requirement | Status |
 |---|---|---|
-| 1 | `pytest` with the 60% coverage gate passes | not run |
-| 2 | `ruff` clean, `check_repo_policy.py` passes | not run |
+| 1 | `pytest` with the 60% coverage gate passes | passed at the restructure baseline |
+| 2 | `ruff` clean, `check_repo_policy.py` passes | passed locally |
 | 3 | Claim supported by **multi-seed** evidence, not a single run | enforced by convention |
 | 4 | Config recorded — the exact experiment YAML, not a description | — |
 | 5 | Result written to `docs/walker_learning_history.md` **whether or not the hypothesis held** | practised; v11 and v12 are both negative results |

@@ -1,0 +1,56 @@
+{
+  "config": {
+    "environment": {
+      "termination": {
+        "max_steps": 50
+      },
+      "type": "walker_bullet"
+    },
+    "evaluation": {
+      "episodes": 2,
+      "workers": 1
+    },
+    "experiment_name": "legacy_walker",
+    "output": {
+      "base_dir": "outputs/restructure-prompt0-fixtures"
+    },
+    "reproducibility": {
+      "strict": true
+    },
+    "seed": 11,
+    "training": {
+      "algorithm": "PPO",
+      "batch_size": 32,
+      "device": "cpu",
+      "learning_rate": 0.0003,
+      "learning_rate_end": 0.0001,
+      "n_epochs": 2,
+      "n_steps": 64,
+      "normalize_observations": true,
+      "num_envs": 1,
+      "torch_num_threads": 1,
+      "total_timesteps": 2048
+    }
+  },
+  "config_hash_sha256": "c2605bbf786117603d610c7cfef1ae6f68f8499888cbd68d75ca498440f35dda",
+  "created_at_utc": "2026-11-12T18:13:50.052119+00:00",
+  "experiment_name": "legacy_walker",
+  "git": {
+    "branch": "master",
+    "commit": "ae6f09b6977052b0da274cd032f633a2b1f424ee",
+    "is_dirty": false
+  },
+  "lockfile": {
+    "path": "requirements-lock.txt",
+    "sha256": "624093736bd96773264d59298019959f383ae4e318883f305d0d7625db3e188a"
+  },
+  "resume_from": null,
+  "runtime": {
+    "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+    "python_version": "3.11.16 (main, Sep 29 2026, 14:59:26) [Clang 22.1.3 ]"
+  },
+  "schema_version": 1,
+  "seed": 11,
+  "strict_reproducibility": true,
+  "warnings": []
+}

@@ -1,9 +1,6 @@
 # Current Status
 
-**Updated:** 2026-08-17 · **Branch:** `master` · **Commit:** `aecf61d`
-
-> Compiled from repository evidence (git history, `docs/`, config) on
-> 2026-08-17. Nothing was run — see Validation state.
+**Updated:** 2026-11-12 · **Branch:** `master` · **Restructure baseline:** `ae6f09b`
 
 ## Objective
 
@@ -29,6 +26,10 @@ experiment configs through one CLI, with a Flask GUI for experiment management.
   and operations) are **complete** per `docs/open_items_todo.md` (2026-08-06).
 
 ## Active work
+
+The [core / physics / games restructure](plans/2026-11-12-core-physics-games-restructure.md)
+has its Prompt 0 regression tests for environment rollouts, legacy checkpoints,
+and callback order. The next implementation step is Prompt 1's task registry.
 
 Mixed-terrain generalisation study. Two consecutive negative results recorded:
 
@@ -72,9 +73,9 @@ None identified from repository evidence.
 
 | Check | Status |
 |---|---|
-| `pytest -q --cov=src/rl_framework --cov-fail-under=60` | CI target. **Not run in this session.** |
-| `ruff check src tests scripts` | CI. **Not run in this session.** |
-| `python scripts/check_repo_policy.py` | Custom gate — no tracked `__pycache__`/`.venv`/`.egg-info`, lockfile completeness. **Not run.** |
+| `pytest -q --cov=src/rl_framework --cov-fail-under=60` | Passed locally with 503 tests and 82.83% coverage. The untouched baseline had 492 tests and 82.70% coverage. |
+| `ruff check src tests scripts` | Passed locally. |
+| `python scripts/check_repo_policy.py` | Passed locally. |
 | `mypy src --ignore-missing-imports` | Runs in CI, **non-blocking**. |
 | Learning results | Multi-seed evidence recorded in `docs/walker_learning_history.md` through v12. |
 
@@ -83,7 +84,6 @@ held": [`VALIDATION.md`](VALIDATION.md).
 
 ## Unverified
 
-- Whether the working tree passes the suite at `aecf61d`.
 - The purpose of the root-level `rl_framework/__init__.py`.
 - Whether the 75 directories under `outputs/` correspond to the runs described
   in the learning history. `outputs/` is gitignored, so this cannot be
