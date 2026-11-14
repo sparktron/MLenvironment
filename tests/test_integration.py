@@ -331,7 +331,7 @@ def test_arena_eval_on_trained_checkpoint(tmp_path: Path) -> None:
 
     Exercises load_frozen_policy on a real PPO checkpoint with sibling
     vecnormalize.pkl discovery and the full episode-driving loop."""
-    from rl_framework.training.arena_eval import run_arena_eval
+    from rl_framework.games.arena.arena_eval import run_arena_eval
     from rl_framework.core.training.sb3_runner import train
 
     cfg = _arena_cfg(tmp_path, timesteps=256)
@@ -353,7 +353,7 @@ def test_arena_tournament_on_trained_checkpoint(tmp_path: Path) -> None:
     """Train one arena checkpoint, then run a round-robin tournament of it vs a
     random baseline through the real run_arena_eval path. Exercises competitor
     resolution, the Bradley-Terry rating, and JSON/markdown output end to end."""
-    from rl_framework.training.arena_tournament import run_tournament
+    from rl_framework.games.arena.arena_tournament import run_tournament
     from rl_framework.core.training.sb3_runner import train
 
     cfg = _arena_cfg(tmp_path, timesteps=256)

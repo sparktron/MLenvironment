@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from rl_framework.core.registry import make_env
-from rl_framework.training.self_play_env_wrapper import (
+from rl_framework.games.arena.self_play_env_wrapper import (
     LeagueSampler,
     SelfPlayEnvWrapper,
     SingleAgentArenaEnv,
@@ -232,7 +232,7 @@ def test_league_sampler_loads_and_caches_from_disk(monkeypatch, tmp_path) -> Non
         return _FakeModel()
 
     monkeypatch.setattr(
-        "rl_framework.training.self_play_env_wrapper.PPO.load", _fake_load
+        "rl_framework.games.arena.self_play_env_wrapper.PPO.load", _fake_load
     )
     sampler = LeagueSampler(tmp_path, seed=0)
     first = sampler.sample()
@@ -256,7 +256,7 @@ def test_league_sampler_recent_bias_prefers_latest(monkeypatch, tmp_path) -> Non
         (tmp_path / f"selfplay_{ts}.zip").write_text("x", encoding="utf-8")
 
     monkeypatch.setattr(
-        "rl_framework.training.self_play_env_wrapper.PPO.load",
+        "rl_framework.games.arena.self_play_env_wrapper.PPO.load",
         lambda p, **_kwargs: str(p),
     )
     sampler = LeagueSampler(
@@ -312,11 +312,11 @@ def test_league_sampler_prewarms_newest_with_sidecar(monkeypatch, tmp_path):
 
     loaded: list[str] = []
     monkeypatch.setattr(
-        "rl_framework.training.self_play_env_wrapper.PPO.load",
+        "rl_framework.games.arena.self_play_env_wrapper.PPO.load",
         lambda p, **_kwargs: loaded.append(str(p)) or object(),
     )
     monkeypatch.setattr(
-        "rl_framework.training.self_play_env_wrapper.load_obs_normalizer",
+        "rl_framework.games.arena.self_play_env_wrapper.load_obs_normalizer",
         lambda p: None,
     )
     sampler = LeagueSampler(tmp_path, seed=0)
@@ -330,7 +330,7 @@ def test_league_sampler_no_prewarm_without_sidecar(monkeypatch, tmp_path):
     snapshot mid-write); it still loads lazily on sample()."""
     (tmp_path / "selfplay_100.zip").write_text("x", encoding="utf-8")
     monkeypatch.setattr(
-        "rl_framework.training.self_play_env_wrapper.PPO.load",
+        "rl_framework.games.arena.self_play_env_wrapper.PPO.load",
         lambda p, **_kwargs: object(),
     )
     sampler = LeagueSampler(tmp_path, seed=0)
@@ -349,12 +349,12 @@ def test_league_sampler_attaches_late_sidecar_to_cached_snapshot(monkeypatch, tm
 
     (tmp_path / "selfplay_100.zip").write_text("x", encoding="utf-8")
     monkeypatch.setattr(
-        "rl_framework.training.self_play_env_wrapper.PPO.load",
+        "rl_framework.games.arena.self_play_env_wrapper.PPO.load",
         lambda p, **_kwargs: object(),
     )
     sidecars = {"selfplay_100_vecnorm.pkl": None}
     monkeypatch.setattr(
-        "rl_framework.training.self_play_env_wrapper.load_obs_normalizer",
+        "rl_framework.games.arena.self_play_env_wrapper.load_obs_normalizer",
         lambda p: sidecars.get(pathlib.Path(p).name),
     )
     sampler = LeagueSampler(tmp_path, seed=0)
@@ -374,7 +374,7 @@ def test_league_sampler_drops_pruned_snapshot_from_cache(monkeypatch, tmp_path):
 
     (tmp_path / "selfplay_100.zip").write_text("x", encoding="utf-8")
     monkeypatch.setattr(
-        "rl_framework.training.self_play_env_wrapper.PPO.load",
+        "rl_framework.games.arena.self_play_env_wrapper.PPO.load",
         lambda p, **_kwargs: object(),
     )
     sampler = LeagueSampler(tmp_path, seed=0)

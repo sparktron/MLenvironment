@@ -18,7 +18,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, cast
 
-from rl_framework.training.arena_eval import run_arena_eval, run_n_agent_eval
+from rl_framework.games.arena.arena_eval import run_arena_eval, run_n_agent_eval
 
 # Elo scale constants: a 400-point gap ⇒ ~10:1 expected odds.
 _ELO_BASE = 1500.0

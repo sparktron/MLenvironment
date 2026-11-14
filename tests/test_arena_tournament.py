@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from rl_framework.training import arena_tournament
-from rl_framework.training.arena_tournament import (
+from rl_framework.games.arena import arena_tournament
+from rl_framework.games.arena.arena_tournament import (
     _bradley_terry_elo,
     _unique_labels,
     resolve_competitors,

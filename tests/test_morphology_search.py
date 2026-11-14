@@ -26,8 +26,8 @@ def test_morphology_search_picks_highest_score(monkeypatch):
     """tournament_elo is the default scoring mode (no morphology_search key
     set at all here) — mean_return was rejected because morphology search
     only targets the zero-sum arena, where it ranks trials on noise."""
-    from rl_framework.training import morphology_search as ms
-    from rl_framework.training import arena_tournament
+    from rl_framework.games.arena import morphology_search as ms
+    from rl_framework.games.arena import arena_tournament
     from rl_framework.core.training import sb3_runner
 
     trained_paths: list[str] = []
@@ -87,7 +87,7 @@ def test_morphology_search_rejects_mean_return_scoring():
     search only targets organism_arena_parallel (zero-sum), so shared-policy
     mean_return sums to ~0 by construction. Reject it outright rather than
     silently ranking trials on noise."""
-    from rl_framework.training import morphology_search as ms
+    from rl_framework.games.arena import morphology_search as ms
 
     cfg = _base_cfg()
     cfg["morphology_search"] = {"scoring": "mean_return"}
@@ -96,7 +96,7 @@ def test_morphology_search_rejects_mean_return_scoring():
 
 
 def test_morphology_search_rejects_unknown_scoring():
-    from rl_framework.training import morphology_search as ms
+    from rl_framework.games.arena import morphology_search as ms
 
     cfg = _base_cfg()
     cfg["morphology_search"] = {"scoring": "bogus"}
@@ -105,14 +105,14 @@ def test_morphology_search_rejects_unknown_scoring():
 
 
 def test_as_model_zip_path_keeps_existing_zip_suffix() -> None:
-    from rl_framework.training.morphology_search import _as_model_zip_path
+    from rl_framework.games.arena.morphology_search import _as_model_zip_path
 
     assert _as_model_zip_path("/tmp/model.zip") == "/tmp/model.zip"
     assert _as_model_zip_path("/tmp/model") == "/tmp/model.zip"
 
 
 def test_morphology_search_rejects_non_arena_env(monkeypatch):
-    from rl_framework.training import morphology_search as ms
+    from rl_framework.games.arena import morphology_search as ms
 
     cfg = _base_cfg()
     cfg["environment"]["type"] = "walker_bullet"
@@ -121,16 +121,16 @@ def test_morphology_search_rejects_non_arena_env(monkeypatch):
 
 
 def test_morphology_search_requires_positive_trials():
-    from rl_framework.training import morphology_search as ms
+    from rl_framework.games.arena import morphology_search as ms
 
     with pytest.raises(ValueError, match="trials"):
         ms.run_morphology_search(_base_cfg(), trials=0)
 
 
 def test_morphology_search_can_score_by_tournament_elo(monkeypatch):
-    from rl_framework.training import morphology_search as ms
+    from rl_framework.games.arena import morphology_search as ms
     from rl_framework.core.training import sb3_runner
-    from rl_framework.training import arena_tournament
+    from rl_framework.games.arena import arena_tournament
 
     monkeypatch.setattr(
         sb3_runner, "train", lambda cfg: f"/tmp/{cfg['output']['run_id']}.zip"

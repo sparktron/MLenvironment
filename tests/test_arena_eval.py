@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from rl_framework.training.arena_eval import _play_episode, run_arena_eval
-from rl_framework.training.self_play_env_wrapper import (
+from rl_framework.games.arena.arena_eval import _play_episode, run_arena_eval
+from rl_framework.games.arena.self_play_env_wrapper import (
     FrozenPolicy,
     RandomPolicy,
     load_frozen_policy,

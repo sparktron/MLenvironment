@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 from rl_framework.core.training.callbacks.curriculum_callback import CurriculumCallback
-from rl_framework.training.reward_annealing_callback import RewardAnnealingCallback
+from rl_framework.games.arena.reward_annealing_callback import RewardAnnealingCallback
 from rl_framework.physics.locomotion.training import WalkerMetricsCallback
-from rl_framework.envs.organisms.training import ArenaMetricsCallback
+from rl_framework.games.arena.training import ArenaMetricsCallback
 
 
 class _FakeVecEnv:

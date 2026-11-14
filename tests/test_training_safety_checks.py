@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from rl_framework.training.self_play_callback import SelfPlayCallback
+from rl_framework.games.arena.self_play_callback import SelfPlayCallback
 from rl_framework.core.config.config_merge import set_nested
 
 
@@ -160,7 +160,7 @@ def test_self_play_sample_opponent_uses_cache(monkeypatch, tmp_path) -> None:
         calls["count"] += 1
         return _FakeModel()
 
-    monkeypatch.setattr("rl_framework.training.self_play_callback.PPO.load", _fake_load)
+    monkeypatch.setattr("rl_framework.games.arena.self_play_callback.PPO.load", _fake_load)
     first = callback.sample_opponent()
     second = callback.sample_opponent()
     assert first is second
@@ -180,7 +180,7 @@ def test_self_play_recent_bias_sampling_prefers_latest_entry(
     callback._league = deque([tmp_path / "a", tmp_path / "b", tmp_path / "c"])  # noqa: SLF001
 
     monkeypatch.setattr(
-        "rl_framework.training.self_play_callback.PPO.load", lambda path: str(path)
+        "rl_framework.games.arena.self_play_callback.PPO.load", lambda path: str(path)
     )
     samples = [callback.sample_opponent() for _ in range(300)]
     latest_count = sum(1 for s in samples if str((tmp_path / "c")) in s)

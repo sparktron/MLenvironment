@@ -674,7 +674,7 @@ def launch_league_ratings():
         ), 400
 
     def worker():
-        from rl_framework.training.arena_tournament import run_tournament
+        from rl_framework.games.arena.arena_tournament import run_tournament
 
         paths = [
             str(target / "checkpoints" / "league" / snap["name"]) for snap in snapshots

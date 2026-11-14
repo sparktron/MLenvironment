@@ -50,7 +50,7 @@ python scripts/check_repo_policy.py                    # custom — enforces no 
 - This machine has 24 physical cores / 32 threads. `num_envs: 24` saturates the cores; over-subscription beyond that doesn't help.
 - For SubprocVecEnv launches, prefix with `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` so each subprocess doesn't fight others for threads.
 - PyBullet is CPU-only. Use `device: cpu` for the small MLP policies — GPU is slower for sub-100-dim obs/action spaces because of data-transfer overhead.
-- The `Monitor` wrapper is already wired in `sb3_runner.py`; `rollout/ep_rew_mean` and `rollout/ep_len_mean` appear in TensorBoard at `outputs/<exp>/seed_<seed>/logs/PPO_*/`.
+- The `Monitor` wrapper is already wired in `core/training/sb3_runner.py`; `rollout/ep_rew_mean` and `rollout/ep_len_mean` appear in TensorBoard at `outputs/<exp>/seed_<seed>/logs/PPO_*/`.
 
 ## GUI
 
@@ -62,7 +62,7 @@ python scripts/check_repo_policy.py                    # custom — enforces no 
 
 Full arena config reference (obs/action layout, `sim`/`morphology`/`battle_rules` keys and defaults, self-play/annealing/curriculum): `docs/organism_arena_config.md`.
 
-Two distinct vec-env paths in `sb3_runner.py`, chosen by whether self-play is on:
+Two distinct vec-env paths in `games/arena/training.py`, chosen by whether self-play is on:
 
 - **Self-play** (`self_play.enabled: true`): `SelfPlayEnvWrapper` exposes one live agent, wrapped by `SingleAgentArenaEnv` (a `gymnasium.Env`) onto SB3's native `DummyVecEnv`/`SubprocVecEnv`. **`num_envs > 1` is supported and parallelizes across cores** — `env_method` (reward annealing, curriculum) propagates to subprocess workers, and `Monitor` gives `rollout/ep_rew_mean`. Each worker is seeded per rank so spawns/opponents differ. This is the preferred arena path.
 - **Shared-policy** (`self_play.enabled: false`): needs SuperSuit's 2-agent vec conversion + `_ArenaVecEnvAdapter` (seed()/uint8-dones patches), which only works single-process. A guard rejects `num_envs > 1` here.
@@ -84,7 +84,7 @@ Two distinct vec-env paths in `sb3_runner.py`, chosen by whether self-play is on
 
 | Path | Role |
 |---|---|
-| `src/rl_framework/` | The package. `cli/`, `configs/`, `envs/`, `evolution/`, `gui/`, `training/`, `utils/` |
+| `src/rl_framework/` | The package. `core/`, `physics/`, `games/`, `cli/`, `gui/`, `configs/`, `plugins.py` |
 | `src/rl_framework/configs/experiments/` | Experiment YAMLs — the default `--config-dir` |
 | `tests/` | pytest suite; CI gates coverage at 60% |
 | `scripts/` | Repo tooling, including `check_repo_policy.py` |

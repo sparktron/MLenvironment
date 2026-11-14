@@ -1,6 +1,6 @@
 """Random morphology search: train mutations, then rank them together.
 
-Thin loop around :class:`~rl_framework.evolution.simple_search.RandomMorphologySearch`.
+Thin loop around :class:`~rl_framework.games.arena.evolution.simple_search.RandomMorphologySearch`.
 Each trial gets a mutated copy of ``cfg["environment"]["morphology"]`` and a
 distinct ``output.run_id`` (``morph_<i>``) so trials land in separate output
 subtrees (``<experiment_name>/runs/morph_<i>/``) without overwriting each other.
@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from rl_framework.evolution.simple_search import RandomMorphologySearch
+from rl_framework.games.arena.evolution.simple_search import RandomMorphologySearch
 from rl_framework.core.utils.checkpoint import model_zip_path
 
 
@@ -52,7 +52,7 @@ def run_morphology_search(
         )
     if scoring != "tournament_elo":
         raise ValueError("morphology_search.scoring must be 'tournament_elo'")
-    from rl_framework.training.arena_tournament import run_tournament
+    from rl_framework.games.arena.arena_tournament import run_tournament
 
     if cfg.get("environment", {}).get("type") != "organism_arena_parallel":
         raise ValueError(

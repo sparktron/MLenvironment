@@ -2,7 +2,7 @@
 
 Config reference for `type: organism_arena_parallel` experiments. Defaults below
 are the values the env falls back to when a key is omitted; see
-`src/rl_framework/envs/organisms/arena_parallel.py` for the source of truth and
+`src/rl_framework/games/arena/arena_parallel.py` for the source of truth and
 `configs/experiments/organisms_fight_arena.yaml` for a worked example.
 
 The arena is an N-agent PettingZoo `ParallelEnv` (`agent_0` … `agent_{N-1}`,

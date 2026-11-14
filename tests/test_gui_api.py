@@ -202,7 +202,7 @@ def test_schema_arena_exposes_resources_and_sim_collision(client):
     """Every ResourceRules field plus sim.collision_radius must be authorable
     from the wizard, so a resource-tuned arena no longer needs hand-edited YAML.
     """
-    from rl_framework.envs.organisms.arena_parallel import ResourceRules
+    from rl_framework.games.arena.arena_parallel import ResourceRules
 
     c, _, _ = client
     env = c.get("/api/schema").get_json()["organism_arena_parallel"]["environment"]

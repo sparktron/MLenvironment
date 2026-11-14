@@ -7,7 +7,7 @@ The RL Framework now includes **real-time environment visualization with playbac
 ## Features Added
 
 ### 1. Frame Capture During Training
-- **Module**: `rl_framework/training/frame_capture_callback.py`
+- **Module**: `src/rl_framework/core/training/callbacks/frame_capture_callback.py`
 - Automatically captures environment frames every 50 timesteps during training
 - Stores up to 200 frames in memory (ring buffer to prevent memory bloat)
 - Frames are JPEG-compressed base64 strings for efficient transmission

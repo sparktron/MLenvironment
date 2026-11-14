@@ -6,7 +6,7 @@ import pytest
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from rl_framework.core.registry import TaskSpec, get_task, make_env, register_task, registered_tasks
-from rl_framework.training.self_play_env_wrapper import LeagueSampler, SelfPlayEnvWrapper, SingleAgentArenaEnv
+from rl_framework.games.arena.self_play_env_wrapper import LeagueSampler, SelfPlayEnvWrapper, SingleAgentArenaEnv
 
 
 def _spawn_env(name, league_dir):

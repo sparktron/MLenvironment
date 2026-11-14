@@ -1054,37 +1054,10 @@ MLenvironment/
 │   │   ├── organisms_fight_arena.yaml
 │   │   └── organisms_growth_competition.yaml
 │   │
-│   ├── envs/
-│   │   ├── __init__.py
-│   │   ├── base.py                     # DomainRandomizationConfig, CurriculumConfig, EnvContext
-│   │   ├── registry.py                 # make_env() factory
-│   │   ├── locomotion/
-│   │   │   ├── __init__.py
-│   │   │   ├── walker_bullet.py        # Gymnasium walker env (PyBullet)
-│   │   │   ├── dynamics.py             # Force / torque application
-│   │   │   ├── rewards.py              # Composite reward function
-│   │   │   └── terminations.py         # Episode termination logic
-│   │   └── organisms/
-│   │       ├── __init__.py
-│   │       └── arena_parallel.py       # PettingZoo two-agent arena
-│   │
-│   ├── training/
-│   │   ├── __init__.py
-│   │   ├── sb3_runner.py               # PPO training loop
-│   │   ├── eval_runner.py              # Evaluation + metrics CSV
-│   │   ├── sweep.py                    # Cartesian hyperparameter sweep
-│   │   ├── multi_seed_runner.py        # Multi-seed train+eval+aggregate
-│   │   ├── curriculum_callback.py      # SB3 callback for curriculum learning
-│   │   ├── self_play_callback.py       # SB3 callback for self-play league
-│   │   └── live_tuning_callback.py     # SB3 callback for live parameter updates
-│   │
-│   ├── evolution/
-│   │   └── simple_search.py            # Random morphology mutation hook
-│   │
-│   └── utils/
-│       ├── __init__.py
-│       ├── config.py                   # OmegaConf YAML loader
-│       └── logging_utils.py            # Directory creation + CSV append
+│   ├── core/                         # Task-independent registry, config, training, utilities
+│   ├── physics/locomotion/           # Walker environment and studies
+│   ├── games/arena/                  # Arena, self-play, tournament, evolution
+│   └── plugins.py                    # Built-in task module list
 │
 └── tests/
     ├── test_env_api.py                 # Gymnasium + PettingZoo API compliance
@@ -1150,15 +1123,10 @@ checkpoint comparison.
 
 ### ➕ Add a New Environment
 
-1. Create module in `src/rl_framework/envs/locomotion/` (Gymnasium) or `src/rl_framework/envs/organisms/` (PettingZoo)
-2. Separate **dynamics** → **rewards** → **terminations** into distinct files
-3. Register in `src/rl_framework/envs/registry.py`:
-   ```python
-   def make_env(env_type: str, cfg: dict[str, Any]) -> gym.Env | ParallelEnv:
-       if env_type == "my_env": return MyEnv(cfg)
-   ```
-4. Add YAML config in `src/rl_framework/configs/experiments/`
-5. Write tests in `tests/` (API compliance + determinism)
+1. Create a task package under `src/rl_framework/physics/` or `src/rl_framework/games/`, or in an external Python package.
+2. Register a `TaskSpec` using `rl_framework.core.registry.register_task` when the package imports.
+3. Add the package to `src/rl_framework/plugins.py`, or set `RL_FRAMEWORK_PLUGINS` to its module name.
+4. Add a YAML config in `src/rl_framework/configs/experiments/` and API and determinism tests.
 
 ### 🦾 Add a New Morphology
 

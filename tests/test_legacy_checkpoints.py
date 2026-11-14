@@ -11,7 +11,7 @@ from stable_baselines3 import PPO
 from rl_framework.core.registry import make_env
 from rl_framework.core.training.eval_runner import evaluate
 from rl_framework.core.training.sb3_runner import train
-from rl_framework.training.self_play_env_wrapper import (
+from rl_framework.games.arena.self_play_env_wrapper import (
     LeagueSampler,
     load_frozen_policy,
     load_obs_normalizer,

@@ -112,7 +112,7 @@ def test_sb3_runner_aliases_still_work():
 
 def test_morphology_search_uses_shared_helper():
     """morphology_search delegates path normalisation to the shared helper."""
-    from rl_framework.training.morphology_search import _as_model_zip_path
+    from rl_framework.games.arena.morphology_search import _as_model_zip_path
 
     assert _as_model_zip_path("/tmp/model") == str(model_zip_path("/tmp/model"))
     assert _as_model_zip_path("/tmp/model.zip") == "/tmp/model.zip"

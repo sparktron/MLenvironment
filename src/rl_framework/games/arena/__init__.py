@@ -1,8 +1,8 @@
 from rl_framework.core.registry import TaskSpec, register_task
-from rl_framework.envs.organisms.evaluation import build_eval_vec_env, evaluate_rollouts
-from rl_framework.envs.organisms.gui_schema import gui_schema
-from rl_framework.envs.organisms.arena_parallel import OrganismArenaParallelEnv
-from rl_framework.envs.organisms.validation import validate_config
+from rl_framework.games.arena.evaluation import build_eval_vec_env, evaluate_rollouts
+from rl_framework.games.arena.gui_schema import gui_schema
+from rl_framework.games.arena.arena_parallel import OrganismArenaParallelEnv
+from rl_framework.games.arena.validation import validate_config
 
 
 def _make_arena(cfg):

@@ -297,7 +297,7 @@ def _render_replay(
     out_dir = paths.videos_dir
 
     if isinstance(env, ParallelEnv):
-        from rl_framework.training.self_play_env_wrapper import load_frozen_policy
+        from rl_framework.games.arena.self_play_env_wrapper import load_frozen_policy
 
         agents = list(env.possible_agents)
         policy_slot = agents[0]
@@ -544,7 +544,7 @@ def main() -> None:
             print(yaml.dump(metrics, default_flow_style=False))
 
     elif args.command == "arena-eval":
-        from rl_framework.training.arena_eval import run_arena_eval, run_n_agent_eval
+        from rl_framework.games.arena.arena_eval import run_arena_eval, run_n_agent_eval
 
         if args.policies:
             result = run_n_agent_eval(
@@ -579,7 +579,7 @@ def main() -> None:
                 )
 
     elif args.command == "arena-tournament":
-        from rl_framework.training.arena_tournament import run_tournament
+        from rl_framework.games.arena.arena_tournament import run_tournament
 
         checkpoints = [c for c in args.checkpoints.split(",") if c.strip()]
         if not checkpoints and not args.include_random:
@@ -641,7 +641,7 @@ def main() -> None:
             print(f"saved_replay={result['saved_replay']}  frames={result['frames']}")
 
     elif args.command == "morph-search":
-        from rl_framework.training.morphology_search import run_morphology_search
+        from rl_framework.games.arena.morphology_search import run_morphology_search
 
         result = run_morphology_search(
             cfg_dict, trials=args.trials, seed=cfg_dict["seed"]

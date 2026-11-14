@@ -9,7 +9,7 @@ import pytest
 from omegaconf import OmegaConf
 
 from rl_framework.core.registry import make_env
-from rl_framework.training.self_play_env_wrapper import (
+from rl_framework.games.arena.self_play_env_wrapper import (
     LeagueSampler,
     SelfPlayEnvWrapper,
     SingleAgentArenaEnv,
