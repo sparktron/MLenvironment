@@ -1,7 +1,7 @@
 """Walker training callbacks."""
 import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
-from rl_framework.training.velocity_target_ramp_callback import VelocityTargetRampCallback
+from rl_framework.physics.locomotion.velocity_target_ramp_callback import VelocityTargetRampCallback
 
 class WalkerMetricsCallback(BaseCallback):
     """Log terminal walker behavior and reward decomposition per rollout."""

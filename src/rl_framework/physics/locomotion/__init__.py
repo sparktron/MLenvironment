@@ -1,7 +1,7 @@
 from rl_framework.core.registry import TaskSpec, register_task
-from rl_framework.envs.locomotion.gui_schema import gui_schema
-from rl_framework.envs.locomotion.validation import validate_config
-from rl_framework.envs.locomotion.walker_bullet import WalkerBulletEnv
+from rl_framework.physics.locomotion.gui_schema import gui_schema
+from rl_framework.physics.locomotion.validation import validate_config
+from rl_framework.physics.locomotion.walker_bullet import WalkerBulletEnv
 
 def _train_callbacks(cfg, paths, slot):
     from .training import train_callbacks

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rl_framework.training.walker_diagnostics import (
+from rl_framework.physics.locomotion.walker_diagnostics import (
     calibrate_walker_slip_thresholds,
     classify_walker_fall_window,
     summarize_walker_fall_windows,

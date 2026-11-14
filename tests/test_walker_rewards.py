@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rl_framework.envs.locomotion.rewards import WalkerReward
+from rl_framework.physics.locomotion.rewards import WalkerReward
 
 
 def test_default_walker_reward_prioritizes_target_velocity_over_survival() -> None:

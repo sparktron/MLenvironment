@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rl_framework.envs.locomotion.gait import WalkerGaitTracker
+from rl_framework.physics.locomotion.gait import WalkerGaitTracker
 
 
 def _update(

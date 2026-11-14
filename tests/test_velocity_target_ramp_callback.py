@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from rl_framework.training.velocity_target_ramp_callback import VelocityTargetRampCallback
+from rl_framework.physics.locomotion.velocity_target_ramp_callback import VelocityTargetRampCallback
 
 
 class _Env:

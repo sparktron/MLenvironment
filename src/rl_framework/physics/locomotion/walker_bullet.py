@@ -10,15 +10,15 @@ import pybullet as p
 import pybullet_data
 from gymnasium import spaces
 
-from rl_framework.envs.locomotion.dynamics import (
+from rl_framework.physics.locomotion.dynamics import (
     JOINT_INDICES,
     JOINT_SPECS,
     REST_POSE,
     WalkerDynamics,
 )
-from rl_framework.envs.locomotion.gait import WalkerGaitTracker
-from rl_framework.envs.locomotion.rewards import WalkerReward
-from rl_framework.envs.locomotion.terminations import WalkerTermination
+from rl_framework.physics.locomotion.gait import WalkerGaitTracker
+from rl_framework.physics.locomotion.rewards import WalkerReward
+from rl_framework.physics.locomotion.terminations import WalkerTermination
 from rl_framework.core.config.config_merge import get_section
 
 
