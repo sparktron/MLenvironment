@@ -21,6 +21,7 @@ class TaskSpec:
     train_callbacks: Callable[..., Any] | None = None
     studies: Callable[..., Any] | None = None
     capabilities: frozenset[str] = frozenset()
+    live_params: frozenset[str] = frozenset()
 
 
 _tasks: dict[str, TaskSpec] = {}

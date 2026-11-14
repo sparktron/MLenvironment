@@ -21,6 +21,15 @@ from rl_framework.physics.locomotion.rewards import WalkerReward
 from rl_framework.physics.locomotion.terminations import WalkerTermination
 from rl_framework.core.config.config_merge import get_section
 
+LIVE_PARAMS = frozenset(
+    {f"reward.{key}" for key in WalkerReward.__dataclass_fields__}
+    | {f"termination.{key}" for key in WalkerTermination.__dataclass_fields__}
+    | {f"sim.{key}" for key in ("gravity", "timestep", "frame_skip", "settle_steps", "action_scale")}
+    | {f"domain_randomization.{key}" for key in (
+        "mass_scale_range", "friction_range", "sensor_noise_std", "action_latency_steps"
+    )}
+)
+
 
 class WalkerBulletEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
@@ -1166,6 +1175,9 @@ class WalkerBulletEnv(gym.Env):
         The underlying ``self.cfg`` dict is also updated so that future resets
         reconstruct objects with the same values.
         """
+        unknown = set(params) - LIVE_PARAMS
+        if unknown:
+            raise ValueError(f"Unknown live parameters {sorted(unknown)}; valid keys: {sorted(LIVE_PARAMS)}")
         _SECTION_OBJ_MAP = {
             "reward": self.reward_fn,
             "termination": self.termination,
@@ -1184,25 +1196,20 @@ class WalkerBulletEnv(gym.Env):
                 continue
             live_obj = _SECTION_OBJ_MAP.get(section)
             if live_obj is not None and hasattr(live_obj, attr):
-                try:
-                    cast_val = type(getattr(live_obj, attr))(value)
-                    setattr(live_obj, attr, cast_val)
-                    # Mirror into cfg so resets rebuild with the updated
-                    # value. setdefault leaves an explicit `section: null`
-                    # untouched (it only fills in a genuinely absent key);
-                    # get_section replaces it with {} first.
-                    section_cfg = get_section(self.cfg, section)
-                    section_cfg[attr] = cast_val
-                except (TypeError, ValueError):
-                    pass
+                cast_val = type(getattr(live_obj, attr))(value)
+                setattr(live_obj, attr, cast_val)
+                get_section(self.cfg, section)[attr] = cast_val
                 continue
 
             section_cfg = get_section(self.cfg, section)
-            current = section_cfg.get(attr)
-            try:
-                cast_val = type(current)(value) if current is not None else value
-            except (TypeError, ValueError):
-                continue
+            if attr in {"mass_scale_range", "friction_range"}:
+                if not isinstance(value, (list, tuple)) or len(value) != 2:
+                    raise ValueError(f"{dotted_key} must be a pair of numbers")
+                cast_val = [float(item) for item in value]
+            elif attr in {"frame_skip", "settle_steps", "action_latency_steps"}:
+                cast_val = int(value)
+            else:
+                cast_val = float(value)
             section_cfg[attr] = cast_val
 
             if section == "domain_randomization":

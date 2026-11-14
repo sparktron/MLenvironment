@@ -955,11 +955,13 @@ def test_arena_live_params_updates_approach_reward() -> None:
     assert env.cfg["reward"]["approach_weight"] == 0.05
 
 
-def test_update_live_params_ignores_unknown_keys() -> None:
+def test_update_live_params_rejects_unknown_keys() -> None:
+    import pytest
+
     cfg = {"type": "organism_arena_parallel", "seed": 0}
     env = make_env("organism_arena_parallel", cfg)
-    # Unknown keys (e.g. from a shared walker curriculum) must be silently ignored.
-    env.update_live_params({"reward.target_velocity": 2.0, "battle_rules.bogus": 1})
+    with pytest.raises(ValueError, match="valid keys"):
+        env.update_live_params({"reward.target_velocity": 2.0, "battle_rules.bogus": 1})
     assert not hasattr(env.rules, "bogus")
 
 

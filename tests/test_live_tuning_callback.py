@@ -80,11 +80,11 @@ def test_live_tuning_tolerates_null_env_section() -> None:
 
     callback._on_rollout_end()  # must not raise
 
-    assert env_cfg["reward"] == {}, (
-        "an unknown param under a null section is dropped (matches the "
-        "pre-existing behavior for a missing section), but must not crash"
-    )
-    assert env_cfg["battle_rules"] == {}
+    assert env_cfg["reward"] == {"alive_bonus": 3.0}
+    assert env_cfg["battle_rules"] == {"damage": 0.2}
+    assert training_env.calls == [("update_live_params", {
+        "reward.alive_bonus": 3.0, "battle_rules.damage": 0.2,
+    })]
 
 
 def test_live_tuning_status_reads_ep_info_buffer_and_omits_absent_metrics() -> None:

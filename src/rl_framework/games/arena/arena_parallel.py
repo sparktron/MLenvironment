@@ -44,6 +44,14 @@ class RewardRules:
     approach_weight: float = 0.0
 
 
+LIVE_PARAMS = frozenset(
+    {f"battle_rules.{key}" for key in BattleRules.__dataclass_fields__}
+    | {f"resources.{key}" for key in ResourceRules.__dataclass_fields__}
+    | {"reward.damage_scale", "reward.approach_weight", "sim.arena_half_extent"}
+    | {f"morphology.{key}" for key in ("base_size", "health", "episode_growth_scale")}
+)
+
+
 class OrganismArenaParallelEnv(ParallelEnv):
     metadata = {
         "name": "organism_arena_v0",
@@ -373,9 +381,11 @@ class OrganismArenaParallelEnv(ParallelEnv):
             size calculations and subsequent resets.
           * ``sim.arena_half_extent`` — updates arena bounds immediately.
 
-        Unknown keys are ignored so a shared curriculum config can target
-        multiple env families without error.
+        Unknown keys and values that cannot be coerced raise an error.
         """
+        unknown = set(params) - LIVE_PARAMS
+        if unknown:
+            raise ValueError(f"Unknown live parameters {sorted(unknown)}; valid keys: {sorted(LIVE_PARAMS)}")
         for key, value in params.items():
             if key == "reward.damage_scale":
                 self._damage_scale = float(value)
@@ -399,10 +409,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
             elif key.startswith("morphology."):
                 field = key.removeprefix("morphology.")
                 current = self.morphology.get(field)
-                try:
-                    cast_val = type(current)(value) if current is not None else value
-                except (TypeError, ValueError):
-                    continue
+                cast_val = type(current)(value) if current is not None else float(value)
                 self.morphology[field] = cast_val
                 get_section(self.cfg, "morphology")[field] = cast_val
             elif key.startswith("resources."):

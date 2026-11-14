@@ -8,6 +8,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 from rl_framework.core.training.rollout_metrics import rollout_metric
 from rl_framework.core.config.config_merge import get_section
+from rl_framework.core.registry import get_task
 
 _log = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class LiveTuningCallback(BaseCallback):
         "domain_randomization",
         "battle_rules",
         "morphology",
+        "resources",
         "sim",
     )
 
@@ -70,53 +72,34 @@ class LiveTuningCallback(BaseCallback):
 
     def _apply_params(self, params: dict[str, Any]) -> None:
         applied = {}
+        env_params = {}
         for key, value in params.items():
             if key == "learning_rate":
-                try:
-                    lr = float(value)
-                    self.model.lr_schedule = lambda _progress: lr
-                    applied[key] = lr
-                    if self.verbose >= 1:
-                        print(f"[LiveTuning] learning_rate -> {lr}")
-                except (TypeError, ValueError) as exc:
-                    _log.warning(
-                        "LiveTuning: could not apply 'learning_rate'=%r: %s", value, exc
-                    )
+                lr = float(value)
+                self.model.lr_schedule = lambda _progress: lr
+                applied[key] = lr
             else:
                 parts = key.split(".", 1)
-                if len(parts) == 2 and parts[0] in self.ENV_SECTIONS:
-                    section, param = parts
-                    # get_section tolerates an explicit `section: null`, which
-                    # would otherwise raise `TypeError: argument of type
-                    # 'NoneType' is not iterable` from `param in None` and
-                    # kill the training thread at rollout end.
-                    section_cfg = get_section(self._env_cfg, section)
-                    if param in section_cfg:
-                        try:
-                            cast_val = type(section_cfg[param])(value)
-                            section_cfg[param] = cast_val
-                            applied[key] = cast_val
-                            if self.verbose >= 1:
-                                print(f"[LiveTuning] {key} -> {cast_val}")
-                        except (TypeError, ValueError) as exc:
-                            _log.warning(
-                                "LiveTuning: could not apply %r=%r: %s", key, value, exc
-                            )
+                if len(parts) != 2:
+                    raise ValueError(f"Unknown live parameter {key!r}")
+                task_type = self._env_cfg.get("type")
+                if task_type and key not in get_task(task_type).live_params:
+                    valid = sorted(get_task(task_type).live_params)
+                    raise ValueError(f"Unknown live parameter {key!r}; valid keys: {valid}")
+                section, param = parts
+                section_cfg = get_section(self._env_cfg, section)
+                current = section_cfg.get(param)
+                env_params[key] = type(current)(value) if current is not None else value
+
+        if env_params and self.training_env is not None and callable(getattr(self.training_env, "env_method", None)):
+            self.training_env.env_method("update_live_params", env_params)
+        for key, value in env_params.items():
+            section, param = key.split(".", 1)
+            get_section(self._env_cfg, section)[param] = value
+            applied[key] = value
 
         if applied:
             self._applied.append(applied)
-            # Push all accepted env changes to live env objects. Unsupported
-            # fields are ignored by the env implementations.
-            env_params = {
-                k: v
-                for k, v in applied.items()
-                if "." in k and k.split(".", 1)[0] in self.ENV_SECTIONS
-            }
-            if env_params and self.training_env is not None:
-                try:
-                    self.training_env.env_method("update_live_params", env_params)
-                except Exception:
-                    pass  # Non-walker env or env_method unavailable; cfg update suffices
 
     def _write_status(self) -> None:
         if self._publish_status is None:

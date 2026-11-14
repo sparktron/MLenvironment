@@ -151,11 +151,8 @@ class CurriculumCallback(BaseCallback):
             set_nested(self._env_cfg, dotted_key, value, strict=False)
         # Push changes to live env instances so they take effect immediately,
         # not just on the next reset.
-        if self.training_env is not None:
-            try:
-                self.training_env.env_method("update_live_params", overrides)
-            except Exception:
-                pass  # env_method unavailable (e.g. non-walker env); cfg update suffices
+        if self.training_env is not None and callable(getattr(self.training_env, "env_method", None)):
+            self.training_env.env_method("update_live_params", overrides)
 
     @property
     def current_level(self) -> int:
