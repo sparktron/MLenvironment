@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rl_framework.training.curriculum_callback import CurriculumCallback
+from rl_framework.core.training.callbacks.curriculum_callback import CurriculumCallback
 from rl_framework.training.reward_annealing_callback import RewardAnnealingCallback
 from rl_framework.envs.locomotion.training import WalkerMetricsCallback
 from rl_framework.envs.organisms.training import ArenaMetricsCallback
@@ -333,7 +333,7 @@ def test_arena_callbacks_order_metrics_before_curriculum(tmp_path, monkeypatch):
     """CurriculumCallback reads arena/* win rates that ArenaMetricsCallback
     records in its own _on_rollout_end, so the metrics callback must come
     first in the callback list train() assembles."""
-    from rl_framework.training import sb3_runner
+    from rl_framework.core.training import sb3_runner
 
     captured = {}
 

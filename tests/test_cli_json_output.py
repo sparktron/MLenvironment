@@ -24,7 +24,7 @@ def _patched_config(monkeypatch):
         "training": {},
         "environment": {"type": "walker_bullet"},
     }
-    import rl_framework.utils.config as config_mod
+    import rl_framework.core.config.config as config_mod
 
     monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: cfg)
     monkeypatch.setattr(config_mod, "to_container", lambda c: dict(c))
@@ -38,7 +38,7 @@ def _run_cli(monkeypatch, argv):
 
 
 def test_train_json_stdout(monkeypatch, capsys, _patched_config):
-    import rl_framework.training.sb3_runner as runner
+    import rl_framework.core.training.sb3_runner as runner
 
     monkeypatch.setattr(runner, "train", lambda cfg, resume_from=None: "/out/model.zip")
     _run_cli(monkeypatch, ["train", "--config-name", "x", "--json"])
@@ -49,7 +49,7 @@ def test_train_json_stdout(monkeypatch, capsys, _patched_config):
 
 
 def test_train_human_output_when_no_json(monkeypatch, capsys, _patched_config):
-    import rl_framework.training.sb3_runner as runner
+    import rl_framework.core.training.sb3_runner as runner
 
     monkeypatch.setattr(runner, "train", lambda cfg, resume_from=None: "/out/model.zip")
     _run_cli(monkeypatch, ["train", "--config-name", "x"])
@@ -63,7 +63,7 @@ def test_train_human_output_when_no_json(monkeypatch, capsys, _patched_config):
 def test_train_seed_override_updates_global_and_environment_seed(
     monkeypatch, _patched_config
 ):
-    import rl_framework.training.sb3_runner as runner
+    import rl_framework.core.training.sb3_runner as runner
 
     captured = {}
 
@@ -79,7 +79,7 @@ def test_train_seed_override_updates_global_and_environment_seed(
 
 
 def test_json_out_writes_file(monkeypatch, tmp_path, _patched_config):
-    import rl_framework.training.sb3_runner as runner
+    import rl_framework.core.training.sb3_runner as runner
 
     monkeypatch.setattr(runner, "train", lambda cfg, resume_from=None: "/out/model.zip")
     out_file = tmp_path / "nested" / "result.json"
@@ -94,7 +94,7 @@ def test_json_out_writes_file(monkeypatch, tmp_path, _patched_config):
 
 
 def test_registry_cli_inspects_exports_and_prunes(monkeypatch, capsys, tmp_path):
-    from rl_framework.utils.run_registry import RunRegistry
+    from rl_framework.core.utils.run_registry import RunRegistry
 
     registry = RunRegistry(tmp_path)
     registry.create_analysis_job("stale_job", "replay")
@@ -183,7 +183,7 @@ def _registry_argv(tmp_path, *extra):
 def test_registry_cli_prunes_runs_and_missing_artifacts(monkeypatch, capsys, tmp_path):
     """Exercise the CLI dispatch to prune_runs and prune_artifacts (missing-only)
     plus the human-readable (non-JSON) prune output branch."""
-    from rl_framework.utils.run_registry import RunRegistry
+    from rl_framework.core.utils.run_registry import RunRegistry
 
     registry = RunRegistry(tmp_path)
     cfg = {"experiment_name": "exp", "seed": 0, "output": {"base_dir": str(tmp_path)}}
@@ -243,7 +243,7 @@ def test_registry_cli_prunes_runs_and_missing_artifacts(monkeypatch, capsys, tmp
 
 def test_registry_cli_human_readable_inspect_and_export(monkeypatch, capsys, tmp_path):
     """Cover the non-JSON inspect and export summary print branches."""
-    from rl_framework.utils.run_registry import RunRegistry
+    from rl_framework.core.utils.run_registry import RunRegistry
 
     registry = RunRegistry(tmp_path)
     registry.create_analysis_job("j1", "replay")

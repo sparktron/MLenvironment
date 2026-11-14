@@ -1,4 +1,4 @@
-"""Tests for rl_framework.utils.checkpoint path helpers."""
+"""Tests for rl_framework.core.utils.checkpoint path helpers."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from rl_framework.utils.checkpoint import (
+from rl_framework.core.utils.checkpoint import (
     find_vecnormalize_path_for_model,
     legacy_vecnormalize_path_for_model,
     model_zip_path,
@@ -99,7 +99,7 @@ def test_validate_resume_path_passes_with_specific_vecnorm(tmp_path):
 
 def test_sb3_runner_aliases_still_work():
     """The private aliases in sb3_runner resolve to the same functions."""
-    from rl_framework.training.sb3_runner import (
+    from rl_framework.core.training.sb3_runner import (
         _find_vecnormalize_path_for_model,
         _validate_resume_path,
         _vecnormalize_path_for_model,

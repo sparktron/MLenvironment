@@ -6,8 +6,8 @@ from typing import Callable
 
 from stable_baselines3.common.callbacks import BaseCallback
 
-from rl_framework.training.rollout_metrics import rollout_metric
-from rl_framework.utils.config_merge import get_section
+from rl_framework.core.training.rollout_metrics import rollout_metric
+from rl_framework.core.config.config_merge import get_section
 
 _log = logging.getLogger(__name__)
 

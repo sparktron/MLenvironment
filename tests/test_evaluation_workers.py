@@ -6,8 +6,8 @@ from pathlib import Path
 import gymnasium as gym
 import numpy as np
 
-from rl_framework.training import eval_runner
-from rl_framework.training.evaluation_workers import (
+from rl_framework.core.training import eval_runner
+from rl_framework.core.training.evaluation_workers import (
     EpisodeSeedWrapper,
     episode_quotas,
     resolve_evaluation_workers,
@@ -61,7 +61,7 @@ class _OneStepVecEnv:
 
 def test_evaluation_workers_are_bounded_by_episode_count(monkeypatch) -> None:
     monkeypatch.setattr(
-        "rl_framework.training.evaluation_workers.os.cpu_count", lambda: 12
+        "rl_framework.core.training.evaluation_workers.os.cpu_count", lambda: 12
     )
     assert resolve_evaluation_workers({}, episodes=5) == 5
     assert resolve_evaluation_workers({"evaluation": {"workers": 3}}, episodes=5) == 3

@@ -6,7 +6,7 @@ import csv
 
 import pytest
 
-from rl_framework.utils.logging_utils import CsvSchemaError, append_metrics_csv
+from rl_framework.core.utils.logging_utils import CsvSchemaError, append_metrics_csv
 
 
 def test_first_write_creates_header(tmp_path):

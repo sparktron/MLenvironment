@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from rl_framework.utils.logging_utils import (
+from rl_framework.core.utils.logging_utils import (
     create_experiment_paths,
     sanitize_run_id,
 )

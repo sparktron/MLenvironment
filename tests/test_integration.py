@@ -64,8 +64,8 @@ def _walker_cfg(
 
 def test_walker_train_produces_model_and_vecnorm(tmp_path: Path) -> None:
     """train() writes a .zip checkpoint and vecnormalize.pkl to disk."""
-    from rl_framework.training.sb3_runner import train
-    from rl_framework.utils.run_registry import RunRegistry
+    from rl_framework.core.training.sb3_runner import train
+    from rl_framework.core.utils.run_registry import RunRegistry
 
     cfg = _walker_cfg(tmp_path)
     cfg["output"]["run_id"] = "repeatable_variant"
@@ -91,7 +91,7 @@ def test_walker_ppo_uses_configured_initial_log_std(
     tmp_path: Path, monkeypatch
 ) -> None:
     """The exploration ablation must reach PPO's policy constructor."""
-    from rl_framework.training import sb3_runner
+    from rl_framework.core.training import sb3_runner
 
     observed = {}
 
@@ -136,7 +136,7 @@ def test_walker_best_model_writes_matching_vecnorm_sidecar(tmp_path: Path) -> No
     """Best-model eval must save a model-specific normalizer at the same point
     as the selected checkpoint, so replay and resume never pair it with later
     running statistics."""
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = _walker_cfg(tmp_path, timesteps=256, checkpoint_every=128)
     cfg["evaluation"]["best_model"] = {
@@ -187,7 +187,7 @@ def _arena_cfg(tmp_path: Path, timesteps: int = 256) -> dict:
 def test_arena_n_agent_shared_policy_train(tmp_path: Path) -> None:
     """A 3-agent free-for-all trains end to end via the shared-policy SuperSuit
     path (constant agent set thanks to inert spectators)."""
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = _arena_cfg(tmp_path, timesteps=256)
     cfg["environment"]["num_agents"] = 3
@@ -204,7 +204,7 @@ def test_arena_train_runs_and_logs_metrics(tmp_path: Path) -> None:
         EventAccumulator,
     )
 
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = _arena_cfg(tmp_path)
     model_path = train(cfg)
@@ -226,7 +226,7 @@ def test_arena_selfplay_train_writes_league(tmp_path: Path) -> None:
     """Self-play arena training runs end to end and writes league snapshots that
     the env's LeagueSampler can consume (regression for the single-agent
     VecNormalize/uint8-dones crash and the cloudpickle-cloned-callback no-op)."""
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = _arena_cfg(tmp_path, timesteps=320)
     cfg["self_play"] = {"enabled": True, "snapshot_freq": 128, "max_league_size": 5}
@@ -252,7 +252,7 @@ def test_arena_selfplay_monitor_csv_records_episode_outcome(tmp_path: Path) -> N
     appeared."""
     import csv
 
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = _arena_cfg(tmp_path, timesteps=256)
     cfg["environment"]["battle_rules"]["max_steps"] = 15  # force multiple episodes
@@ -283,7 +283,7 @@ def test_arena_selfplay_parallel_envs_train_and_propagate(tmp_path: Path) -> Non
     SuperSuit, uses SB3's native SubprocVecEnv, writes one Monitor CSV per
     worker, and reward annealing propagates to workers via env_method without
     crashing. Regression for the single-process arena cap."""
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = _arena_cfg(tmp_path, timesteps=512)
     cfg["training"]["num_envs"] = 2
@@ -306,7 +306,7 @@ def test_arena_render_replay_headless(tmp_path: Path) -> None:
     """Arena render-replay produces a GIF headlessly, both as a shared-policy
     replay and against an explicit opponent (R3c)."""
     from rl_framework.cli.main import _render_replay
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = _arena_cfg(tmp_path, timesteps=256)
     model_path = train(cfg)
@@ -332,7 +332,7 @@ def test_arena_eval_on_trained_checkpoint(tmp_path: Path) -> None:
     Exercises load_frozen_policy on a real PPO checkpoint with sibling
     vecnormalize.pkl discovery and the full episode-driving loop."""
     from rl_framework.training.arena_eval import run_arena_eval
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = _arena_cfg(tmp_path, timesteps=256)
     model_path = train(cfg)
@@ -354,7 +354,7 @@ def test_arena_tournament_on_trained_checkpoint(tmp_path: Path) -> None:
     random baseline through the real run_arena_eval path. Exercises competitor
     resolution, the Bradley-Terry rating, and JSON/markdown output end to end."""
     from rl_framework.training.arena_tournament import run_tournament
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = _arena_cfg(tmp_path, timesteps=256)
     model_path = train(cfg)
@@ -380,8 +380,8 @@ def test_arena_tournament_on_trained_checkpoint(tmp_path: Path) -> None:
 
 def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
     """Parallel evaluate() appends metrics and returns an aggregate result."""
-    from rl_framework.training.eval_runner import evaluate
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.eval_runner import evaluate
+    from rl_framework.core.training.sb3_runner import train
     from rl_framework.training.walker_diagnostics import evaluate_walker_checkpoint
 
     cfg = _walker_cfg(tmp_path)
@@ -415,7 +415,7 @@ def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
 
 def test_walker_checkpoint_saved_at_interval(tmp_path: Path) -> None:
     """Intermediate checkpoints include model-specific VecNormalize sidecars."""
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = _walker_cfg(tmp_path, timesteps=256, checkpoint_every=64)
     model_path = train(cfg)

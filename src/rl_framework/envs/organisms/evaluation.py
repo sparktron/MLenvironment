@@ -15,7 +15,7 @@ def build_eval_vec_env(env_cfg):
 
 
 def evaluate_rollouts(vec_env, model, episodes):
-    from rl_framework.training.eval_runner import _was_truncated
+    from rl_framework.core.training.eval_runner import _was_truncated
 
     num_agents = vec_env.num_envs
     returns = []

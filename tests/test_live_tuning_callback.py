@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def test_live_tuning_forwards_all_accepted_env_sections() -> None:
-    from rl_framework.training.live_tuning_callback import LiveTuningCallback
+    from rl_framework.core.training.callbacks.live_tuning_callback import LiveTuningCallback
 
     class DummyTrainingEnv:
         def __init__(self) -> None:
@@ -51,7 +51,7 @@ def test_live_tuning_tolerates_null_env_section() -> None:
     """The GUI wizard has historically written `section: null` for empty
     nested groups. `param in self._env_cfg[section]` used to raise
     (`in None` is a TypeError), killing the training thread at rollout end."""
-    from rl_framework.training.live_tuning_callback import LiveTuningCallback
+    from rl_framework.core.training.callbacks.live_tuning_callback import LiveTuningCallback
 
     class DummyTrainingEnv:
         def __init__(self) -> None:
@@ -94,7 +94,7 @@ def test_live_tuning_status_reads_ep_info_buffer_and_omits_absent_metrics() -> N
     from collections import defaultdict
     from types import SimpleNamespace
 
-    from rl_framework.training.live_tuning_callback import LiveTuningCallback
+    from rl_framework.core.training.callbacks.live_tuning_callback import LiveTuningCallback
 
     published: list[dict] = []
     callback = LiveTuningCallback(

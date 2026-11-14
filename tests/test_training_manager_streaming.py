@@ -45,7 +45,7 @@ def test_status_returns_latest_streamed_metrics() -> None:
 
 def test_gui_training_selects_only_worker_zero_for_rendering(monkeypatch) -> None:
     from rl_framework.gui import training_manager as manager_module
-    from rl_framework.training import sb3_runner
+    from rl_framework.core.training import sb3_runner
 
     captured: dict[str, Any] = {}
 

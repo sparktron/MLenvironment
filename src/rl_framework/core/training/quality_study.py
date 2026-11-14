@@ -17,14 +17,14 @@ from typing import Any
 from stable_baselines3.common.callbacks import BaseCallback
 
 from rl_framework.core.studies import registered_studies
-from rl_framework.training.sb3_runner import train
-from rl_framework.utils.checkpoint import model_zip_path
-from rl_framework.utils.config import (
+from rl_framework.core.training.sb3_runner import train
+from rl_framework.core.utils.checkpoint import model_zip_path
+from rl_framework.core.config.config import (
     load_config,
     to_container,
     validate_experiment_config,
 )
-from rl_framework.utils.config_merge import set_nested
+from rl_framework.core.config.config_merge import set_nested
 
 
 

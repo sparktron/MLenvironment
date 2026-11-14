@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
-from rl_framework.training.frame_capture_callback import FrameCaptureCallback
+from rl_framework.core.training.callbacks.frame_capture_callback import FrameCaptureCallback
 
 
 # ---------------------------------------------------------------------------

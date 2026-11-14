@@ -19,7 +19,7 @@ from rl_framework.envs.locomotion.dynamics import (
 from rl_framework.envs.locomotion.gait import WalkerGaitTracker
 from rl_framework.envs.locomotion.rewards import WalkerReward
 from rl_framework.envs.locomotion.terminations import WalkerTermination
-from rl_framework.utils.config_merge import get_section
+from rl_framework.core.config.config_merge import get_section
 
 
 class WalkerBulletEnv(gym.Env):

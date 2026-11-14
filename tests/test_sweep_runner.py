@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from rl_framework.training import sweep as sweep_module
-from rl_framework.utils.config_merge import set_nested
+from rl_framework.core.training import sweep as sweep_module
+from rl_framework.core.config.config_merge import set_nested
 
 
 def test_run_sweep_dry_run_writes_manifest_and_skips_training(

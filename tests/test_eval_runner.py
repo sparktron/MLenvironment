@@ -2,8 +2,8 @@ from pathlib import Path
 
 import numpy as np
 
-from rl_framework.training import eval_runner
-from rl_framework.training.eval_runner import _was_truncated
+from rl_framework.core.training import eval_runner
+from rl_framework.core.training.eval_runner import _was_truncated
 
 
 def test_was_truncated_true_when_timelimit_flag_present() -> None:

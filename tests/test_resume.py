@@ -67,7 +67,7 @@ def test_resume_continues_from_checkpoint(tmp_path: Path) -> None:
     Also checks that the resumed model produces a final .zip file and that
     vecnormalize.pkl exists alongside it — confirming stats are carried over.
     """
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = _base_cfg(tmp_path, timesteps=128)
     first_model = train(cfg)
@@ -97,7 +97,7 @@ def test_resume_continues_from_checkpoint(tmp_path: Path) -> None:
 
 def test_validate_resume_path_missing_zip(tmp_path: Path) -> None:
     """_validate_resume_path raises FileNotFoundError when the zip is absent."""
-    from rl_framework.training.sb3_runner import _validate_resume_path
+    from rl_framework.core.training.sb3_runner import _validate_resume_path
 
     nonexistent = tmp_path / "ghost_model.zip"
     with pytest.raises(FileNotFoundError, match="resume_from model not found"):
@@ -114,7 +114,7 @@ def _make_fake_zip(path: Path) -> None:
 
 def test_validate_resume_path_missing_vecnorm(tmp_path: Path) -> None:
     """_validate_resume_path raises FileNotFoundError when vecnormalize.pkl is absent."""
-    from rl_framework.training.sb3_runner import _validate_resume_path
+    from rl_framework.core.training.sb3_runner import _validate_resume_path
 
     zip_path = tmp_path / "model.zip"
     _make_fake_zip(zip_path)  # valid zip; vecnorm must not exist
@@ -125,7 +125,7 @@ def test_validate_resume_path_missing_vecnorm(tmp_path: Path) -> None:
 
 def test_validate_resume_path_passes_when_files_present(tmp_path: Path) -> None:
     """_validate_resume_path succeeds with the legacy shared vecnormalize file."""
-    from rl_framework.training.sb3_runner import _validate_resume_path
+    from rl_framework.core.training.sb3_runner import _validate_resume_path
 
     zip_path = tmp_path / "model.zip"
     _make_fake_zip(zip_path)
@@ -136,7 +136,7 @@ def test_validate_resume_path_passes_when_files_present(tmp_path: Path) -> None:
 
 def test_validate_resume_path_accepts_model_specific_vecnorm(tmp_path: Path) -> None:
     """Periodic checkpoints can resume from their exact normaliser sidecar."""
-    from rl_framework.training.sb3_runner import (
+    from rl_framework.core.training.sb3_runner import (
         _validate_resume_path,
         _vecnormalize_path_for_model,
     )

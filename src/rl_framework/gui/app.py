@@ -13,8 +13,8 @@ from flask import Flask, abort, jsonify, render_template, request
 
 from rl_framework.core.registry import get_task, registered_tasks
 from rl_framework.gui.training_manager import TrainingManager
-from rl_framework.utils.config import validate_experiment_config
-from rl_framework.utils.run_registry import RunRegistry
+from rl_framework.core.config.config import validate_experiment_config
+from rl_framework.core.utils.run_registry import RunRegistry
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs" / "experiments"
 CONFIGS_DIR.mkdir(parents=True, exist_ok=True)

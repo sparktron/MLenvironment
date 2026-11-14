@@ -4,8 +4,8 @@ from typing import Any
 
 from stable_baselines3.common.callbacks import BaseCallback
 
-from rl_framework.training.rollout_metrics import rollout_metric
-from rl_framework.utils.config_merge import set_nested
+from rl_framework.core.training.rollout_metrics import rollout_metric
+from rl_framework.core.config.config_merge import set_nested
 
 
 class CurriculumCallback(BaseCallback):

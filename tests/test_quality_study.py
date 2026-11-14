@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from rl_framework.envs.locomotion import quality_study as walker_study
 from rl_framework.envs.organisms import quality_study as arena_study
-from rl_framework.training import quality_study
-from rl_framework.training.quality_study import StopOnWallClock, run_quality_study
+from rl_framework.core.training import quality_study
+from rl_framework.core.training.quality_study import StopOnWallClock, run_quality_study
 from rl_framework.training.walker_diagnostics import _verdict
 
 

@@ -1,6 +1,6 @@
 import pytest
 
-from rl_framework.utils.config import (
+from rl_framework.core.config.config import (
     load_config,
     to_container,
     validate_experiment_config,

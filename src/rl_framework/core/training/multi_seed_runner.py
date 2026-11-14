@@ -10,8 +10,8 @@ from typing import Any
 
 import numpy as np
 
-from rl_framework.training.eval_runner import evaluate
-from rl_framework.training.sb3_runner import train
+from rl_framework.core.training.eval_runner import evaluate
+from rl_framework.core.training.sb3_runner import train
 
 
 def _run_one_seed(

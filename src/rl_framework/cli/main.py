@@ -281,12 +281,12 @@ def _render_replay(
     from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, VecNormalize
 
     from rl_framework.core.registry import make_env
-    from rl_framework.utils.checkpoint import find_vecnormalize_path_for_model
+    from rl_framework.core.utils.checkpoint import find_vecnormalize_path_for_model
 
     env_cfg = cfg["environment"]
     env_cfg["render_mode"] = "rgb_array"
     env = make_env(env_cfg["type"], env_cfg)
-    from rl_framework.utils.logging_utils import create_experiment_paths
+    from rl_framework.core.utils.logging_utils import create_experiment_paths
 
     paths = create_experiment_paths(
         cfg["output"]["base_dir"],
@@ -376,7 +376,7 @@ def _run_registry_command(args: argparse.Namespace) -> dict:
 
     Returns a result dict (also emitted via --json/--json-out by the caller).
     """
-    from rl_framework.utils.run_registry import RunRegistry
+    from rl_framework.core.utils.run_registry import RunRegistry
 
     registry = RunRegistry(args.base_dir)
     statuses = [s.strip() for s in args.status.split(",") if s.strip()] or None
@@ -474,7 +474,7 @@ def main() -> None:
         return
 
     if args.command == "quality-study":
-        from rl_framework.training.quality_study import run_quality_study
+        from rl_framework.core.training.quality_study import run_quality_study
 
         quality_seeds = [int(seed) for seed in args.seeds.split(",") if seed.strip()]
         study_result = run_quality_study(
@@ -500,7 +500,7 @@ def main() -> None:
             out_path.write_text(_json.dumps(study_result), encoding="utf-8")
         return
 
-    from rl_framework.utils.config import (
+    from rl_framework.core.config.config import (
         load_config,
         to_container,
         validate_experiment_config,
@@ -525,7 +525,7 @@ def main() -> None:
     result: dict = {}
 
     if args.command == "train":
-        from rl_framework.training.sb3_runner import train
+        from rl_framework.core.training.sb3_runner import train
 
         out = train(cfg_dict, resume_from=args.resume or None)
         result = {"saved_model": str(out)}
@@ -534,7 +534,7 @@ def main() -> None:
 
     elif args.command == "eval":
         import yaml
-        from rl_framework.training.eval_runner import evaluate
+        from rl_framework.core.training.eval_runner import evaluate
 
         if not args.model_path:
             raise ValueError("--model-path is required for eval")
@@ -603,7 +603,7 @@ def main() -> None:
                 print(f"{s['rank']:>4}  {s['elo']:>6.0f}  {wld:>10}  {s['competitor']}")
 
     elif args.command == "sweep":
-        from rl_framework.training.sweep import run_sweep
+        from rl_framework.core.training.sweep import run_sweep
 
         planned = run_sweep(
             cfg_dict, dry_run=args.dry_run, resume=args.resume_incomplete
@@ -617,7 +617,7 @@ def main() -> None:
             print(f"planned_runs={len(planned)} dry_run={args.dry_run}")
 
     elif args.command == "multi-seed":
-        from rl_framework.training.multi_seed_runner import run_multi_seed
+        from rl_framework.core.training.multi_seed_runner import run_multi_seed
 
         multi_seed_values = (
             [int(seed) for seed in args.seeds.split(",")] if args.seeds else None

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from rl_framework.utils.config import _ensure_int, _ensure_positive_number
+from rl_framework.core.config.config import _ensure_int, _ensure_positive_number
 
 
 def validate_config(cfg: dict[str, Any]) -> None:

@@ -8,7 +8,7 @@ import numpy as np
 from gymnasium import spaces
 from pettingzoo import ParallelEnv
 
-from rl_framework.utils.config_merge import get_section
+from rl_framework.core.config.config_merge import get_section
 
 
 @dataclass

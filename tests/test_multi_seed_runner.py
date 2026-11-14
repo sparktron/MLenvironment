@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from rl_framework.training import multi_seed_runner as ms_module
+from rl_framework.core.training import multi_seed_runner as ms_module
 
 
 def _base_cfg(tmp_path: Path) -> dict:

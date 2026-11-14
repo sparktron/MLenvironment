@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from rl_framework.core import studies
-from rl_framework.training import quality_study
+from rl_framework.core.training import quality_study
 
 
 def test_task_study_contribution_drives_plan_and_dispatch(tmp_path, monkeypatch):

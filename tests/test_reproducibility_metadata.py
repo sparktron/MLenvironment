@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from rl_framework.utils import reproducibility
-from rl_framework.utils.reproducibility import write_run_metadata
+from rl_framework.core.utils import reproducibility
+from rl_framework.core.utils.reproducibility import write_run_metadata
 
 
 def _cfg() -> dict:
@@ -48,7 +48,7 @@ def test_write_run_metadata_strict_requires_git_commit(tmp_path: Path, monkeypat
     lockfile = tmp_path / "requirements-lock.txt"
     lockfile.write_text("numpy==1.0.0\n", encoding="utf-8")
     monkeypatch.setattr(
-        "rl_framework.utils.reproducibility._git_info",
+        "rl_framework.core.utils.reproducibility._git_info",
         lambda: {"commit": None, "branch": None, "is_dirty": None},
     )
 

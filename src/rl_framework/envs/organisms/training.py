@@ -11,7 +11,7 @@ from rl_framework.core.registry import make_env
 from rl_framework.training.reward_annealing_callback import RewardAnnealingCallback
 from rl_framework.training.self_play_callback import SelfPlayCallback
 from rl_framework.training.self_play_env_wrapper import LeagueSampler, SelfPlayEnvWrapper, SingleAgentArenaEnv
-from rl_framework.training.sb3_runner import _worker_env_config, _advertise_selected_render_mode, _make_subproc_vec_env
+from rl_framework.core.training.sb3_runner import _worker_env_config, _advertise_selected_render_mode, _make_subproc_vec_env
 
 class _ArenaVecEnvAdapter(VecEnvWrapper):
     """Adapt SuperSuit's SB3 arena vec env to SB3's expectations.

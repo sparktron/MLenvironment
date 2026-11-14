@@ -13,13 +13,13 @@ from stable_baselines3 import PPO, SAC, TD3
 from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, VecNormalize
 
 from rl_framework.core.registry import make_env
-from rl_framework.training.evaluation_workers import (
+from rl_framework.core.training.evaluation_workers import (
     EpisodeSeedWrapper,
     episode_quotas,
     make_seeded_vec_env,
     resolve_evaluation_workers,
 )
-from rl_framework.utils.checkpoint import (
+from rl_framework.core.utils.checkpoint import (
     find_vecnormalize_path_for_model,
     model_zip_path,
 )

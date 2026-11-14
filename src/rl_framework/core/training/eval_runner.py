@@ -8,13 +8,13 @@ from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.vec_env import VecNormalize
 
 from rl_framework.core.registry import get_task
-from rl_framework.training.evaluation_workers import (
+from rl_framework.core.training.evaluation_workers import (
     episode_quotas,
     make_seeded_vec_env,
     resolve_evaluation_workers,
 )
-from rl_framework.utils.checkpoint import find_vecnormalize_path_for_model
-from rl_framework.utils.logging_utils import append_metrics_csv, create_experiment_paths
+from rl_framework.core.utils.checkpoint import find_vecnormalize_path_for_model
+from rl_framework.core.utils.logging_utils import append_metrics_csv, create_experiment_paths
 
 
 def _was_truncated(infos: Any) -> bool:

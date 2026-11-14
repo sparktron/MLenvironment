@@ -225,7 +225,7 @@ def test_schema_arena_exposes_resources_and_sim_collision(client):
 
 def test_schema_arena_resource_defaults_validate(client):
     """The wizard's resource/sim defaults must pass validate_experiment_config."""
-    from rl_framework.utils.config import validate_experiment_config
+    from rl_framework.core.config.config import validate_experiment_config
 
     c, _, _ = client
     env = c.get("/api/schema").get_json()["organism_arena_parallel"]["environment"]
@@ -480,7 +480,7 @@ def test_list_outputs_includes_sweep_morph_run_variants(client, tmp_path):
 
 def test_analysis_runs_reads_registry(client):
     c, _, base = client
-    from rl_framework.utils.run_registry import RunRegistry
+    from rl_framework.core.utils.run_registry import RunRegistry
 
     run_dir = base / "outputs" / "walker" / "seed_0"
     registry = RunRegistry(base / "outputs")
@@ -508,7 +508,7 @@ def test_analysis_runs_reads_registry(client):
 
 def test_analysis_runs_filters_and_returns_metric_history(client):
     c, _, base = client
-    from rl_framework.utils.run_registry import RunRegistry
+    from rl_framework.core.utils.run_registry import RunRegistry
 
     registry = RunRegistry(base / "outputs")
     walker_cfg = {
@@ -575,7 +575,7 @@ def test_league_ratings_requires_two_snapshots_and_metadata(client):
 
 def test_analysis_job_endpoints_read_persisted_registry_state(client):
     c, _, base = client
-    from rl_framework.utils.run_registry import RunRegistry
+    from rl_framework.core.utils.run_registry import RunRegistry
 
     registry = RunRegistry(base / "outputs")
     registry.create_analysis_job("analysis_done", "replay", {"path": "exp/seed_0"})

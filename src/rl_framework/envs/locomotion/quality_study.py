@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from rl_framework.training.quality_study import (
+from rl_framework.core.training.quality_study import (
     _apply_overrides, _atomic_json_write, _load_cfg, _prepare_cfg, _train_run,
 )
 from rl_framework.training.walker_diagnostics import (

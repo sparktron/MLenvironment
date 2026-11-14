@@ -1505,7 +1505,7 @@ def test_walker_terrain_mix_diverges_across_rollout_workers() -> None:
     """
     from stable_baselines3.common.vec_env import DummyVecEnv
 
-    from rl_framework.training.sb3_runner import _build_single_env
+    from rl_framework.core.training.sb3_runner import _build_single_env
 
     env_cfg = {
         "type": "walker_bullet",

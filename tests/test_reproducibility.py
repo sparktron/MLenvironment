@@ -1,7 +1,7 @@
 import numpy as np
 
 from rl_framework.core.registry import make_env
-from rl_framework.utils.reproducibility import configure_deterministic_mode
+from rl_framework.core.utils.reproducibility import configure_deterministic_mode
 
 
 def test_walker_seed_reproducibility() -> None:

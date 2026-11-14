@@ -14,7 +14,7 @@ from rl_framework.training.self_play_env_wrapper import (
     SelfPlayEnvWrapper,
     SingleAgentArenaEnv,
 )
-from rl_framework.utils.config import load_config
+from rl_framework.core.config.config import load_config
 
 CASES = {
     "walker_v9": "walker_reward_v9_flight_cost",

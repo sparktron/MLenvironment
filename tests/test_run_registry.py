@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from rl_framework.utils.run_registry import RunRegistry
+from rl_framework.core.utils.run_registry import RunRegistry
 
 
 def _cfg() -> dict:

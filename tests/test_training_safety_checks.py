@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from rl_framework.training.self_play_callback import SelfPlayCallback
-from rl_framework.utils.config_merge import set_nested
+from rl_framework.core.config.config_merge import set_nested
 
 
 def test_shared_policy_arena_rejects_multiple_envs(tmp_path) -> None:
@@ -17,7 +17,7 @@ def test_shared_policy_arena_rejects_multiple_envs(tmp_path) -> None:
     SuperSuit 3.10. The guard fires before any env is built. (The self-play
     path bypasses SuperSuit and parallelizes — see the integration tests.)
     """
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     cfg = {
         "experiment_name": "arena_guard_test",
@@ -31,7 +31,7 @@ def test_shared_policy_arena_rejects_multiple_envs(tmp_path) -> None:
 
 
 def test_callback_frequency_scales_with_vector_env_count() -> None:
-    from rl_framework.training.sb3_runner import _callback_freq_from_timesteps
+    from rl_framework.core.training.sb3_runner import _callback_freq_from_timesteps
 
     assert _callback_freq_from_timesteps(50_000, 1) == 50_000
     assert _callback_freq_from_timesteps(50_000, 8) == 6_250
@@ -40,7 +40,7 @@ def test_callback_frequency_scales_with_vector_env_count() -> None:
 
 
 def test_registry_execution_id_is_fresh_unless_orchestrated(monkeypatch) -> None:
-    from rl_framework.training import sb3_runner
+    from rl_framework.core.training import sb3_runner
 
     generated = iter(["run_execution_a", "run_execution_b"])
     monkeypatch.setattr(sb3_runner, "new_run_id", lambda: next(generated))
@@ -50,7 +50,7 @@ def test_registry_execution_id_is_fresh_unless_orchestrated(monkeypatch) -> None
 
 
 def test_gui_render_mode_is_limited_to_selected_worker() -> None:
-    from rl_framework.training.sb3_runner import _worker_env_config
+    from rl_framework.core.training.sb3_runner import _worker_env_config
 
     env_cfg = {"type": "walker_bullet", "render_mode": "rgb_array"}
 
@@ -63,7 +63,7 @@ def test_gui_render_mode_is_limited_to_selected_worker() -> None:
 
 
 def test_non_gui_training_preserves_configured_render_mode() -> None:
-    from rl_framework.training.sb3_runner import _worker_env_config
+    from rl_framework.core.training.sb3_runner import _worker_env_config
 
     env_cfg = {"type": "walker_bullet", "render_mode": "rgb_array"}
 
@@ -73,7 +73,7 @@ def test_non_gui_training_preserves_configured_render_mode() -> None:
 def test_headless_worker_advertises_selected_render_mode() -> None:
     import gymnasium as gym
 
-    from rl_framework.training.sb3_runner import _advertise_selected_render_mode
+    from rl_framework.core.training.sb3_runner import _advertise_selected_render_mode
 
     env = gym.Env()
     env.render_mode = None
@@ -89,7 +89,7 @@ def test_headless_worker_advertises_selected_render_mode() -> None:
 
 
 def test_runtime_controls_apply_torch_threads_and_worker_start_method(monkeypatch) -> None:
-    from rl_framework.training import sb3_runner
+    from rl_framework.core.training import sb3_runner
 
     configured_threads: list[int] = []
     monkeypatch.setattr("torch.set_num_threads", configured_threads.append)

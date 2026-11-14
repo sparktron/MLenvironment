@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from rl_framework.utils.checkpoint import model_zip_path as _as_zip_path
+from rl_framework.core.utils.checkpoint import model_zip_path as _as_zip_path
 
 _log = logging.getLogger(__name__)
 

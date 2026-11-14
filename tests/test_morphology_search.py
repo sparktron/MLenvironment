@@ -27,7 +27,8 @@ def test_morphology_search_picks_highest_score(monkeypatch):
     set at all here) — mean_return was rejected because morphology search
     only targets the zero-sum arena, where it ranks trials on noise."""
     from rl_framework.training import morphology_search as ms
-    from rl_framework.training import arena_tournament, sb3_runner
+    from rl_framework.training import arena_tournament
+    from rl_framework.core.training import sb3_runner
 
     trained_paths: list[str] = []
     tournament_calls: list[tuple[list[str], dict, dict]] = []
@@ -128,7 +129,7 @@ def test_morphology_search_requires_positive_trials():
 
 def test_morphology_search_can_score_by_tournament_elo(monkeypatch):
     from rl_framework.training import morphology_search as ms
-    from rl_framework.training import sb3_runner
+    from rl_framework.core.training import sb3_runner
     from rl_framework.training import arena_tournament
 
     monkeypatch.setattr(

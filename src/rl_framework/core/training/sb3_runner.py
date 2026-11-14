@@ -23,16 +23,16 @@ from stable_baselines3.common.vec_env import (
 )
 
 from rl_framework.core.registry import get_task, make_env, registered_tasks
-from rl_framework.training.curriculum_callback import CurriculumCallback
-from rl_framework.training.evaluation_workers import resolve_evaluation_workers
-from rl_framework.utils.checkpoint import (
+from rl_framework.core.training.callbacks.curriculum_callback import CurriculumCallback
+from rl_framework.core.training.evaluation_workers import resolve_evaluation_workers
+from rl_framework.core.utils.checkpoint import (
     find_vecnormalize_path_for_model as _find_vecnormalize_path_for_model,
     validate_resume_path as _validate_resume_path,
     vecnormalize_path_for_model as _vecnormalize_path_for_model,
 )
-from rl_framework.utils.logging_utils import create_experiment_paths
-from rl_framework.utils.run_registry import new_run_id, registry_for_config
-from rl_framework.utils.reproducibility import (
+from rl_framework.core.utils.logging_utils import create_experiment_paths
+from rl_framework.core.utils.run_registry import new_run_id, registry_for_config
+from rl_framework.core.utils.reproducibility import (
     check_resume_provenance,
     configure_deterministic_mode,
     write_run_metadata,
@@ -423,7 +423,7 @@ def train(
     extra_callbacks:
         Additional SB3 callbacks inserted after the checkpoint callback and
         before the built-in curriculum / self-play callbacks.  The GUI uses
-        this to inject :class:`~rl_framework.training.live_tuning_callback.LiveTuningCallback`.
+        this to inject :class:`~rl_framework.core.training.callbacks.live_tuning_callback.LiveTuningCallback`.
     stop_event:
         When set, a :class:`StopOnEvent` callback is prepended so training
         halts at the end of the current rollout.

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from rl_framework.utils.reproducibility import (
+from rl_framework.core.utils.reproducibility import (
     check_resume_provenance,
     write_run_metadata,
 )

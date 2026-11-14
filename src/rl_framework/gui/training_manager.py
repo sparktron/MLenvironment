@@ -12,11 +12,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-from rl_framework.utils.config import validate_experiment_config
-from rl_framework.utils.run_registry import registry_for_config
+from rl_framework.core.config.config import validate_experiment_config
+from rl_framework.core.utils.run_registry import registry_for_config
 
 if TYPE_CHECKING:
-    from rl_framework.training.frame_capture_callback import FrameCaptureCallback
+    from rl_framework.core.training.callbacks.frame_capture_callback import FrameCaptureCallback
 
 
 @dataclass
@@ -208,9 +208,9 @@ class TrainingManager:
     def _train_worker(self, state: _RunState) -> None:
         """Run training in a background thread."""
         # Lazy imports so the heavy ML stack is only loaded when a run actually starts.
-        from rl_framework.training.frame_capture_callback import FrameCaptureCallback
-        from rl_framework.training.live_tuning_callback import LiveTuningCallback
-        from rl_framework.training.sb3_runner import train
+        from rl_framework.core.training.callbacks.frame_capture_callback import FrameCaptureCallback
+        from rl_framework.core.training.callbacks.live_tuning_callback import LiveTuningCallback
+        from rl_framework.core.training.sb3_runner import train
 
         cfg = copy.deepcopy(state.cfg)
         # Enable rendering for frame capture

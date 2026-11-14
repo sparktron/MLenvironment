@@ -12,7 +12,7 @@ import copy
 from typing import Any
 
 from rl_framework.evolution.simple_search import RandomMorphologySearch
-from rl_framework.utils.checkpoint import model_zip_path
+from rl_framework.core.utils.checkpoint import model_zip_path
 
 
 def _as_model_zip_path(model_path: str) -> str:
@@ -39,7 +39,7 @@ def run_morphology_search(
         raise ValueError("trials must be >= 1")
 
     # Lazy imports keep this module cheap to import (e.g. for tests).
-    from rl_framework.training.sb3_runner import train
+    from rl_framework.core.training.sb3_runner import train
 
     scoring = str(cfg.get("morphology_search", {}).get("scoring", "tournament_elo"))
     if scoring == "mean_return":

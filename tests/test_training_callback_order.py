@@ -2,7 +2,7 @@
 
 import pytest
 
-from rl_framework.training.sb3_runner import PPO, train
+from rl_framework.core.training.sb3_runner import PPO, train
 
 
 @pytest.mark.parametrize(
