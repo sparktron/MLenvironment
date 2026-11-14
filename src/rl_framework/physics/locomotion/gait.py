@@ -128,6 +128,7 @@ class WalkerGaitTracker:
     _stance_slip_counts: list[int] = field(default_factory=lambda: [0, 0])
     _last_any_touchdown_step: int | None = None
     _steps: int = 0
+    _timing_segments: list[tuple[int, float]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.touchdown_debounce_steps < 1:
@@ -184,6 +185,27 @@ class WalkerGaitTracker:
         self._stance_slip_counts = [0, 0]
         self._last_any_touchdown_step = None
         self._steps = 0
+        self._timing_segments = [(0, self.control_timestep)]
+
+    def set_control_timestep(self, timestep: float) -> None:
+        """Use the new step duration from the next step, preserving earlier timing."""
+        if timestep <= 0:
+            raise ValueError("control_timestep must be positive")
+        if not self._timing_segments:
+            self._timing_segments = [(0, self.control_timestep)]
+        if self._timing_segments[-1][0] == self._steps:
+            self._timing_segments[-1] = (self._steps, timestep)
+        else:
+            self._timing_segments.append((self._steps, timestep))
+        self.control_timestep = timestep
+
+    def _elapsed(self, start: int, end: int) -> float:
+        segments = self._timing_segments or [(0, self.control_timestep)]
+        total = 0.0
+        for index, (begin, duration) in enumerate(segments):
+            stop = segments[index + 1][0] if index + 1 < len(segments) else end
+            total += max(0, min(end, stop) - max(start, begin)) * duration
+        return total
 
     def update(
         self,
@@ -289,7 +311,7 @@ class WalkerGaitTracker:
                     stance_pelvis_advance = float(
                         pelvis_x - self._stance_start_pelvis_x[side]
                     )
-                    stance_duration = (step - stance_start) * self.control_timestep
+                    stance_duration = self._elapsed(stance_start, step)
                     slip_count = self._stance_slip_counts[side]
                     stance_mean_slip_speed = (
                         self._stance_slip_sums[side] / slip_count if slip_count else 0.0
@@ -325,9 +347,7 @@ class WalkerGaitTracker:
             ):
                 accepted_touchdowns.append(side)
                 if previous_any_touchdown_step is not None:
-                    touchdown_interval = (
-                        step - previous_any_touchdown_step
-                    ) * self.control_timestep
+                    touchdown_interval = self._elapsed(previous_any_touchdown_step, step)
                 self._last_any_touchdown_step = step
                 self._last_touchdown_steps[side] = step
                 self._touchdown_counts[side] += 1
@@ -338,7 +358,7 @@ class WalkerGaitTracker:
                 swing_start = self._swing_start_steps[side]
                 if swing_start is not None:
                     self._qualified_touchdowns += 1
-                    duration = (step - swing_start) * self.control_timestep
+                    duration = self._elapsed(swing_start, step)
                     clearance = max(
                         self._swing_peak_z[side] - self._swing_start_z[side], 0.0
                     )
@@ -518,7 +538,7 @@ class WalkerGaitTracker:
                 else 0.0
             ),
             "gait_cadence_steps_per_min": (
-                60.0 * self._qualified_touchdowns / (steps * self.control_timestep)
+                60.0 * self._qualified_touchdowns / self._elapsed(0, steps)
             ),
             "gait_qualified_touchdowns": float(self._qualified_touchdowns),
             "gait_sustained_swing_touchdowns": float(self._sustained_swing_touchdowns),

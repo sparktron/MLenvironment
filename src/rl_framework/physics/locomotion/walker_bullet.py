@@ -1262,6 +1262,8 @@ class WalkerBulletEnv(gym.Env):
                     self._settle_steps = int(cast_val)
                 elif attr == "action_scale":
                     self._action_scale = float(cast_val)
+        if {"sim.timestep", "sim.frame_skip"} & params.keys():
+            self._gait_tracker.set_control_timestep(self._sim_timestep * max(1, self._frame_skip))
 
     def close(self) -> None:
         if p.isConnected(self._connection):

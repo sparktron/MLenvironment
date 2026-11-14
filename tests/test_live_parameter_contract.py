@@ -82,3 +82,57 @@ def test_terrain_live_update_rejects_empty_mix() -> None:
             env.update_live_params({"terrain.mix": []})
     finally:
         env.close()
+
+
+def test_live_frame_skip_updates_reported_gait_timing() -> None:
+    import numpy as np
+
+    env = _terrain_worker()
+    try:
+        env.reset(seed=1)
+        tracker = env._gait_tracker
+        tracker.touchdown_debounce_steps = 1
+
+        def swing_duration():
+            tracker.reset(initial_contacts=(True, True), action_size=10)
+            for step, contact in [(1, False), (2, False), (3, True)]:
+                tracker.update(
+                    step=step, contacts=(contact, True), pelvis_x=0.0,
+                    foot_slip_speeds=(0.0, 0.0),
+                    foot_positions=((step * 0.1, 0.1 if not contact else 0.0), (0.0, 0.0)),
+                    applied_action=np.zeros(10),
+                )
+            return tracker.episode_metrics()["gait_swing_duration"]
+
+        baseline = swing_duration()
+        assert baseline > 0
+        env.update_live_params({"sim.frame_skip": 8})
+        assert swing_duration() == pytest.approx(2 * baseline)
+        env.update_live_params({"sim.timestep": 1.0 / 120.0})
+        assert swing_duration() == pytest.approx(4 * baseline)
+    finally:
+        env.close()
+
+
+def test_swing_spanning_live_frame_skip_change_uses_both_timesteps() -> None:
+    import numpy as np
+
+    env = _terrain_worker()
+    try:
+        env.reset(seed=1)
+        tracker = env._gait_tracker
+        tracker.touchdown_debounce_steps = 1
+        tracker.reset(initial_contacts=(True, True), action_size=10)
+        for step, contact in [(1, False), (2, False), (3, True)]:
+            if step == 3:
+                env.update_live_params({"sim.frame_skip": 8})
+            tracker.update(
+                step=step, contacts=(contact, True), pelvis_x=0.0,
+                foot_slip_speeds=(0.0, 0.0),
+                foot_positions=((step * 0.1, 0.1 if not contact else 0.0), (0.0, 0.0)),
+                applied_action=np.zeros(10),
+            )
+        assert tracker.episode_metrics()["gait_swing_duration"] == pytest.approx(3 / 60)
+        assert tracker.episode_metrics()["gait_cadence_steps_per_min"] == pytest.approx(900)
+    finally:
+        env.close()

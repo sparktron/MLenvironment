@@ -33,8 +33,9 @@ and callback order. Prompts 1 and 2 are complete: task registry hooks now
 provide configuration validation, GUI schemas, evaluation, training environment
 construction, and ordered task callbacks. Prompt 3 splits the quality-study
 runner into task-contributed walker and arena studies. Prompt 4 moved the
-modules into core, physics, and games and enforces their import boundaries;
-Prompt 5 addresses live-parameter bugs next.
+modules into core, physics, and games and enforces their import boundaries.
+Prompt 5 makes live updates strict, allows terrain changes at reset, and
+updates gait timing when control timing changes. Prompt 6 is next.
 
 Mixed-terrain generalisation study. Two consecutive negative results recorded:
 
@@ -76,7 +77,7 @@ None identified from repository evidence.
 
 | Check | Status |
 |---|---|
-| `pytest -q --cov=src/rl_framework --cov-fail-under=60` | Passed locally with 523 tests and 83.72% coverage after Prompt 4. The untouched baseline had 492 tests and 82.70% coverage. |
+| `pytest -q --cov=src/rl_framework --cov-fail-under=60` | Passed locally with 531 tests and 83.86% coverage after Prompt 5. The untouched baseline had 492 tests and 82.70% coverage. |
 | `ruff check src tests scripts` | Passed locally. |
 | `python scripts/check_repo_policy.py` | Passed locally. |
 | `mypy src --ignore-missing-imports` | Runs in CI, **non-blocking**. |
