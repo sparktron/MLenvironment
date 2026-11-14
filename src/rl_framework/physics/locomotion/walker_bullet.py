@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from copy import deepcopy
 from typing import Any
 import warnings
 
@@ -19,7 +20,7 @@ from rl_framework.physics.locomotion.dynamics import (
 from rl_framework.physics.locomotion.gait import WalkerGaitTracker
 from rl_framework.physics.locomotion.rewards import WalkerReward
 from rl_framework.physics.locomotion.terminations import WalkerTermination
-from rl_framework.core.config.config_merge import get_section
+from rl_framework.core.config.config_merge import get_section, set_nested
 
 LIVE_PARAMS = frozenset(
     {f"reward.{key}" for key in WalkerReward.__dataclass_fields__}
@@ -27,6 +28,10 @@ LIVE_PARAMS = frozenset(
     | {f"sim.{key}" for key in ("gravity", "timestep", "frame_skip", "settle_steps", "action_scale")}
     | {f"domain_randomization.{key}" for key in (
         "mass_scale_range", "friction_range", "sensor_noise_std", "action_latency_steps"
+    )}
+    | {f"terrain.{key}" for key in (
+        "preset", "height", "obstacle_height", "mix", "push_recovery",
+        "push_recovery.interval_steps", "push_recovery.force", "push_recovery.start_step"
     )}
 )
 
@@ -776,13 +781,19 @@ class WalkerBulletEnv(gym.Env):
 
         # Draw this episode's terrain before anything builds it, so the first
         # reset and every later one go through the same path.
+        terrain_changed = hasattr(self, "_pending_terrain")
+        if terrain_changed:
+            terrain_cfg = self._pending_terrain
+            self._terrain_mix = self._parse_terrain_mix(terrain_cfg)
+            self._apply_terrain_spec(terrain_cfg)
+            del self._pending_terrain
         self._sample_terrain()
 
         # Build the world once; subsequent resets just rewind state. Saves
         # ~tens of ms per episode (no resetSimulation/loadURDF/createMultiBody).
         if self.robot_id < 0:
             self._build_world()
-        elif self._terrain_mix:
+        elif self._terrain_mix or terrain_changed:
             # World already exists: swap only the terrain boxes, preserving the
             # optimisation above.
             self._rebuild_terrain()
@@ -1164,7 +1175,7 @@ class WalkerBulletEnv(gym.Env):
 
         Called by CurriculumCallback and LiveTuningCallback via
         ``VecEnv.env_method("update_live_params", params)`` so that changes take
-        effect immediately rather than waiting for the next env reset.
+        effect immediately. Terrain changes take effect on the next reset.
 
         Supported prefixes mirror the env config sections:
         - ``reward.*``       → ``self.reward_fn.<attr>``
@@ -1178,11 +1189,30 @@ class WalkerBulletEnv(gym.Env):
         unknown = set(params) - LIVE_PARAMS
         if unknown:
             raise ValueError(f"Unknown live parameters {sorted(unknown)}; valid keys: {sorted(LIVE_PARAMS)}")
+        terrain_params = {key: value for key, value in params.items() if key.startswith("terrain.")}
+        if terrain_params:
+            terrain = deepcopy(getattr(self, "_pending_terrain", get_section(self.cfg, "terrain")))
+            for key, value in terrain_params.items():
+                field = key.removeprefix("terrain.")
+                if field in {"height", "obstacle_height", "push_recovery.force"}:
+                    value = float(value)
+                elif field in {"push_recovery.interval_steps", "push_recovery.start_step"}:
+                    value = int(value)
+                elif field == "preset":
+                    value = str(value)
+                elif field == "push_recovery" and not isinstance(value, dict):
+                    raise ValueError("terrain.push_recovery must be a mapping")
+                set_nested(terrain, field, deepcopy(value), strict=False)
+            self._parse_terrain_mix(terrain)
+            self._pending_terrain = terrain
+            self.cfg["terrain"] = deepcopy(terrain)
         _SECTION_OBJ_MAP = {
             "reward": self.reward_fn,
             "termination": self.termination,
         }
         for dotted_key, value in params.items():
+            if dotted_key.startswith("terrain."):
+                continue
             parts = dotted_key.split(".", 1)
             if len(parts) != 2:
                 continue

@@ -62,8 +62,6 @@ None identified from repository evidence.
 
 ## Known problems
 
-- `CurriculumCallback` cannot change terrain — `update_live_params` has no
-  `terrain` section. Terrain variation must go through `terrain.mix`.
 - A flattened `control: null` is silently tolerated and falls back to defaults,
   so a misconfigured run looks successful. The GUI wizard previously emitted
   exactly this.

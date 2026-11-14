@@ -65,3 +65,7 @@ mechanism, and it stands — the open research question does not.
 - `CurriculumCallback`'s inability to change terrain is a latent trap for anyone
   who has not read `AGENTS.md`. Consider making a `terrain` key under curriculum
   a hard error rather than a silent no-op.
+
+**2026-11-14 update:** Curriculum live updates can now change terrain, effective
+on the next reset, and unknown live keys raise errors. The sampling decision
+stands on the schedule and forgetting considerations above.

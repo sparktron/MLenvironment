@@ -52,3 +52,33 @@ def test_callbacks_propagate_worker_errors() -> None:
     tuning.model = model
     with pytest.raises(ValueError, match="worker rejected"):
         tuning._apply_params({"reward.alive_bonus": 1})
+
+
+def _terrain_worker():
+    return make_env("walker_bullet", {"type": "walker_bullet", "terrain": {"preset": "flat"}})
+
+
+def test_terrain_live_update_applies_on_next_reset_in_both_workers() -> None:
+    import numpy as np
+    from stable_baselines3.common.vec_env import SubprocVecEnv
+
+    vec = SubprocVecEnv([_terrain_worker, _terrain_worker], start_method="spawn")
+    try:
+        vec.reset()
+        vec.env_method("update_live_params", {"terrain.mix": [{"preset": "uneven", "height": 0.02}]})
+        _, _, _, infos = vec.step(np.zeros((2, 10)))
+        assert [info["terrain_preset"] for info in infos] == ["flat", "flat"]
+        vec.reset()
+        _, _, _, infos = vec.step(np.zeros((2, 10)))
+        assert [info["terrain_preset"] for info in infos] == ["uneven", "uneven"]
+    finally:
+        vec.close()
+
+
+def test_terrain_live_update_rejects_empty_mix() -> None:
+    env = _terrain_worker()
+    try:
+        with pytest.raises(ValueError, match="at least one"):
+            env.update_live_params({"terrain.mix": []})
+    finally:
+        env.close()
