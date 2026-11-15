@@ -169,9 +169,9 @@ def test_clipped_linear_velocity_keeps_gradient_where_gaussian_vanishes() -> Non
 
 
 def test_unknown_velocity_mode_is_rejected() -> None:
-    reward = WalkerReward(velocity_mode="quadratic")
+    # Rejected at construction, not at the first step() hours later.
     with pytest.raises(ValueError, match="Unknown velocity_mode"):
-        reward.compute(0.5, 0.0, np.zeros(10, dtype=np.float32), alive=True)
+        WalkerReward(velocity_mode="quadratic")
 
 
 def test_action_rate_penalty_charges_change_not_magnitude() -> None:

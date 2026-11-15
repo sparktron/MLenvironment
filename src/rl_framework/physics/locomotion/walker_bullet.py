@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import deque
 from copy import deepcopy
 from typing import Any
-import warnings
 
 import gymnasium as gym
 import numpy as np
@@ -25,15 +24,81 @@ from rl_framework.core.config.config_merge import get_section, set_nested
 LIVE_PARAMS = frozenset(
     {f"reward.{key}" for key in WalkerReward.__dataclass_fields__}
     | {f"termination.{key}" for key in WalkerTermination.__dataclass_fields__}
-    | {f"sim.{key}" for key in ("gravity", "timestep", "frame_skip", "settle_steps", "action_scale")}
-    | {f"domain_randomization.{key}" for key in (
-        "mass_scale_range", "friction_range", "sensor_noise_std", "action_latency_steps"
-    )}
-    | {f"terrain.{key}" for key in (
-        "preset", "height", "obstacle_height", "mix", "push_recovery",
-        "push_recovery.interval_steps", "push_recovery.force", "push_recovery.start_step"
-    )}
+    | {
+        f"sim.{key}"
+        for key in ("gravity", "timestep", "frame_skip", "settle_steps", "action_scale")
+    }
+    | {
+        f"domain_randomization.{key}"
+        for key in (
+            "mass_scale_range",
+            "friction_range",
+            "sensor_noise_std",
+            "action_latency_steps",
+        )
+    }
+    | {
+        f"terrain.{key}"
+        for key in (
+            "preset",
+            "height",
+            "obstacle_height",
+            "mix",
+            "push_recovery",
+            "push_recovery.interval_steps",
+            "push_recovery.force",
+            "push_recovery.start_step",
+            "push_recovery.duration_s",
+            "length",
+            "width",
+            "randomize",
+            "wavelength",
+            "obstacle_spacing",
+            "obstacle_spacing_jitter",
+            "obstacle_height_jitter",
+        )
+    }
 )
+
+# Terrain keys whose live values are numeric. Kept beside LIVE_PARAMS so the
+# cast table cannot drift from the accepted key set.
+_TERRAIN_FLOAT_FIELDS = frozenset(
+    {
+        "height",
+        "obstacle_height",
+        "push_recovery.force",
+        "push_recovery.duration_s",
+        "length",
+        "width",
+        "wavelength",
+        "obstacle_spacing",
+        "obstacle_spacing_jitter",
+        "obstacle_height_jitter",
+    }
+)
+_TERRAIN_INT_FIELDS = frozenset(
+    {"push_recovery.interval_steps", "push_recovery.start_step"}
+)
+VALID_CLEARANCE_POINTS = frozenset({"com", "sole"})
+DEFAULT_PUSH_DURATION_S = 0.1
+DEFAULT_TERRAIN_LENGTH = 25.0
+DEFAULT_TERRAIN_WIDTH = 3.0
+# Terrain starts here so reset randomisation never begins in contact.
+TERRAIN_START_X = 0.6
+TERRAIN_DX = 0.05
+TERRAIN_DY = 0.25
+# Pooled terrain bodies not used this episode wait here, under the plane.
+TERRAIN_PARK_POSITION = (0.0, 0.0, -50.0)
+
+
+def _terrain_rng(seed: int | None) -> np.random.Generator:
+    """Terrain layout draws from their own stream.
+
+    Sharing the main env RNG would shift every later draw (mix sampling,
+    reset noise, push direction) whenever a layout is generated, so adding
+    per-episode layouts would silently change flat and push episodes too.
+    """
+    return np.random.default_rng(None if seed is None else [int(seed), 7919])
 
 
 class WalkerBulletEnv(gym.Env):
@@ -46,12 +111,24 @@ class WalkerBulletEnv(gym.Env):
         self._connection = p.connect(p.GUI if self.render_mode == "human" else p.DIRECT)
         try:
             self._rng = np.random.default_rng(cfg.get("seed", 0))
+            self._layout_rng = _terrain_rng(cfg.get("seed", 0))
 
             # get_section everywhere: the GUI wizard sometimes writes
             # `key: null` for nested groups, which would otherwise crash
             # .get(...) chains (a present key with value None is returned as
             # None, not the .get(..., {}) default).
             sim_cfg = get_section(cfg, "sim")
+            # A flattened `control: null` used to fall back to defaults
+            # silently, which looks like a working run and is not one.
+            if "control" in sim_cfg and not isinstance(sim_cfg["control"], dict):
+                raise ValueError(
+                    "environment.sim.control must be a mapping with mode, "
+                    f"position_gain and velocity_gain; got {sim_cfg['control']!r}"
+                )
+            # Thighs and shins collide only when enabled. Off by default so
+            # existing checkpoints keep their physics; obstacle results with
+            # it off are optimistic, because a shin cannot catch an edge.
+            self._limb_collision = bool(sim_cfg.get("limb_collision", False))
             # Accept both max_torque and legacy max_force keys.
             max_torque = sim_cfg.get("max_torque", sim_cfg.get("max_force", 35.0))
             ctrl_cfg = get_section(sim_cfg, "control")
@@ -74,7 +151,7 @@ class WalkerBulletEnv(gym.Env):
             # the first agent observation.
             self._settle_steps = int(sim_cfg.get("settle_steps", 30))
             reward_cfg = get_section(cfg, "reward")
-            self._warn_unknown_section_keys(reward_cfg, WalkerReward, "reward")
+            self._reject_unknown_section_keys(reward_cfg, WalkerReward, "reward")
             self.reward_fn = WalkerReward(
                 **{
                     k: v
@@ -83,7 +160,9 @@ class WalkerBulletEnv(gym.Env):
                 }
             )
             term_cfg = get_section(cfg, "termination")
-            self._warn_unknown_section_keys(term_cfg, WalkerTermination, "termination")
+            self._reject_unknown_section_keys(
+                term_cfg, WalkerTermination, "termination"
+            )
             self.termination = WalkerTermination(
                 **{
                     k: v
@@ -171,6 +250,22 @@ class WalkerBulletEnv(gym.Env):
                     "flight phase, at/above 1.0 no foot ever swings"
                 )
             self._gait_phase = 0.0
+            # Which point of the foot swing clearance is measured at. "com"
+            # is the historical link centre of mass, which sits 4 cm ahead
+            # of the ankle and mid-height in the foot box: a toe-down foot
+            # reports 2.5-3.7 cm more clearance than its sole really has.
+            # "sole" uses the lowest point of the foot collision box.
+            # "com" stays the default so existing reward configs keep their
+            # semantics; prefer "sole" for new work.
+            self._clearance_point = str(gait_cfg.get("clearance_point", "com"))
+            if self._clearance_point not in VALID_CLEARANCE_POINTS:
+                raise ValueError(
+                    "gait.clearance_point must be one of "
+                    f"{sorted(VALID_CLEARANCE_POINTS)}, got {self._clearance_point!r}"
+                )
+            self._push_ticks_remaining = 0
+            self._push_vector = (0.0, 0.0, 0.0)
+            self._reset_terrain_pools()
             self._gait_tracker = WalkerGaitTracker(
                 touchdown_debounce_steps=int(
                     gait_cfg.get("touchdown_debounce_steps", 3)
@@ -220,15 +315,16 @@ class WalkerBulletEnv(gym.Env):
     )  # ≈ 0.678 m
 
     @staticmethod
-    def _warn_unknown_section_keys(
+    def _reject_unknown_section_keys(
         section: dict[str, Any], cls: type, name: str
     ) -> None:
+        # A warning is easy to miss in a 24-worker log, and a typo'd reward
+        # weight trains the wrong objective for hours. Fail at construction.
         unknown = sorted(set(section) - set(cls.__annotations__))
         if unknown:
-            warnings.warn(
-                f"Ignoring unknown {name} keys {unknown}; valid keys are "
-                f"{sorted(cls.__annotations__)}",
-                stacklevel=3,
+            raise ValueError(
+                f"Unknown {name} keys {unknown}; valid keys are "
+                f"{sorted(cls.__annotations__)}"
             )
 
     def _build_world(self) -> None:
@@ -239,7 +335,7 @@ class WalkerBulletEnv(gym.Env):
         sim_cfg = get_section(self.cfg, "sim")
         p.setGravity(0, 0, sim_cfg.get("gravity", -9.81), physicsClientId=cid)
         self.plane_id = p.loadURDF("plane.urdf", physicsClientId=cid)
-        self._terrain_body_ids = []
+        self._reset_terrain_pools()
         self._build_terrain()
 
         sim = sim_cfg
@@ -276,15 +372,30 @@ class WalkerBulletEnv(gym.Env):
 
         # ── Legs ──────────────────────────────────────────────────────────────
         # Thigh/shin visuals hang down from their joint (top of segment = joint).
-        # Foot visuals are centered at ankle height, shifted 4 cm forward.
+        # Foot visuals sit exactly on the collision box, centred on the ankle.
+        # They used to be drawn 4 cm forward of it, so videos showed the foot
+        # where it does not collide. The inertial frame keeps its 4 cm offset.
         r_thigh_vis = _vis(th, RED, (0, 0, -th[2]))
         r_shin_vis = _vis(sh, BLUE, (0, 0, -sh[2]))
         r_foot_col = _col(fh)
-        r_foot_vis = _vis(fh, DGRAY, (0.04, 0, 0))
+        r_foot_vis = _vis(fh, DGRAY)
         l_thigh_vis = _vis(th, RED, (0, 0, -th[2]))
         l_shin_vis = _vis(sh, BLUE, (0, 0, -sh[2]))
         l_foot_col = _col(fh)
-        l_foot_vis = _vis(fh, DGRAY, (0.04, 0, 0))
+        l_foot_vis = _vis(fh, DGRAY)
+
+        def _limb_col(half):
+            if not self._limb_collision:
+                return -1
+            return p.createCollisionShape(
+                p.GEOM_BOX,
+                halfExtents=half,
+                collisionFramePosition=[0, 0, -half[2]],
+                physicsClientId=cid,
+            )
+
+        r_thigh_col, r_shin_col = _limb_col(th), _limb_col(sh)
+        l_thigh_col, l_shin_col = _limb_col(th), _limb_col(sh)
 
         # ── Arms ──────────────────────────────────────────────────────────────
         # Upper arms hang from shoulder joint; forearms hang from elbow joint.
@@ -328,11 +439,11 @@ class WalkerBulletEnv(gym.Env):
                 1.5,  # head
             ],
             linkCollisionShapeIndices=[
-                -1,
-                -1,
-                r_foot_col,  # right leg (only foot collides)
-                -1,
-                -1,
+                r_thigh_col,
+                r_shin_col,
+                r_foot_col,  # right leg (thigh/shin only with limb_collision)
+                l_thigh_col,
+                l_shin_col,
                 l_foot_col,  # left leg
                 -1,
                 -1,  # right arm (no collision)
@@ -474,6 +585,14 @@ class WalkerBulletEnv(gym.Env):
         self._push_interval_steps = int(push_cfg.get("interval_steps", 0))
         self._push_force = float(push_cfg.get("force", 0.0))
         self._push_start_step = int(push_cfg.get("start_step", 0))
+        # How long each push lasts. PyBullet clears external forces after
+        # every physics tick, so a push applied once lasted 1/240 s: 180 N
+        # gave 0.75 N*s, about 0.01 m/s on this 65.9 kg body.
+        self._push_duration_s = float(
+            push_cfg.get("duration_s", DEFAULT_PUSH_DURATION_S)
+        )
+        if self._push_duration_s <= 0:
+            raise ValueError("terrain.push_recovery.duration_s must be positive")
 
     def _sample_terrain(self) -> None:
         """Draw the next episode's terrain from ``terrain.mix``.
@@ -487,63 +606,182 @@ class WalkerBulletEnv(gym.Env):
         index = int(self._rng.choice(len(self._terrain_mix), p=weights / weights.sum()))
         self._apply_terrain_spec(self._terrain_mix[index][0])
 
+    def _terrain_varies_per_episode(self) -> bool:
+        return self._terrain_preset in {"uneven", "obstacles"} and bool(
+            self._active_terrain.get("randomize", True)
+        )
+
     def _rebuild_terrain(self) -> None:
-        """Replace terrain bodies in place, without rebuilding the world.
+        """Swap this episode's terrain in, without rebuilding the world.
 
         ``_build_world`` runs once per env and later resets only rewind state,
-        which saves tens of ms per episode. Per-episode terrain must preserve
-        that, so only the handful of static terrain boxes are recreated.
+        which saves tens of ms per episode. Terrain bodies are pooled rather
+        than recreated: PyBullet cannot free collision or visual shapes, so
+        creating them per episode leaks memory for the life of the process.
+        Unused pool bodies are parked below the ground plane.
         """
         cid = self._connection
         for body_id in self._terrain_body_ids:
-            p.removeBody(body_id, physicsClientId=cid)
+            p.resetBasePositionAndOrientation(
+                body_id, TERRAIN_PARK_POSITION, (0, 0, 0, 1), physicsClientId=cid
+            )
         self._terrain_body_ids = []
         self._build_terrain()
 
+    def _reset_terrain_pools(self) -> None:
+        # resetSimulation destroys every body and shape.
+        self._terrain_body_ids = []
+        self._heightfields: dict[tuple[int, int, float], tuple[int, int]] = {}
+        self._obstacle_shapes: dict[tuple[float, float], int] = {}
+        self._obstacle_pools: dict[tuple[float, float], list[int]] = {}
+
+    def _terrain_layout_rng(self) -> np.random.Generator:
+        # randomize: false gives one fixed layout per spec, the same in every
+        # episode and every env, for controlled comparisons.
+        if self._active_terrain.get("randomize", True):
+            return self._layout_rng
+        return np.random.default_rng(0)
+
+    @staticmethod
+    def uneven_profile(
+        length: float, height: float, wavelength: float, rng: np.random.Generator
+    ) -> np.ndarray:
+        """Smooth ground heights in [0, height], one every ``TERRAIN_DX``.
+
+        Control points every half wavelength take uniform heights and are
+        joined by cosine interpolation, so the surface undulates without step
+        edges. The first and last points are zero, so the terrain ramps up
+        from the spawn plane and back down to it, and one interior point is
+        exactly ``height``, so every layout spans the full [0, height] range.
+        """
+        if wavelength <= 0 or length <= 0 or height < 0:
+            raise ValueError(
+                "terrain.length and terrain.wavelength must be positive and "
+                "terrain.height non-negative"
+            )
+        spacing = wavelength / 2.0
+        knots = max(3, int(np.ceil(length / spacing)) + 1)
+        values = rng.uniform(0.0, height, size=knots)
+        values[0] = values[-1] = 0.0
+        values[int(rng.integers(1, knots - 1))] = height
+        xs = np.arange(0.0, length + 1e-9, TERRAIN_DX)
+        position = xs / spacing
+        left = np.clip(np.floor(position).astype(int), 0, knots - 2)
+        frac = np.clip(position - left, 0.0, 1.0)
+        weight = 0.5 - 0.5 * np.cos(np.pi * frac)
+        return values[left] * (1.0 - weight) + values[left + 1] * weight
+
+    def _new_terrain_body(self, collision: int) -> int:
+        cid = self._connection
+        friction = float(get_section(self.cfg, "sim").get("friction", 0.8))
+        # No separate visual shape: PyBullet draws the collision shape.
+        body_id = p.createMultiBody(
+            baseMass=0.0,
+            baseCollisionShapeIndex=collision,
+            basePosition=TERRAIN_PARK_POSITION,
+            physicsClientId=cid,
+        )
+        p.changeDynamics(body_id, -1, lateralFriction=friction, physicsClientId=cid)
+        p.changeVisualShape(
+            body_id, -1, rgbaColor=[0.25, 0.45, 0.25, 1.0], physicsClientId=cid
+        )
+        return body_id
+
+    def _place_terrain_body(
+        self, body_id: int, position: tuple[float, float, float]
+    ) -> None:
+        p.resetBasePositionAndOrientation(
+            body_id, position, (0, 0, 0, 1), physicsClientId=self._connection
+        )
+        self._terrain_body_ids.append(body_id)
+
     def _build_terrain(self) -> None:
-        """Add deterministic static terrain without changing the spawn surface."""
+        """Place static terrain along the whole track, starting clear of spawn.
+
+        Every surface sits on or above the ground plane, and the terrain runs
+        ``length`` metres (default 25 m), past where an 800-1000 step episode
+        at walking speed can reach. Layouts are redrawn every episode from a
+        dedicated RNG unless ``randomize: false``.
+        """
         if self._terrain_preset == "flat" or self._terrain_preset == "push_recovery":
             return
 
         cid = self._connection
         terrain_cfg = self._active_terrain
-        friction = float(get_section(self.cfg, "sim").get("friction", 0.8))
-
-        def add_box(
-            position: tuple[float, float, float],
-            half_extents: tuple[float, float, float],
-        ) -> None:
-            collision = p.createCollisionShape(
-                p.GEOM_BOX, halfExtents=half_extents, physicsClientId=cid
-            )
-            visual = p.createVisualShape(
-                p.GEOM_BOX,
-                halfExtents=half_extents,
-                rgbaColor=[0.25, 0.45, 0.25, 1.0],
-                physicsClientId=cid,
-            )
-            body_id = p.createMultiBody(
-                baseMass=0.0,
-                baseCollisionShapeIndex=collision,
-                baseVisualShapeIndex=visual,
-                basePosition=position,
-                physicsClientId=cid,
-            )
-            p.changeDynamics(body_id, -1, lateralFriction=friction, physicsClientId=cid)
-            self._terrain_body_ids.append(body_id)
+        length = float(terrain_cfg.get("length", DEFAULT_TERRAIN_LENGTH))
+        width = float(terrain_cfg.get("width", DEFAULT_TERRAIN_WIDTH))
+        if width <= 0:
+            raise ValueError("terrain.width must be positive")
+        rng = self._terrain_layout_rng()
 
         if self._terrain_preset == "uneven":
             height = float(terrain_cfg.get("height", 0.025))
-            # Start after x=0.6 so reset randomization never begins in contact.
-            for index, x in enumerate((0.8, 1.4, 2.0, 2.6, 3.2)):
-                offset = height if index % 2 == 0 else -height
-                add_box((x, 0.0, offset - 0.03), (0.32, 0.6, 0.03))
+            wavelength = float(terrain_cfg.get("wavelength", 1.0))
+            profile = self.uneven_profile(length, height, wavelength, rng)
+            columns = max(2, int(round(width / TERRAIN_DY)) + 1)
+            # Row-major with x varying fastest along each row.
+            data = np.tile(profile, columns).tolist()
+            key = (len(profile), columns, height)
+            existing = self._heightfields.get(key)
+            shape_kwargs = dict(
+                meshScale=[TERRAIN_DX, TERRAIN_DY, 1.0],
+                heightfieldData=data,
+                numHeightfieldRows=len(profile),
+                numHeightfieldColumns=columns,
+                physicsClientId=cid,
+            )
+            if existing is None:
+                shape = p.createCollisionShape(p.GEOM_HEIGHTFIELD, **shape_kwargs)
+                body_id = self._new_terrain_body(shape)
+                self._heightfields[key] = (shape, body_id)
+            else:
+                shape, body_id = existing
+                p.createCollisionShape(
+                    p.GEOM_HEIGHTFIELD, replaceHeightfieldIndex=shape, **shape_kwargs
+                )
+            # Bullet centres a heightfield on its height range, which is
+            # always [0, height] here, so local height h lands at world z = h.
+            span = (len(profile) - 1) * TERRAIN_DX
+            self._place_terrain_body(
+                body_id, (TERRAIN_START_X + 0.5 * span, 0.0, 0.5 * height)
+            )
         elif self._terrain_preset == "obstacles":
             obstacle_height = float(terrain_cfg.get("obstacle_height", 0.10))
-            for x in (1.2, 2.4, 3.6):
-                add_box(
-                    (x, 0.0, obstacle_height / 2), (0.10, 0.55, obstacle_height / 2)
+            spacing = float(terrain_cfg.get("obstacle_spacing", 1.2))
+            spacing_jitter = float(terrain_cfg.get("obstacle_spacing_jitter", 0.3))
+            height_jitter = float(terrain_cfg.get("obstacle_height_jitter", 0.0))
+            if obstacle_height <= 0:
+                raise ValueError("terrain.obstacle_height must be positive")
+            if spacing_jitter < 0 or spacing <= 2 * spacing_jitter:
+                raise ValueError(
+                    "terrain.obstacle_spacing must exceed twice a non-negative "
+                    "obstacle_spacing_jitter"
                 )
+            if not 0 <= height_jitter < 1:
+                raise ValueError("terrain.obstacle_height_jitter must be in [0, 1)")
+            # One shape at the tallest possible height; shorter obstacles are
+            # the same box sunk into the ground, so jitter needs no new shapes.
+            tallest = obstacle_height * (1.0 + height_jitter)
+            obstacle_key = (width, tallest)
+            if obstacle_key not in self._obstacle_shapes:
+                self._obstacle_shapes[obstacle_key] = p.createCollisionShape(
+                    p.GEOM_BOX,
+                    halfExtents=(0.10, 0.5 * width, 0.5 * tallest),
+                    physicsClientId=cid,
+                )
+                self._obstacle_pools[obstacle_key] = []
+            pool = self._obstacle_pools[obstacle_key]
+            # The first obstacle keeps its historical position, clear of spawn.
+            x, index = 1.2, 0
+            while x <= TERRAIN_START_X + length:
+                top = obstacle_height * (
+                    1.0 + rng.uniform(-height_jitter, height_jitter)
+                )
+                if index == len(pool):
+                    pool.append(self._new_terrain_body(self._obstacle_shapes[obstacle_key]))
+                self._place_terrain_body(pool[index], (x, 0.0, top - 0.5 * tallest))
+                x += spacing + rng.uniform(-spacing_jitter, spacing_jitter)
+                index += 1
 
     def _get_obs(
         self,
@@ -595,23 +833,47 @@ class WalkerBulletEnv(gym.Env):
         obs = np.nan_to_num(obs, nan=0.0, posinf=1e6, neginf=-1e6)
         return obs
 
-    def _foot_contacts(self) -> tuple[bool, bool]:
+    _FOOT_LINKS = (2, 5)
+
+    def _surface_contacts(self) -> dict[int, list[tuple]]:
+        """Robot contacts with supporting surfaces, grouped by robot link.
+
+        One ``getContactPoints`` call per step replaces the five per-link
+        calls the step used to make; contact queries were about half of each
+        env step against physics alone.
+        """
         support_body_ids = {self.plane_id, *self._terrain_body_ids}
-        contacts = [
-            bool(
-                [
-                    contact
-                    for contact in p.getContactPoints(
-                        bodyA=self.robot_id,
-                        linkIndexA=link,
-                        physicsClientId=self._connection,
-                    )
-                    if contact[2] in support_body_ids
-                ]
+        grouped: dict[int, list[tuple]] = {}
+        for contact in p.getContactPoints(
+            bodyA=self.robot_id, physicsClientId=self._connection
+        ):
+            if contact[2] in support_body_ids:
+                grouped.setdefault(int(contact[3]), []).append(contact)
+        return grouped
+
+    def _foot_link_states(self) -> list[tuple]:
+        return [
+            p.getLinkState(
+                self.robot_id,
+                link,
+                computeLinkVelocity=1,
+                physicsClientId=self._connection,
             )
-            for link in (2, 5)
+            for link in self._FOOT_LINKS
         ]
-        return contacts[0], contacts[1]
+
+    @staticmethod
+    def _finite(values: Any) -> np.ndarray:
+        return np.nan_to_num(
+            np.asarray(values, dtype=np.float64), nan=0.0, posinf=1e6, neginf=-1e6
+        )
+
+    def _foot_contacts(
+        self, grouped: dict[int, list[tuple]] | None = None
+    ) -> tuple[bool, bool]:
+        grouped = self._surface_contacts() if grouped is None else grouped
+        right, left = (bool(grouped.get(link)) for link in self._FOOT_LINKS)
+        return right, left
 
     def _expected_stance(self, phase: float) -> tuple[bool, bool]:
         """Reference contact schedule at a gait phase.
@@ -625,7 +887,11 @@ class WalkerBulletEnv(gym.Env):
         left = ((phase + 0.5) % 1.0) < duty
         return bool(right), bool(left)
 
-    def _foot_contact_point_slip(self) -> tuple[float, float]:
+    def _foot_contact_point_slip(
+        self,
+        grouped: dict[int, list[tuple]] | None = None,
+        states: list[tuple] | None = None,
+    ) -> tuple[float, float]:
         """True sliding speed of each foot: the velocity of the material point
         at the contact, not of the link origin.
 
@@ -640,40 +906,17 @@ class WalkerBulletEnv(gym.Env):
         evaluated at the slowest contact point, the one anchoring the foot.
         Feet out of contact report 0.0.
         """
-        support_body_ids = {self.plane_id, *self._terrain_body_ids}
+        grouped = self._surface_contacts() if grouped is None else grouped
+        states = self._foot_link_states() if states is None else states
         speeds: list[float] = []
-        for link in (2, 5):
-            points = [
-                contact
-                for contact in p.getContactPoints(
-                    bodyA=self.robot_id,
-                    linkIndexA=link,
-                    physicsClientId=self._connection,
-                )
-                if contact[2] in support_body_ids
-            ]
+        for link, state in zip(self._FOOT_LINKS, states):
+            points = grouped.get(link)
             if not points:
                 speeds.append(0.0)
                 continue
-            state = p.getLinkState(
-                self.robot_id,
-                link,
-                computeLinkVelocity=1,
-                physicsClientId=self._connection,
-            )
             com = np.asarray(state[0], dtype=np.float64)
-            vel = np.nan_to_num(
-                np.asarray(state[6], dtype=np.float64),
-                nan=0.0,
-                posinf=1e6,
-                neginf=-1e6,
-            )
-            omega = np.nan_to_num(
-                np.asarray(state[7], dtype=np.float64),
-                nan=0.0,
-                posinf=1e6,
-                neginf=-1e6,
-            )
+            vel = self._finite(state[6])
+            omega = self._finite(state[7])
             speeds.append(
                 min(
                     float(
@@ -700,54 +943,60 @@ class WalkerBulletEnv(gym.Env):
         )
 
     def _foot_tangential_velocities(
-        self,
+        self, states: list[tuple] | None = None
     ) -> tuple[tuple[float, float], tuple[float, float]]:
+        states = self._foot_link_states() if states is None else states
         velocities = []
-        for link in (2, 5):
-            state = p.getLinkState(
-                self.robot_id,
-                link,
-                computeLinkVelocity=1,
-                physicsClientId=self._connection,
-            )
-            velocity = np.nan_to_num(
-                np.asarray(state[6], dtype=np.float64),
-                nan=0.0,
-                posinf=1e6,
-                neginf=-1e6,
-            )
+        for state in states:
+            velocity = self._finite(state[6])
             velocities.append((float(velocity[0]), float(velocity[1])))
         return velocities[0], velocities[1]
 
-    def _foot_normal_forces(self) -> tuple[float, float]:
+    def _foot_normal_forces(
+        self, grouped: dict[int, list[tuple]] | None = None
+    ) -> tuple[float, float]:
         """Return total supporting-surface normal force for each foot."""
-        support_body_ids = {self.plane_id, *self._terrain_body_ids}
+        grouped = self._surface_contacts() if grouped is None else grouped
         forces = []
-        for link in (2, 5):
-            force = sum(
-                float(contact[9])
-                for contact in p.getContactPoints(
-                    bodyA=self.robot_id,
-                    linkIndexA=link,
-                    physicsClientId=self._connection,
-                )
-                if contact[2] in support_body_ids
-            )
+        for link in self._FOOT_LINKS:
+            force = sum(float(contact[9]) for contact in grouped.get(link, ()))
             forces.append(force if np.isfinite(force) else 0.0)
         return forces[0], forces[1]
 
-    def _foot_positions(self) -> tuple[tuple[float, float], tuple[float, float]]:
-        """Return sagittal foot positions used for stride/swing telemetry."""
-        positions = []
-        for link in (2, 5):
-            state = p.getLinkState(
-                self.robot_id, link, physicsClientId=self._connection
-            )
-            position = np.nan_to_num(
-                np.asarray(state[0], dtype=np.float64), nan=0.0, posinf=1e6, neginf=-1e6
-            )
-            positions.append((float(position[0]), float(position[2])))
-        return positions[0], positions[1]
+    def _sole_heights(self, states: list[tuple] | None = None) -> tuple[float, float]:
+        """World z of the lowest point of each foot's collision box.
+
+        The box is centred on the link frame (the ankle). Its lowest corner
+        sits ``sum_i |R[2, i]| * half_i`` below that centre.
+        """
+        states = self._foot_link_states() if states is None else states
+        heights = []
+        half = np.asarray(self._FOOT_H, dtype=np.float64)
+        for state in states:
+            centre = self._finite(state[4])
+            rotation = np.asarray(
+                p.getMatrixFromQuaternion(state[5]), dtype=np.float64
+            ).reshape(3, 3)
+            heights.append(float(centre[2] - np.abs(rotation[2]) @ half))
+        return heights[0], heights[1]
+
+    def _foot_positions(
+        self, states: list[tuple] | None = None
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
+        """Return sagittal foot positions used for stride/swing telemetry.
+
+        x is always the link centre of mass. z follows ``gait.clearance_point``.
+        """
+        states = self._foot_link_states() if states is None else states
+        com_positions = [self._finite(state[0]) for state in states]
+        if self._clearance_point == "sole":
+            heights = self._sole_heights(states)
+        else:
+            heights = (float(com_positions[0][2]), float(com_positions[1][2]))
+        return (
+            (float(com_positions[0][0]), heights[0]),
+            (float(com_positions[1][0]), heights[1]),
+        )
 
     def _apply_domain_randomization(self) -> None:
         rand_cfg = get_section(self.cfg, "domain_randomization")
@@ -778,6 +1027,7 @@ class WalkerBulletEnv(gym.Env):
         super().reset(seed=seed)
         if seed is not None:
             self._rng = np.random.default_rng(seed)
+            self._layout_rng = _terrain_rng(seed)
 
         # Draw this episode's terrain before anything builds it, so the first
         # reset and every later one go through the same path.
@@ -793,12 +1043,13 @@ class WalkerBulletEnv(gym.Env):
         # ~tens of ms per episode (no resetSimulation/loadURDF/createMultiBody).
         if self.robot_id < 0:
             self._build_world()
-        elif self._terrain_mix or terrain_changed:
-            # World already exists: swap only the terrain boxes, preserving the
-            # optimisation above.
+        elif self._terrain_mix or terrain_changed or self._terrain_varies_per_episode():
+            # World already exists: swap only the terrain bodies, preserving
+            # the optimisation above.
             self._rebuild_terrain()
         self._apply_domain_randomization()
         self.step_count = 0
+        self._push_ticks_remaining = 0
         # Reset action latency buffer: pre-fill with zero actions so the first
         # _action_latency_steps steps apply no-op while the buffer warms up.
         self._action_buffer.clear()
@@ -896,6 +1147,28 @@ class WalkerBulletEnv(gym.Env):
         obs = self._get_obs(foot_contacts=foot_contacts)
         return obs, {}
 
+    def _apply_push_tick(self) -> None:
+        """Apply one physics tick of the active push at the torso's COM.
+
+        With ``WORLD_FRAME`` the position argument is a world coordinate. It
+        used to be the world origin, so the push was a yaw torque whose lever
+        arm was the distance walked: 1.2 rad/s at 2 m, 11.4 rad/s at 10 m,
+        on a robot with no yaw actuator. Applying it at the current COM makes
+        it a pure lateral push wherever the robot is.
+        """
+        com, _ = p.getBasePositionAndOrientation(
+            self.robot_id, physicsClientId=self._connection
+        )
+        p.applyExternalForce(
+            self.robot_id,
+            -1,
+            list(self._push_vector),
+            list(com),
+            p.WORLD_FRAME,
+            physicsClientId=self._connection,
+        )
+        self._push_ticks_remaining -= 1
+
     def step(self, action: np.ndarray):
         action = np.clip(np.asarray(action, dtype=np.float32), -1.0, 1.0)
         # Action latency: buffer the current action and apply the delayed one.
@@ -913,19 +1186,17 @@ class WalkerBulletEnv(gym.Env):
             and self.step_count % self._push_interval_steps == 0
         ):
             direction = -1.0 if self._rng.integers(0, 2) else 1.0
-            p.applyExternalForce(
-                self.robot_id,
-                -1,
-                [0.0, direction * self._push_force, 0.0],
-                [0.0, 0.0, 0.0],
-                p.WORLD_FRAME,
-                physicsClientId=self._connection,
+            self._push_vector = (0.0, direction * self._push_force, 0.0)
+            self._push_ticks_remaining = max(
+                1, int(round(self._push_duration_s / self._sim_timestep))
             )
             push_applied = True
         self.dynamics.apply_action(
             self.robot_id, applied_action, physicsClientId=self._connection
         )
         for _ in range(max(1, self._frame_skip)):
+            if self._push_ticks_remaining > 0:
+                self._apply_push_tick()
             p.stepSimulation(physicsClientId=self._connection)
         self.step_count += 1
 
@@ -952,15 +1223,19 @@ class WalkerBulletEnv(gym.Env):
             lin_vel = tuple(np.nan_to_num(lin_vel, nan=0.0, posinf=1e6, neginf=-1e6))
             ang_vel = tuple(np.nan_to_num(ang_vel, nan=0.0, posinf=1e6, neginf=-1e6))
 
-        foot_contacts = self._foot_contacts()
-        foot_tangential_velocities = self._foot_tangential_velocities()
-        foot_contact_slip_speeds = self._foot_contact_point_slip()
+        surface_contacts = self._surface_contacts()
+        foot_states = self._foot_link_states()
+        foot_contacts = self._foot_contacts(surface_contacts)
+        foot_tangential_velocities = self._foot_tangential_velocities(foot_states)
+        foot_contact_slip_speeds = self._foot_contact_point_slip(
+            surface_contacts, foot_states
+        )
         foot_slip_speeds = (
             float(np.linalg.norm(foot_tangential_velocities[0])),
             float(np.linalg.norm(foot_tangential_velocities[1])),
         )
-        foot_normal_forces = self._foot_normal_forces()
-        foot_positions = self._foot_positions()
+        foot_normal_forces = self._foot_normal_forces(surface_contacts)
+        foot_positions = self._foot_positions(foot_states)
         gait_step = self._gait_tracker.update(
             step=self.step_count,
             contacts=foot_contacts,
@@ -999,16 +1274,7 @@ class WalkerBulletEnv(gym.Env):
         # on raised uneven/obstacle bodies without terminating.
         # Divergence counts as an immediate fall so a corrupted physics state
         # never lingers until max_steps truncation.
-        support_body_ids = {self.plane_id, *self._terrain_body_ids}
-        torso_surface_contacts = [
-            contact
-            for contact in p.getContactPoints(
-                bodyA=self.robot_id,
-                linkIndexA=-1,
-                physicsClientId=self._connection,
-            )
-            if contact[2] in support_body_ids
-        ]
+        torso_surface_contacts = surface_contacts.get(-1, [])
         torso_contact = diverged or bool(torso_surface_contacts)
         torso_contact_body = (
             int(torso_surface_contacts[0][2]) if torso_surface_contacts else None
@@ -1188,16 +1454,24 @@ class WalkerBulletEnv(gym.Env):
         """
         unknown = set(params) - LIVE_PARAMS
         if unknown:
-            raise ValueError(f"Unknown live parameters {sorted(unknown)}; valid keys: {sorted(LIVE_PARAMS)}")
-        terrain_params = {key: value for key, value in params.items() if key.startswith("terrain.")}
+            raise ValueError(
+                f"Unknown live parameters {sorted(unknown)}; valid keys: {sorted(LIVE_PARAMS)}"
+            )
+        terrain_params = {
+            key: value for key, value in params.items() if key.startswith("terrain.")
+        }
         if terrain_params:
-            terrain = deepcopy(getattr(self, "_pending_terrain", get_section(self.cfg, "terrain")))
+            terrain = deepcopy(
+                getattr(self, "_pending_terrain", get_section(self.cfg, "terrain"))
+            )
             for key, value in terrain_params.items():
                 field = key.removeprefix("terrain.")
-                if field in {"height", "obstacle_height", "push_recovery.force"}:
+                if field in _TERRAIN_FLOAT_FIELDS:
                     value = float(value)
-                elif field in {"push_recovery.interval_steps", "push_recovery.start_step"}:
+                elif field in _TERRAIN_INT_FIELDS:
                     value = int(value)
+                elif field == "randomize":
+                    value = bool(value)
                 elif field == "preset":
                     value = str(value)
                 elif field == "push_recovery" and not isinstance(value, dict):
@@ -1263,7 +1537,9 @@ class WalkerBulletEnv(gym.Env):
                 elif attr == "action_scale":
                     self._action_scale = float(cast_val)
         if {"sim.timestep", "sim.frame_skip"} & params.keys():
-            self._gait_tracker.set_control_timestep(self._sim_timestep * max(1, self._frame_skip))
+            self._gait_tracker.set_control_timestep(
+                self._sim_timestep * max(1, self._frame_skip)
+            )
 
     def close(self) -> None:
         if p.isConnected(self._connection):

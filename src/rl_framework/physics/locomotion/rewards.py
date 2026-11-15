@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+VELOCITY_MODES = frozenset({"gaussian", "clipped_linear"})
+
 
 @dataclass
 class WalkerReward:
@@ -115,6 +117,15 @@ class WalkerReward:
     # phase schedule. Unlike ``double_support_reward_weight``, standing or
     # in-phase hopping cannot collect it outside that short, intended window.
     phase_double_support_reward_weight: float = 0.0
+
+    def __post_init__(self) -> None:
+        # An invalid mode used to surface only at the first step(), after the
+        # vec env and model were built.
+        if self.velocity_mode not in VELOCITY_MODES:
+            raise ValueError(
+                f"Unknown velocity_mode {self.velocity_mode!r}; "
+                f"expected one of {sorted(VELOCITY_MODES)}"
+            )
 
     @property
     def min_touchdown_interval(self) -> float:

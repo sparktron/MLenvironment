@@ -1,4 +1,3 @@
-import warnings
 
 import numpy as np
 import pybullet as p
@@ -71,20 +70,262 @@ def test_walker_observation_v2_adds_foot_contacts(observation, shape) -> None:
 
 
 @pytest.mark.parametrize(
-    "preset,expected_bodies", [("flat", 0), ("uneven", 5), ("obstacles", 3)]
+    "preset,expected_bodies", [("flat", 0), ("uneven", 1), ("obstacles", 21)]
 )
 def test_walker_terrain_presets_build_static_geometry(
     preset: str, expected_bodies: int
 ) -> None:
     env = make_env(
         "walker_bullet",
-        {"type": "walker_bullet", "seed": 1, "terrain": {"preset": preset}},
+        {
+            "type": "walker_bullet",
+            "seed": 1,
+            "terrain": {"preset": preset, "randomize": False},
+        },
     )
     try:
         env.reset(seed=1)
         assert len(env._terrain_body_ids) == expected_bodies
     finally:
         env.close()
+
+
+def _surface_z(env, x: float, y: float = 0.0) -> tuple[float, int]:
+    hit = p.rayTest([x, y, 1.0], [x, y, -1.0], physicsClientId=env._connection)[0]
+    return float(hit[3][2]), int(hit[0])
+
+
+def test_walker_uneven_terrain_is_above_the_plane_along_the_whole_track() -> None:
+    """Regression: half the old slabs were buried and the rest ended at 3.6 m."""
+    env = make_env(
+        "walker_bullet",
+        {
+            "type": "walker_bullet",
+            "seed": 1,
+            "terrain": {"preset": "uneven", "height": 0.04},
+        },
+    )
+    try:
+        env.reset(seed=1)
+        heights = [_surface_z(env, x)[0] for x in np.arange(0.7, 25.5, 0.1)]
+        assert min(heights) >= -1e-6
+        assert max(heights) == pytest.approx(0.04, abs=2e-3)
+        # Real undulation: the surface varies continuously, with no step
+        # edges much larger than the slope allows between 10 cm samples.
+        assert np.std(heights) > 0.005
+        assert np.max(np.abs(np.diff(heights))) < 0.02
+        # Terrain still covers the far end of a long episode.
+        assert np.mean([h > 1e-3 for h in heights[-50:]]) > 0.5
+        # Spawn stays on the plane.
+        assert _surface_z(env, 0.3, 1.0)[1] == env.plane_id
+    finally:
+        env.close()
+
+
+def test_walker_terrain_layout_varies_per_episode_and_replays_per_seed() -> None:
+    def layouts(seed: int) -> list[tuple[float, ...]]:
+        env = make_env(
+            "walker_bullet",
+            {"type": "walker_bullet", "seed": seed, "terrain": {"preset": "obstacles"}},
+        )
+        try:
+            env.reset(seed=seed)
+            result = []
+            for _ in range(3):
+                env.reset()
+                result.append(
+                    tuple(
+                        round(
+                            p.getBasePositionAndOrientation(
+                                body, physicsClientId=env._connection
+                            )[0][0],
+                            4,
+                        )
+                        for body in env._terrain_body_ids
+                    )
+                )
+            return result
+        finally:
+            env.close()
+
+    first = layouts(3)
+    assert first == layouts(3)
+    assert len(set(first)) == 3
+    assert all(max(layout) > 20.0 for layout in first)
+
+
+def test_walker_obstacle_height_jitter_keeps_tops_in_range() -> None:
+    env = make_env(
+        "walker_bullet",
+        {
+            "type": "walker_bullet",
+            "seed": 2,
+            "terrain": {
+                "preset": "obstacles",
+                "obstacle_height": 0.08,
+                "obstacle_height_jitter": 0.25,
+            },
+        },
+    )
+    try:
+        env.reset(seed=2)
+        tops = [
+            p.getAABB(body, physicsClientId=env._connection)[1][2]
+            for body in env._terrain_body_ids
+        ]
+        assert min(tops) >= 0.06 - 1e-6 and max(tops) <= 0.10 + 1e-6
+        assert max(tops) - min(tops) > 0.01
+    finally:
+        env.close()
+
+
+def test_walker_terrain_pool_does_not_grow_across_resets() -> None:
+    """PyBullet cannot free shapes, so per-episode terrain must reuse bodies."""
+    env = make_env(
+        "walker_bullet",
+        {
+            "type": "walker_bullet",
+            "seed": 4,
+            "terrain": {"mix": [{"preset": "uneven"}, {"preset": "obstacles"}]},
+        },
+    )
+    try:
+        env.reset(seed=4)
+        for _ in range(5):
+            env.reset()
+        bodies = p.getNumBodies(physicsClientId=env._connection)
+        for _ in range(20):
+            env.reset()
+        assert p.getNumBodies(physicsClientId=env._connection) <= bodies + 2
+    finally:
+        env.close()
+
+
+def _push_response(x: float) -> tuple[float, float]:
+    env = make_env(
+        "walker_bullet",
+        {
+            "type": "walker_bullet",
+            "seed": 0,
+            "terrain": {
+                "preset": "push_recovery",
+                "push_recovery": {
+                    "interval_steps": 1000,
+                    "force": 180.0,
+                    "start_step": 0,
+                    "duration_s": 0.1,
+                },
+            },
+        },
+    )
+    try:
+        env.reset(seed=0)
+        cid = env._connection
+        pos, quat = p.getBasePositionAndOrientation(env.robot_id, physicsClientId=cid)
+        p.resetBasePositionAndOrientation(
+            env.robot_id, [x, pos[1], pos[2]], quat, physicsClientId=cid
+        )
+        v0, w0 = p.getBaseVelocity(env.robot_id, physicsClientId=cid)
+        env.step_count = 0
+        for _ in range(6):  # 0.1 s at 60 Hz control
+            env.step(np.zeros(10, dtype=np.float32))
+        v1, w1 = p.getBaseVelocity(env.robot_id, physicsClientId=cid)
+        return v1[1] - v0[1], w1[2] - w0[2]
+    finally:
+        env.close()
+
+
+def test_walker_push_is_lateral_and_independent_of_distance_walked() -> None:
+    """Regression: the push was applied at the world origin, so it was a yaw
+    torque whose lever arm was the robot's x position (11 rad/s at 10 m)."""
+    near_vy, near_yaw = _push_response(0.0)
+    far_vy, far_yaw = _push_response(10.0)
+    # 180 N for 0.1 s is 18 N*s on 65.9 kg: a real lateral push.
+    assert abs(near_vy) > 0.2
+    assert far_vy == pytest.approx(near_vy, abs=1e-3)
+    assert far_yaw == pytest.approx(near_yaw, abs=1e-3)
+    assert abs(far_yaw) < 1.0
+
+
+def test_walker_sole_clearance_point_measures_the_lowest_foot_point() -> None:
+    env = make_env(
+        "walker_bullet",
+        {"type": "walker_bullet", "seed": 0, "gait": {"clearance_point": "sole"}},
+    )
+    try:
+        env.reset(seed=0)
+        (_, right_z), (_, left_z) = env._foot_positions()
+        assert right_z == pytest.approx(0.0, abs=2e-3)
+        assert left_z == pytest.approx(0.0, abs=2e-3)
+        # Pitch the foot toe-down: the sole drops below the COM-based value.
+        cid = env._connection
+        p.resetJointState(env.robot_id, 2, 0.3, physicsClientId=cid)
+        p.resetBasePositionAndOrientation(
+            env.robot_id, [0, 0, 1.2], [0, 0, 0, 1], physicsClientId=cid
+        )
+        states = env._foot_link_states()
+        sole = env._sole_heights(states)[0]
+        com = states[0][0][2]
+        assert com - sole > 0.04
+    finally:
+        env.close()
+
+
+def test_walker_rejects_invalid_clearance_point() -> None:
+    with pytest.raises(ValueError, match="clearance_point"):
+        make_env(
+            "walker_bullet",
+            {"type": "walker_bullet", "gait": {"clearance_point": "toe"}},
+        )
+
+
+def test_walker_limb_collision_lets_shins_touch_the_ground() -> None:
+    def shin_contacts(enabled: bool) -> int:
+        env = make_env(
+            "walker_bullet",
+            {
+                "type": "walker_bullet",
+                "seed": 0,
+                "sim": {"limb_collision": enabled, "settle_steps": 0},
+            },
+        )
+        try:
+            env.reset(seed=0)
+            cid = env._connection
+            # Lay the robot on its back at shin height.
+            p.resetBasePositionAndOrientation(
+                env.robot_id,
+                [0, 0, 0.2],
+                p.getQuaternionFromEuler([0.0, np.pi / 2, 0.0]),
+                physicsClientId=cid,
+            )
+            for _ in range(60):
+                p.stepSimulation(physicsClientId=cid)
+            return len(
+                [
+                    c
+                    for c in p.getContactPoints(bodyA=env.robot_id, physicsClientId=cid)
+                    if c[3] in (0, 1, 3, 4)
+                ]
+            )
+        finally:
+            env.close()
+
+    assert shin_contacts(False) == 0
+    assert shin_contacts(True) > 0
+
+
+def test_walker_rejects_flattened_control_section() -> None:
+    with pytest.raises(ValueError, match="sim.control"):
+        make_env("walker_bullet", {"type": "walker_bullet", "sim": {"control": None}})
+
+
+def test_walker_rejects_unknown_reward_keys() -> None:
+    with pytest.raises(ValueError, match="Unknown reward keys"):
+        make_env(
+            "walker_bullet",
+            {"type": "walker_bullet", "reward": {"forward_velocty_weight": 2.0}},
+        )
 
 
 def test_walker_torso_contact_with_raised_terrain_is_a_fall() -> None:
@@ -94,15 +335,16 @@ def test_walker_torso_contact_with_raised_terrain_is_a_fall() -> None:
             "type": "walker_bullet",
             "seed": 1,
             "sim": {"gravity": 0.0, "frame_skip": 1, "settle_steps": 0},
-            "terrain": {"preset": "uneven", "height": 0.025},
+            "terrain": {"preset": "obstacles", "obstacle_height": 0.10},
             "termination": {"min_height": 0.0, "max_steps": 100},
         },
     )
     try:
         env.reset(seed=1)
+        # The first obstacle is always at x = 1.2 with its top at 0.10 m.
         p.resetBasePositionAndOrientation(
             env.robot_id,
-            [0.8, 0.0, 0.11],
+            [1.2, 0.0, 0.185],
             p.getQuaternionFromEuler([np.pi / 2, 0.0, 0.0]),
             physicsClientId=env._connection,
         )
@@ -227,23 +469,11 @@ def test_walker_construction_tolerates_null_sections() -> None:
     env.close()
 
 
-def test_walker_warns_for_unknown_reward_and_termination_keys() -> None:
-    cfg = {
-        "type": "walker_bullet",
-        "seed": 1,
-        "reward": {"foward_velocity_weight": 2.0},
-        "termination": {"min_heigth": 0.2},
-    }
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        env = make_env("walker_bullet", cfg)
-    try:
-        assert env.reward_fn.forward_velocity_weight == 2.0
-        messages = [str(item.message) for item in caught]
-        assert any("unknown reward keys" in message for message in messages)
-        assert any("unknown termination keys" in message for message in messages)
-    finally:
-        env.close()
+def test_walker_rejects_unknown_reward_and_termination_keys() -> None:
+    """Typos used to warn and train the wrong objective; now they fail."""
+    for section, key in (("reward", "foward_velocity_weight"), ("termination", "min_heigth")):
+        with pytest.raises(ValueError, match=f"Unknown {section} keys"):
+            make_env("walker_bullet", {"type": "walker_bullet", section: {key: 1.0}})
 
 
 def test_walker_update_live_params_tolerates_null_sections() -> None:
@@ -720,14 +950,10 @@ def test_organism_env_approach_reward_tracks_distance_progress() -> None:
         toward = np.array([1.0, 0.0, 0.0], dtype=np.float32)
         noop = np.zeros(3, dtype=np.float32)
 
-        _, rewards, _, _, _ = env.step(
-            {"agent_0": toward, "agent_1": noop}
-        )
+        _, rewards, _, _, _ = env.step({"agent_0": toward, "agent_1": noop})
 
         assert rewards["agent_0"] == pytest.approx(0.1)
-        assert env._episode_stats["agent_0"]["approach_reward"] == pytest.approx(
-            0.1
-        )
+        assert env._episode_stats["agent_0"]["approach_reward"] == pytest.approx(0.1)
     finally:
         env.close()
 
@@ -1316,14 +1542,12 @@ def test_gait_phase_observation_and_reference_schedule() -> None:
         assert obs[-1] == pytest.approx(1.0, abs=1e-5)
 
         # Right leg leads; the left is the same window half a cycle later.
-        assert env._expected_stance(0.0) == (True, True)      # double support
-        assert env._expected_stance(0.3) == (True, False)     # right single
-        assert env._expected_stance(0.55) == (True, True)     # double support
-        assert env._expected_stance(0.8) == (False, True)     # left single
+        assert env._expected_stance(0.0) == (True, True)  # double support
+        assert env._expected_stance(0.3) == (True, False)  # right single
+        assert env._expected_stance(0.55) == (True, True)  # double support
+        assert env._expected_stance(0.8) == (False, True)  # left single
         # No phase leaves both feet airborne: stance_duty > 0.5 forbids flight.
-        assert all(
-            any(env._expected_stance(p / 100.0)) for p in range(100)
-        )
+        assert all(any(env._expected_stance(p / 100.0)) for p in range(100))
 
         # The clock advances at the control rate: 60 Hz control, 1 s cycle.
         env.step(np.zeros(10, dtype=np.float32))
@@ -1340,7 +1564,7 @@ def test_gait_stance_duty_must_leave_no_flight_phase() -> None:
                 "type": "walker_bullet",
                 "observation": {"version": "v2", "coordinate_free": True},
                 "gait": {"stance_duty": duty},
-            }
+            },
         )
 
     with pytest.raises(ValueError, match="stance_duty"):
@@ -1380,7 +1604,8 @@ def test_walker_terrain_mix_samples_across_episodes() -> None:
             bodies[env._terrain_preset] = len(env._terrain_body_ids)
         assert seen == {"flat", "uneven", "obstacles"}, f"only sampled {seen}"
         # Geometry must match the sampled preset, not a stale build.
-        assert bodies == {"flat": 0, "uneven": 5, "obstacles": 3}
+        assert bodies["flat"] == 0 and bodies["uneven"] == 1
+        assert bodies["obstacles"] >= 15
     finally:
         env.close()
 
@@ -1470,7 +1695,7 @@ def test_walker_without_terrain_mix_is_unchanged() -> None:
         for _ in range(5):
             env.reset()
             assert env._terrain_preset == "uneven"
-            assert len(env._terrain_body_ids) == 5
+            assert len(env._terrain_body_ids) == 1
     finally:
         env.close()
 
