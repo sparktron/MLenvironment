@@ -190,7 +190,16 @@ def _build_arena_selfplay_env(
             recent_bias_alpha=float(self_play_cfg.get("recent_bias_alpha", 1.0)),
             seed=base_seed + 1000 * rank,
         )
-        env = SingleAgentArenaEnv(SelfPlayEnvWrapper(par_env, sampler))
+        env = SingleAgentArenaEnv(
+            SelfPlayEnvWrapper(
+                par_env,
+                sampler,
+                opponent_stochastic_prob=float(
+                    self_play_cfg.get("opponent_stochastic_prob", 0.0)
+                ),
+                randomize_live_slot=bool(self_play_cfg.get("randomize_live_slot", False)),
+            )
+        )
         env = _advertise_selected_render_mode(env, env_cfg, rank, render_env_index)
         filename = (
             str(monitor_dir / f"monitor_env{rank}.csv")
@@ -251,4 +260,6 @@ def train_callbacks(cfg, paths, slot):
         max_league_size=int(self_play_cfg.get("max_league_size", 10)),
         sampling_mode=str(self_play_cfg.get("sampling_mode", "uniform")),
         recent_bias_alpha=float(self_play_cfg.get("recent_bias_alpha", 1.0)),
+        anchor_every=int(self_play_cfg.get("anchor_every", 0)),
+        max_anchors=int(self_play_cfg.get("max_anchors", 5)),
         seed=cfg["seed"], verbose=1)]

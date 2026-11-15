@@ -62,6 +62,8 @@ class SelfPlayCallback(BaseCallback):
         recent_bias_alpha: float = 1.0,
         seed: int | None = None,
         verbose: int = 0,
+        anchor_every: int = 0,
+        max_anchors: int = 5,
     ):
         super().__init__(verbose)
         if snapshot_freq <= 0:
@@ -74,6 +76,16 @@ class SelfPlayCallback(BaseCallback):
             )
         if recent_bias_alpha <= 0:
             raise ValueError(f"recent_bias_alpha must be > 0, got {recent_bias_alpha}")
+        if anchor_every < 0 or max_anchors < 0:
+            raise ValueError("anchor_every and max_anchors must be >= 0")
+        # Every anchor_every-th snapshot is kept outside the FIFO, so the
+        # league retains a spread of old opponents instead of only the last
+        # max_league_size. A pure FIFO forgets early strategies and invites
+        # cycling. 0 disables anchors.
+        self._anchor_every = anchor_every
+        self._max_anchors = max_anchors
+        self._anchors: deque[Path] = deque()
+        self._snapshot_count = 0
         self._snapshot_dir = Path(snapshot_dir)
         self._snapshot_dir.mkdir(parents=True, exist_ok=True)
         self._snapshot_freq = snapshot_freq
@@ -114,7 +126,17 @@ class SelfPlayCallback(BaseCallback):
         if vec_normalize is not None:
             vec_normalize.save(str(self._snapshot_dir / f"{tag}_vecnorm.pkl"))
         os.replace(tmp_path, path.with_suffix(".zip"))
-        self._league.append(path)
+        self._snapshot_count += 1
+        if (
+            self._anchor_every
+            and self._max_anchors
+            and self._snapshot_count % self._anchor_every == 0
+        ):
+            self._anchors.append(path)
+            while len(self._anchors) > self._max_anchors:
+                self._delete_snapshot(self._anchors.popleft())
+        else:
+            self._league.append(path)
         if self.verbose >= 1:
             print(
                 f"[SelfPlay] Snapshot saved: {path}  (league size={len(self._league)})"
@@ -122,14 +144,16 @@ class SelfPlayCallback(BaseCallback):
 
         # Prune oldest if league exceeds max size.
         while len(self._league) > self._max_league_size:
-            old = self._league.popleft()
-            old_zip = old.with_suffix(".zip")
-            if old_zip.exists():
-                old_zip.unlink()
-            old_vecnorm = old.with_name(f"{old.name}_vecnorm.pkl")
-            if old_vecnorm.exists():
-                old_vecnorm.unlink()
-            self._model_cache.pop(old, None)
+            self._delete_snapshot(self._league.popleft())
+
+    def _delete_snapshot(self, old: Path) -> None:
+        old_zip = old.with_suffix(".zip")
+        if old_zip.exists():
+            old_zip.unlink()
+        old_vecnorm = old.with_name(f"{old.name}_vecnorm.pkl")
+        if old_vecnorm.exists():
+            old_vecnorm.unlink()
+        self._model_cache.pop(old, None)
 
     # ------------------------------------------------------------------
     # Public API
@@ -137,18 +161,19 @@ class SelfPlayCallback(BaseCallback):
 
     def sample_opponent(self) -> PPO | None:
         """Return a randomly sampled frozen opponent from the league, or None."""
-        if not self._league:
+        pool = [*self._anchors, *self._league]
+        if not pool:
             return None
         if self._sampling_mode == "recent_bias":
             weights = (
-                np.arange(1, len(self._league) + 1, dtype=np.float64)
+                np.arange(1, len(pool) + 1, dtype=np.float64)
                 ** self._recent_bias_alpha
             )
             probs = weights / weights.sum()
-            idx = int(self._rng.choice(len(self._league), p=probs))
-            path = self._league[idx]
+            idx = int(self._rng.choice(len(pool), p=probs))
+            path = pool[idx]
         else:
-            path = self._league[int(self._rng.integers(0, len(self._league)))]
+            path = pool[int(self._rng.integers(0, len(pool)))]
 
         if path not in self._model_cache:
             self._model_cache[path] = PPO.load(str(path))
@@ -156,8 +181,8 @@ class SelfPlayCallback(BaseCallback):
 
     @property
     def league_size(self) -> int:
-        return len(self._league)
+        return len(self._anchors) + len(self._league)
 
     @property
     def league_paths(self) -> list[Path]:
-        return list(self._league)
+        return [*self._anchors, *self._league]

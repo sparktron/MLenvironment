@@ -277,3 +277,23 @@ def test_self_play_snapshot_zip_visible_only_after_sidecar(tmp_path) -> None:
     assert (tmp_path / "selfplay_100_vecnorm.pkl").exists()
     leftovers = [p.name for p in tmp_path.iterdir() if ".tmp" in p.name]
     assert leftovers == [], f"temp files left behind: {leftovers}"
+
+
+def test_self_play_anchors_survive_fifo_pruning(tmp_path) -> None:
+    from unittest.mock import MagicMock
+
+    callback = SelfPlayCallback(
+        snapshot_dir=tmp_path, snapshot_freq=1, max_league_size=2, anchor_every=3, max_anchors=2
+    )
+    model = MagicMock()
+    model.save.side_effect = lambda p: open(p, "w").close()
+    model.get_vec_normalize_env.return_value = None
+    callback.model = model
+    for step in range(1, 13):
+        callback.num_timesteps = step
+        callback._save_snapshot()
+    names = {p.name for p in tmp_path.glob("selfplay_*.zip")}
+    # Snapshots 3, 6, 9, 12 were anchors and only the last two are kept; the
+    # FIFO holds the two newest non-anchors.
+    assert names == {"selfplay_9.zip", "selfplay_12.zip", "selfplay_10.zip", "selfplay_11.zip"}
+    assert callback.league_size == 4

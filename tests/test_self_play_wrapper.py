@@ -390,3 +390,74 @@ def test_league_sampler_drops_pruned_snapshot_from_cache(monkeypatch, tmp_path):
     assert not any(p.name == "selfplay_100.zip" for p in sampler._cache), (
         "pruned snapshot should be evicted from the cache"
     )
+
+
+# -- 2026-11-14 review: prune race, stochastic opponents, slot, anchors ------
+
+
+def test_league_sampler_survives_snapshot_pruned_during_load(monkeypatch, tmp_path) -> None:
+    for ts in (100, 200):
+        (tmp_path / f"selfplay_{ts}.zip").write_text("x", encoding="utf-8")
+    sampler = LeagueSampler(tmp_path, seed=0)
+    sampler._league_files()
+
+    def _load(path, **_kwargs):
+        path = str(path)
+        if "selfplay_100" in path:
+            # The main process pruned it after the worker listed it.
+            (tmp_path / "selfplay_100.zip").unlink(missing_ok=True)
+            raise FileNotFoundError(path)
+        return path
+
+    monkeypatch.setattr("rl_framework.games.arena.self_play_env_wrapper.PPO.load", _load)
+    for _ in range(10):
+        policy = sampler.sample()
+        assert policy is not None and "selfplay_200" in policy._model
+
+
+class _DrawSampler(_StubSampler):
+    def __init__(self, policy, draws):
+        super().__init__(policy)
+        self._draws = iter(draws)
+        self._rng = np.random.default_rng(0)
+
+    def draw(self, probability):
+        return next(self._draws)
+
+
+class _ModeSpy(_SpyPolicy):
+    def __init__(self, action):
+        super().__init__(action)
+        self.modes = []
+
+    def predict(self, obs, deterministic=True):
+        self.modes.append(deterministic)
+        return super().predict(obs, deterministic)
+
+
+def test_wrapper_samples_stochastic_opponent_when_drawn() -> None:
+    policy = _ModeSpy([0.0, 0.0, 0.0])
+    wrapped = SelfPlayEnvWrapper(
+        _arena(max_steps=20), _DrawSampler(policy, [True, False]), opponent_stochastic_prob=0.5
+    )
+    for expected in (False, True):
+        wrapped.reset()
+        policy.modes.clear()
+        wrapped.step({"agent_0": np.zeros(3, dtype=np.float32)})
+        assert policy.modes == [expected]
+
+
+def test_wrapper_randomized_live_slot_keeps_live_key_and_relabels_winner() -> None:
+    wrapped = SelfPlayEnvWrapper(
+        _arena(max_steps=20), _DrawSampler(None, []), randomize_live_slot=True
+    )
+    slots = set()
+    for seed in range(12):
+        obs, _ = wrapped.reset(seed=seed)
+        assert set(obs) == {"agent_0"}
+        slots.add(wrapped._live_slot)
+    assert slots == {"agent_0", "agent_1"}
+
+    wrapped._live_slot = "agent_1"
+    info = wrapped._relabel_outcome({"episode_outcome": {"winner": "agent_1"}})
+    assert info["episode_outcome"]["winner"] == "agent_0"

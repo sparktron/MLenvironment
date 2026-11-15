@@ -39,6 +39,10 @@ import numpy as np
 from pettingzoo.utils import BaseParallelWrapper
 from stable_baselines3 import PPO
 
+# A prune can race a load more than once in a row only if the league turns
+# over completely between attempts; a handful of retries is ample.
+_SAMPLE_ATTEMPTS = 5
+
 # Suffix for the per-snapshot observation-normaliser sidecar written next to
 # each league snapshot, so a frozen opponent can normalise its observations the
 # same way it did during training (see module docstring's "Known limitation").
@@ -174,17 +178,19 @@ class LeagueSampler:
 
         # Pre-warm the newest snapshot off the hot sampling path — it is the
         # most likely opponent under recent_bias and stays in the league until
-        # it ages out, so the load is inevitable. Gate on the obs-normaliser
-        # sidecar so we never cache a snapshot before SelfPlayCallback has
-        # finished writing it (the .zip lands first, the sidecar a beat later;
-        # the dir mtime bumps again when the sidecar appears, re-triggering
-        # this refresh). When no normaliser is ever saved the sidecar is simply
-        # absent and we skip the pre-warm — those raw-obs loads are correct and
-        # cheap to do lazily.
+        # it ages out, so the load is inevitable. SelfPlayCallback writes the
+        # sidecar first and renames the zip into place last, so a visible zip
+        # is complete. The sidecar gate remains for leagues written before
+        # snapshots became atomic, where the zip could appear first. When no
+        # normaliser is ever saved the sidecar is absent and the pre-warm is
+        # skipped; those raw-obs loads are correct and cheap to do lazily.
         if self._files:
             newest = self._files[-1]
             if newest.with_name(newest.stem + VECNORM_SUFFIX).exists():
-                self._ensure_loaded(newest)
+                try:
+                    self._ensure_loaded(newest)
+                except (FileNotFoundError, OSError, EOFError):
+                    pass  # pruned between glob and load; sample() handles it
         return self._files
 
     def _ensure_loaded(self, path: Path) -> FrozenPolicy:
@@ -212,16 +218,33 @@ class LeagueSampler:
         return cached
 
     def sample(self) -> FrozenPolicy | None:
-        """Return a frozen opponent from the on-disk league, or ``None`` if empty."""
-        files = self._league_files()
-        if not files:
-            return None
-        if self._mode == "recent_bias":
-            weights = np.arange(1, len(files) + 1, dtype=np.float64) ** self._alpha
-            idx = int(self._rng.choice(len(files), p=weights / weights.sum()))
-        else:
-            idx = int(self._rng.integers(0, len(files)))
-        return self._ensure_loaded(files[idx])
+        """Return a frozen opponent from the on-disk league, or ``None`` if empty.
+
+        The main process prunes old snapshots while workers sample. A worker
+        can list a snapshot, lose it to a prune, then fail to load it; that
+        used to raise at env reset and kill the worker. The vanished file is
+        dropped and another snapshot drawn instead.
+        """
+        for _ in range(_SAMPLE_ATTEMPTS):
+            files = self._league_files()
+            if not files:
+                return None
+            if self._mode == "recent_bias":
+                weights = np.arange(1, len(files) + 1, dtype=np.float64) ** self._alpha
+                idx = int(self._rng.choice(len(files), p=weights / weights.sum()))
+            else:
+                idx = int(self._rng.integers(0, len(files)))
+            try:
+                return self._ensure_loaded(files[idx])
+            except (FileNotFoundError, OSError, EOFError):
+                if files[idx].exists():
+                    raise
+                self._dir_mtime_ns = None  # force a re-glob
+        return None
+
+    def draw(self, probability: float) -> bool:
+        """Bernoulli draw from this sampler's seeded stream."""
+        return bool(probability > 0.0 and self._rng.random() < probability)
 
 
 class SelfPlayEnvWrapper(BaseParallelWrapper):
@@ -243,14 +266,33 @@ class SelfPlayEnvWrapper(BaseParallelWrapper):
     # Retained for back-compat; the wrapper now drives *every* non-live slot.
     FROZEN_AGENT = "agent_1"
 
-    def __init__(self, env: Any, sampler: LeagueSampler) -> None:
+    def __init__(
+        self,
+        env: Any,
+        sampler: LeagueSampler,
+        opponent_stochastic_prob: float = 0.0,
+        randomize_live_slot: bool = False,
+    ) -> None:
         super().__init__(env)
+        if not 0.0 <= opponent_stochastic_prob <= 1.0:
+            raise ValueError("opponent_stochastic_prob must be in [0, 1]")
         self._sampler = sampler
         self._frozen_policy: FrozenPolicy | None = None
+        # Frozen opponents always acting deterministically let the learner
+        # overfit to one fixed reply per state. A fraction of episodes sample
+        # the opponent's actions from its policy distribution instead.
+        self._opponent_stochastic_prob = float(opponent_stochastic_prob)
+        self._opponent_deterministic = True
+        # The learner always held agent_0, so any asymmetry in spawn order or
+        # tie-breaking was baked into the policy. With this on, the learner
+        # takes a random slot each episode; the outside world still sees it
+        # under the LIVE_AGENT key.
+        self._randomize_live_slot = bool(randomize_live_slot)
+        self._live_slot = self.LIVE_AGENT
         # Every non-live slot is driven by the frozen opponent (one sampled
         # past-self fills all of them). For the 2-agent arena this is just
         # agent_1; for N-agent free-for-alls it is agents 1..N-1.
-        self._opponent_agents = [a for a in env.possible_agents if a != self.LIVE_AGENT]
+        self._opponent_agents = [a for a in env.possible_agents if a != self._live_slot]
         # Present a single-agent env to SuperSuit/SB3.
         self.possible_agents = [self.LIVE_AGENT]
         self.agents = [self.LIVE_AGENT]
@@ -265,20 +307,48 @@ class SelfPlayEnvWrapper(BaseParallelWrapper):
     # -- episode lifecycle ---------------------------------------------------
     def reset(self, seed: int | None = None, options: dict | None = None):
         obs, infos = self.env.reset(seed=seed, options=options)
+        if self._randomize_live_slot:
+            slots = list(self.env.possible_agents)
+            self._live_slot = slots[int(self._sampler._rng.integers(0, len(slots)))]
+            self._opponent_agents = [a for a in slots if a != self._live_slot]
         # Sample a fresh frozen opponent for this episode (None if league empty).
         self._frozen_policy = self._sampler.sample()
-        self.agents = [self.LIVE_AGENT] if self.LIVE_AGENT in self.env.agents else []
-        live = self.LIVE_AGENT
-        return {live: obs[live]}, {live: infos[live]}
+        self._opponent_deterministic = not (
+            self._frozen_policy is not None
+            and self._opponent_stochastic_prob > 0.0
+            and self._sampler.draw(self._opponent_stochastic_prob)
+        )
+        slot = self._live_slot
+        self.agents = [self.LIVE_AGENT] if slot in self.env.agents else []
+        return {self.LIVE_AGENT: obs[slot]}, {self.LIVE_AGENT: infos[slot]}
+
+    def _relabel_outcome(self, info: dict[str, Any]) -> dict[str, Any]:
+        """Report the learner as LIVE_AGENT in episode outcomes.
+
+        Win-rate gates compare ``winner`` with ``agent_0``; when the learner
+        holds another slot the two names are swapped so the gate stays right.
+        """
+        outcome = info.get("episode_outcome")
+        if self._live_slot == self.LIVE_AGENT or not isinstance(outcome, dict):
+            return info
+        swap = {self._live_slot: self.LIVE_AGENT, self.LIVE_AGENT: self._live_slot}
+        winner = outcome.get("winner")
+        info = dict(info)
+        info["episode_outcome"] = {
+            **outcome,
+            "winner": swap.get(winner, winner) if isinstance(winner, str) else winner,
+        }
+        return info
 
     def step(self, actions: dict[str, np.ndarray]):
-        live = self.LIVE_AGENT
-        full_actions = dict(actions)
+        slot = self._live_slot
+        full_actions = {slot: actions[self.LIVE_AGENT]}
         for opp in self._opponent_agents:
             if opp in self.env.agents:
                 full_actions[opp] = self._opponent_action(opp)
 
         obs, rewards, terminations, truncations, infos = self.env.step(full_actions)
+        live = slot
 
         live_term = bool(terminations.get(live, False))
         live_trunc = bool(truncations.get(live, False))
@@ -305,13 +375,14 @@ class SelfPlayEnvWrapper(BaseParallelWrapper):
         if not self.env.agents and not live_term and not live_trunc:
             live_term = True
 
-        self.agents = [live] if self.env.agents and not live_term else []
+        key = self.LIVE_AGENT
+        self.agents = [key] if self.env.agents and not live_term else []
         return (
-            {live: obs[live]},
-            {live: rewards[live]},
-            {live: live_term},
-            {live: live_trunc},
-            {live: infos[live]},
+            {key: obs[live]},
+            {key: rewards[live]},
+            {key: live_term},
+            {key: live_trunc},
+            {key: self._relabel_outcome(infos[live])},
         )
 
     # -- internals -----------------------------------------------------------
@@ -322,7 +393,7 @@ class SelfPlayEnvWrapper(BaseParallelWrapper):
             return self.env.action_space(agent).sample()
         frozen_obs = self.env.unwrapped.observe(agent)
         action, _ = self._frozen_policy.predict(
-            frozen_obs[np.newaxis], deterministic=True
+            frozen_obs[np.newaxis], deterministic=self._opponent_deterministic
         )
         return np.asarray(action[0], dtype=np.float32)
 

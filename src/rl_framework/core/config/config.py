@@ -172,6 +172,13 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
             "self_play.max_league_size",
             min_value=1,
         )
+        for key, default in (("anchor_every", 0), ("max_anchors", 5)):
+            _ensure_int(self_play_cfg.get(key, default), f"self_play.{key}", min_value=0)
+        prob = self_play_cfg.get("opponent_stochastic_prob", 0.0)
+        if isinstance(prob, bool) or not isinstance(prob, (int, float)) or not 0 <= prob <= 1:
+            raise ValueError("self_play.opponent_stochastic_prob must be in [0, 1]")
+        if not isinstance(self_play_cfg.get("randomize_live_slot", False), bool):
+            raise TypeError("self_play.randomize_live_slot must be bool")
 
     anneal_cfg = cfg.get("reward_annealing", {})
     if anneal_cfg.get("enabled", False):
