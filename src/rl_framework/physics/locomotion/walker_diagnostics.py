@@ -13,6 +13,7 @@ from stable_baselines3 import PPO, SAC, TD3
 from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, VecNormalize
 
 from rl_framework.core.registry import make_env
+from rl_framework.core.training.statistics import wilson_interval
 from rl_framework.core.training.evaluation_workers import (
     EpisodeSeedWrapper,
     episode_quotas,
@@ -106,6 +107,10 @@ def _aggregate_episode_rows(rows: list[dict[str, float]]) -> dict[str, float]:
         "return_mean": float(np.mean(values("return"))),
         "return_std": float(np.std(values("return"))),
         "fall_rate": float(np.mean(values("fell"))),
+        # A 20-episode fall rate near 50% is uncertain by about +/-20 points.
+        # Report the interval so a gate cannot be read off the point alone.
+        "fall_rate_ci95_low": wilson_interval(float(np.sum(values("fell"))), len(rows))[0],
+        "fall_rate_ci95_high": wilson_interval(float(np.sum(values("fell"))), len(rows))[1],
         "peak_z_mean": float(np.mean(values("peak_z"))),
         "forward_displacement_mean": float(np.mean(values("forward_displacement"))),
         "forward_displacement_std": float(np.std(values("forward_displacement"))),
@@ -463,9 +468,10 @@ def collect_walker_stance_phase_telemetry(
                     advance = event.get("pelvis_advance")
                     duration = event.get("duration")
                     slip = event.get("mean_slip_speed")
-                    if all(
-                        isinstance(value, (int, float))
-                        for value in (advance, duration, slip)
+                    if (
+                        isinstance(advance, (int, float))
+                        and isinstance(duration, (int, float))
+                        and isinstance(slip, (int, float))
                     ):
                         advances.append(float(advance))
                         durations.append(float(duration))
@@ -798,10 +804,9 @@ def collect_walker_fall_recovery_telemetry(
                 contact = bool(info.get(f"{side}_foot_contact", False))
                 touchdown = bool(info.get(f"{side}_foot_touchdown", False))
                 if contact:
+                    previous_age = stance_ages[side_index]
                     stance_ages[side_index] = (
-                        0
-                        if touchdown or stance_ages[side_index] is None
-                        else stance_ages[side_index] + 1
+                        0 if touchdown or previous_age is None else previous_age + 1
                     )
                 else:
                     stance_ages[side_index] = None
@@ -886,13 +891,25 @@ def collect_walker_fall_recovery_telemetry(
     }
 
 
+TRANSFER_SUITE_EPISODES = 100
+
+
 def evaluate_walker_transfer_suite(
     cfg: dict[str, Any],
     model_path: str | Path,
     *,
-    episodes: int = 20,
+    episodes: int = TRANSFER_SUITE_EPISODES,
 ) -> dict[str, dict[str, Any]]:
-    """Evaluate one checkpoint on flat, uneven, obstacle, and push terrains."""
+    """Evaluate one checkpoint on flat, uneven, obstacle, and push terrains.
+
+    Defaults to 100 episodes per terrain: at 20, a fall rate's 95% interval
+    spans about 40 points, too wide to separate checkpoints. Evaluation is
+    minutes; training is hours.
+
+    Terrain was rebuilt on 2026-11-14 (smooth undulation, terrain along the
+    whole track, per-episode layouts, a real lateral push), so results are
+    not comparable with transfer-suite numbers recorded before that date.
+    """
     terrains: dict[str, dict[str, Any]] = {
         "flat": {"preset": "flat"},
         "uneven": {"preset": "uneven", "height": 0.025},

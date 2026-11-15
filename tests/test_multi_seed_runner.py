@@ -176,6 +176,30 @@ def test_default_max_workers_unchanged_for_single_env_seeds(
     assert cfg["training"].get("num_envs", 1) == 1
     with warnings.catch_warnings():
         warnings.simplefilter("error")
+        warnings.filterwarnings("ignore", message="multi-seed aggregate over")
         result = ms_module.run_multi_seed(cfg, seeds=[0, 1, 2])
 
     assert result["successful_seeds"] == [0, 1, 2]
+
+
+def test_aggregate_reports_intervals_and_behaviour_metrics(tmp_path: Path, monkeypatch) -> None:
+    def _stub(args: tuple) -> tuple:
+        seed, _ = args
+        return seed, f"/fake/{seed}", {"mean_return": float(seed), "fall_rate": 0.1 * seed}
+
+    monkeypatch.setattr(ms_module, "_run_one_seed", _stub)
+    result = ms_module.run_multi_seed(_base_cfg(tmp_path), seeds=[0, 1, 2, 3, 4, 5], max_workers=1)
+
+    low, high = result["mean_return_ci95"]
+    assert low < result["mean_return_mean"] < high
+    assert result["mean_return_std"] == pytest.approx(1.8708287, abs=1e-6)  # sample sd
+    assert result["mean_return_iqm"] == pytest.approx(2.5)
+    assert result["metrics"]["fall_rate"]["mean"] == pytest.approx(0.25)
+    summary = Path(tmp_path) / "ms_test" / "multi_seed_summary" / "metrics_summary.csv"
+    assert "fall_rate" in summary.read_text(encoding="utf-8")
+
+
+def test_aggregate_warns_below_five_seeds(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(ms_module, "_run_one_seed", _fake_run_one_seed_factory())
+    with pytest.warns(UserWarning, match="at least 5"):
+        ms_module.run_multi_seed(_base_cfg(tmp_path), seeds=[0, 1, 2], max_workers=1)

@@ -18,7 +18,7 @@ from rl_framework.core.training.sb3_runner import PPO, train
             },
             [
                 "VecNormalizeCheckpointCallback",
-                "EvalCallback",
+                "SeededEvalCallback",
                 "WalkerMetricsCallback",
                 "CurriculumCallback",
             ],

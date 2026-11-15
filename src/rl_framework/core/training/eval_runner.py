@@ -107,7 +107,7 @@ def evaluate(cfg: dict[str, Any], model_path: str) -> dict[str, float]:
                     completed[worker] += 1
                     running_returns[worker] = 0.0
                     running_lengths[worker] = 0
-            metrics: dict[str, float] = {
+            metrics = {
                 "mean_return": float(np.mean(returns)),
                 "std_return": float(np.std(returns)),
                 "terminated_rate": float(terminated_episodes / episodes),

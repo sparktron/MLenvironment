@@ -8,10 +8,10 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 
 from rl_framework.core.training.eval_runner import evaluate
 from rl_framework.core.training.sb3_runner import train
+from rl_framework.core.training.statistics import summarize, summarize_metrics
 
 
 def _run_one_seed(
@@ -124,14 +124,29 @@ def run_multi_seed(
     all_returns = [
         m.get("mean_return", m.get("mean_reward", 0.0)) for m in ordered_metrics
     ]
+    metric_summary = summarize_metrics(ordered_metrics)
+    return_summary = summarize(all_returns)
     aggregate: dict[str, Any] = {
-        "mean_return_mean": float(np.mean(all_returns)),
-        "mean_return_std": float(np.std(all_returns)),
+        "mean_return_mean": return_summary["mean"],
+        # Sample standard deviation (ddof=1). It used to be the population
+        # value, which understates spread at the 3-5 seeds used here.
+        "mean_return_std": return_summary["std"],
+        "mean_return_median": return_summary["median"],
+        "mean_return_iqm": return_summary["iqm"],
+        "mean_return_ci95": [return_summary["ci95_low"], return_summary["ci95_high"]],
+        "metrics": metric_summary,
         "seeds": seeds,
         "successful_seeds": successful_seeds,
         "failed_seeds": failed_seeds,
         "per_seed": ordered_metrics,
     }
+    if len(successful_seeds) < 5:
+        warnings.warn(
+            f"multi-seed aggregate over {len(successful_seeds)} seed(s); claims "
+            "need at least 5, and the bootstrap interval is too narrow below that",
+            UserWarning,
+            stacklevel=2,
+        )
 
     # Write summary CSV
     base_dir = cfg.get("output", {}).get("base_dir", "outputs")
@@ -148,9 +163,23 @@ def run_multi_seed(
         writer.writerow([])
         writer.writerow(["aggregate_mean", aggregate["mean_return_mean"]])
         writer.writerow(["aggregate_std", aggregate["mean_return_std"]])
+        writer.writerow(["aggregate_median", aggregate["mean_return_median"]])
+        writer.writerow(["aggregate_iqm", aggregate["mean_return_iqm"]])
+        writer.writerow(["aggregate_ci95_low", return_summary["ci95_low"]])
+        writer.writerow(["aggregate_ci95_high", return_summary["ci95_high"]])
+    metrics_path = summary_dir / "metrics_summary.csv"
+    stat_names = ["n", "mean", "std", "median", "iqm", "ci95_low", "ci95_high", "min", "max"]
+    with metrics_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["metric", *stat_names])
+        for metric, stats in metric_summary.items():
+            writer.writerow([metric, *(stats[name] for name in stat_names)])
 
+    low, high = aggregate["mean_return_ci95"]
     print(
-        f"[MultiSeed] Aggregate: {aggregate['mean_return_mean']:.4f} +/- {aggregate['mean_return_std']:.4f}"
+        f"[MultiSeed] Aggregate: mean {aggregate['mean_return_mean']:.4f} "
+        f"(95% bootstrap CI {low:.4f}..{high:.4f}), IQM {aggregate['mean_return_iqm']:.4f}, "
+        f"sd {aggregate['mean_return_std']:.4f}"
     )
     if failed_seeds:
         print(

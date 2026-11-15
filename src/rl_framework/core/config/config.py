@@ -33,7 +33,9 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
     _require_keys(cfg["training"], ["total_timesteps"])
 
     _ensure_int(cfg["seed"], "seed")
-    _ensure_int(cfg["training"]["total_timesteps"], "training.total_timesteps", min_value=1)
+    _ensure_int(
+        cfg["training"]["total_timesteps"], "training.total_timesteps", min_value=1
+    )
 
     num_envs = cfg["training"].get("num_envs", 1)
     _ensure_int(num_envs, "training.num_envs", min_value=1)
@@ -45,11 +47,19 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
         raise ValueError("training.algorithm must be one of ['PPO', 'SAC', 'TD3']")
     spec = get_task(cfg["environment"]["type"])
     if algorithm in {"SAC", "TD3"} and "off_policy" not in spec.capabilities:
-        supported = ", ".join(name for name in registered_tasks() if "off_policy" in get_task(name).capabilities)
-        raise ValueError(f"training.algorithm SAC/TD3 currently support {supported} only")
+        supported = ", ".join(
+            name
+            for name in registered_tasks()
+            if "off_policy" in get_task(name).capabilities
+        )
+        raise ValueError(
+            f"training.algorithm SAC/TD3 currently support {supported} only"
+        )
 
     if "learning_rate" in cfg["training"]:
-        _ensure_positive_number(cfg["training"]["learning_rate"], "training.learning_rate")
+        _ensure_positive_number(
+            cfg["training"]["learning_rate"], "training.learning_rate"
+        )
     if "log_std_init" in cfg["training"]:
         if algorithm != "PPO":
             raise ValueError("training.log_std_init is supported only for PPO")
@@ -63,6 +73,25 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
                 "training.log_std_init must be a number in [-20, 2], "
                 f"got {log_std_init!r}"
             )
+    if "net_arch" in cfg["training"]:
+        net_arch = cfg["training"]["net_arch"]
+        if not isinstance(net_arch, (list, tuple)) or not net_arch:
+            raise ValueError(
+                "training.net_arch must be a non-empty list of layer widths, "
+                f"got {net_arch!r}"
+            )
+        for width in net_arch:
+            _ensure_int(width, "training.net_arch[]", min_value=1)
+    if "target_kl" in cfg["training"]:
+        if algorithm != "PPO":
+            raise ValueError("training.target_kl is supported only for PPO")
+        target_kl = cfg["training"]["target_kl"]
+        if target_kl is not None:
+            _ensure_positive_number(target_kl, "training.target_kl")
+    if "normalize_reward" in cfg["training"] and not isinstance(
+        cfg["training"]["normalize_reward"], bool
+    ):
+        raise TypeError("training.normalize_reward must be bool")
     if algorithm == "PPO" and "ent_coef" in cfg["training"]:
         ent_coef = cfg["training"]["ent_coef"]
         if (
@@ -71,15 +100,18 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
             or ent_coef < 0
         ):
             raise ValueError(
-                "training.ent_coef must be a non-negative number, "
-                f"got {ent_coef!r}"
+                f"training.ent_coef must be a non-negative number, got {ent_coef!r}"
             )
     if "n_steps" in cfg["training"]:
         _ensure_int(cfg["training"]["n_steps"], "training.n_steps", min_value=1)
     if "batch_size" in cfg["training"]:
         _ensure_int(cfg["training"]["batch_size"], "training.batch_size", min_value=1)
     if "checkpoint_every" in cfg["training"]:
-        _ensure_int(cfg["training"]["checkpoint_every"], "training.checkpoint_every", min_value=1)
+        _ensure_int(
+            cfg["training"]["checkpoint_every"],
+            "training.checkpoint_every",
+            min_value=1,
+        )
         ckpt_every = int(cfg["training"]["checkpoint_every"])
         total_ts = int(cfg["training"]["total_timesteps"])
         if ckpt_every > total_ts:
@@ -89,7 +121,9 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
                 UserWarning,
                 stacklevel=2,
             )
-    if "check_nans" in cfg["training"] and not isinstance(cfg["training"]["check_nans"], bool):
+    if "check_nans" in cfg["training"] and not isinstance(
+        cfg["training"]["check_nans"], bool
+    ):
         raise TypeError(
             "Config key 'training.check_nans' must be bool, "
             f"got {type(cfg['training']['check_nans']).__name__}"
@@ -128,8 +162,16 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
 
     self_play_cfg = cfg.get("self_play", {})
     if self_play_cfg.get("enabled", False):
-        _ensure_int(self_play_cfg.get("snapshot_freq", 5000), "self_play.snapshot_freq", min_value=1)
-        _ensure_int(self_play_cfg.get("max_league_size", 10), "self_play.max_league_size", min_value=1)
+        _ensure_int(
+            self_play_cfg.get("snapshot_freq", 5000),
+            "self_play.snapshot_freq",
+            min_value=1,
+        )
+        _ensure_int(
+            self_play_cfg.get("max_league_size", 10),
+            "self_play.max_league_size",
+            min_value=1,
+        )
 
     anneal_cfg = cfg.get("reward_annealing", {})
     if anneal_cfg.get("enabled", False):
@@ -168,7 +210,11 @@ def validate_experiment_config(cfg: dict[str, Any]) -> None:
     best_model_cfg = eval_cfg.get("best_model", {})
     if best_model_cfg.get("enabled", False):
         if "best_model_eval" not in spec.capabilities:
-            supported = ", ".join(name for name in registered_tasks() if "best_model_eval" in get_task(name).capabilities)
+            supported = ", ".join(
+                name
+                for name in registered_tasks()
+                if "best_model_eval" in get_task(name).capabilities
+            )
             raise ValueError(
                 f"evaluation.best_model is currently supported only for {supported}"
             )
@@ -199,14 +245,10 @@ def _validate_experiment_name(name: Any) -> None:
     if not isinstance(name, str) or not name.strip():
         raise ValueError("experiment_name must be a non-empty string")
     if ".." in name or name.startswith("/") or name.startswith("\\"):
-        raise ValueError(
-            f"experiment_name contains unsafe path components: {name!r}"
-        )
+        raise ValueError(f"experiment_name contains unsafe path components: {name!r}")
     # Block any OS path separator to keep names as simple directory segments.
-    if re.search(r'[/\\]', name):
-        raise ValueError(
-            f"experiment_name must not contain path separators: {name!r}"
-        )
+    if re.search(r"[/\\]", name):
+        raise ValueError(f"experiment_name must not contain path separators: {name!r}")
 
 
 def _validate_device(value: Any) -> None:
@@ -225,6 +267,7 @@ def _validate_device(value: Any) -> None:
         device_idx = int(value.split(":")[1])
         try:
             import torch  # noqa: PLC0415
+
             count = torch.cuda.device_count()
             if count > 0 and device_idx >= count:
                 warnings.warn(
@@ -252,7 +295,9 @@ def _ensure_int(value: Any, key: str, min_value: int | None = None) -> None:
 
 def _ensure_positive_number(value: Any, key: str) -> None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise TypeError(f"Config key '{key}' must be a number, got {type(value).__name__}")
+        raise TypeError(
+            f"Config key '{key}' must be a number, got {type(value).__name__}"
+        )
     if value <= 0:
         raise ValueError(f"Config key '{key}' must be > 0, got {value}")
 
@@ -269,9 +314,7 @@ def _validate_curriculum(cfg: dict[str, Any]) -> None:
             )
         for level, overrides in level_params.items():
             if not isinstance(overrides, dict):
-                raise TypeError(
-                    f"curriculum.level_params.{level} must be a mapping"
-                )
+                raise TypeError(f"curriculum.level_params.{level} must be a mapping")
             action_scale = overrides.get("sim.action_scale")
             if action_scale is not None and (
                 isinstance(action_scale, bool)

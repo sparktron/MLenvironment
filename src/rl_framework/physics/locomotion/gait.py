@@ -375,12 +375,13 @@ class WalkerGaitTracker:
             # Slip is an instantaneous measurement, so it follows the RAW
             # contact signal. Using the debounced one would extend the stance
             # window past the real liftoff and count swing motion as slip.
-            if contacts[side] and self._stance_start_steps[side] is not None:
+            stance_start = self._stance_start_steps[side]
+            if contacts[side] and stance_start is not None:
                 slip_speed = float(foot_slip_speeds[side])
                 if np.isfinite(slip_speed):
                     self._stance_slip_sums[side] += max(slip_speed, 0.0)
                     self._stance_slip_counts[side] += 1
-                    stance_age = step - self._stance_start_steps[side]
+                    stance_age = step - stance_start
                     if stance_age >= self.mid_stance_skip_steps:
                         self._mid_stance_slip_sum += max(slip_speed, 0.0)
                         self._mid_stance_steps += 1

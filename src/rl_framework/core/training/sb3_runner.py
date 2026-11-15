@@ -24,7 +24,10 @@ from stable_baselines3.common.vec_env import (
 
 from rl_framework.core.registry import get_task, make_env, registered_tasks
 from rl_framework.core.training.callbacks.curriculum_callback import CurriculumCallback
-from rl_framework.core.training.evaluation_workers import resolve_evaluation_workers
+from rl_framework.core.training.evaluation_workers import (
+    make_seeded_vec_env,
+    resolve_evaluation_workers,
+)
 from rl_framework.core.utils.checkpoint import (
     find_vecnormalize_path_for_model as _find_vecnormalize_path_for_model,
     validate_resume_path as _validate_resume_path,
@@ -91,22 +94,43 @@ class VecNormalizeBestModelCallback(BaseCallback):
         return True
 
 
+# Best-model evaluation episodes are seeded far from any training seed.
+BEST_MODEL_EVAL_SEED_BASE = 1_000_000
+
+
 def _build_best_model_eval_env(
     env_cfg: dict[str, Any],
     normalize_observations: bool,
     workers: int,
     training_cfg: dict[str, Any],
 ):
-    """Build a fresh walker eval env whose running stats are synced by SB3."""
-    env_fns = [_build_single_env(env_cfg, rank=worker) for worker in range(workers)]
-    eval_env: VecEnv = (
-        DummyVecEnv(env_fns)
-        if workers == 1
-        else _make_subproc_vec_env(env_fns, training_cfg)
+    """Build a fresh eval env whose running stats are synced by SB3.
+
+    Workers get strided, non-overlapping episode seeds. Built from bare
+    factories, every worker replayed the same episode, so N workers x M
+    episodes measured M distinct episodes.
+    """
+    eval_env: VecEnv = make_seeded_vec_env(
+        env_cfg["type"], env_cfg, workers, training_cfg
     )
     if normalize_observations:
         eval_env = VecNormalize(eval_env, training=False, norm_reward=False)
     return eval_env
+
+
+class SeededEvalCallback(EvalCallback):
+    """EvalCallback that scores every evaluation on the same episode seeds.
+
+    Comparing checkpoints on a fixed episode set removes episode-to-episode
+    noise from best-model selection.
+    """
+
+    def _on_step(self) -> bool:
+        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
+            self.eval_env.env_method(
+                "set_episode_seed_base", BEST_MODEL_EVAL_SEED_BASE
+            )
+        return super()._on_step()
 
 
 class StopOnEvent(BaseCallback):
@@ -286,10 +310,18 @@ def build_model(cfg, train_cfg, algorithm_name, algorithm_cls, vec_env, paths, r
             "device": train_cfg.get("device", "auto"),
             "verbose": 1,
         }
+        policy_kwargs: dict[str, Any] = {}
         if algorithm_name == "PPO" and "log_std_init" in train_cfg:
-            common_kwargs["policy_kwargs"] = {
-                "log_std_init": float(train_cfg["log_std_init"])
-            }
+            policy_kwargs["log_std_init"] = float(train_cfg["log_std_init"])
+        if train_cfg.get("net_arch") is not None:
+            # Capacity was fixed at SB3's 64x64 default and never tested.
+            # PPO takes separate actor/critic stacks; SAC/TD3 take one list.
+            layers = [int(width) for width in train_cfg["net_arch"]]
+            policy_kwargs["net_arch"] = (
+                {"pi": layers, "vf": list(layers)} if algorithm_name == "PPO" else layers
+            )
+        if policy_kwargs:
+            common_kwargs["policy_kwargs"] = policy_kwargs
         if algorithm_name == "PPO":
             model = PPO(
                 **common_kwargs,
@@ -300,6 +332,7 @@ def build_model(cfg, train_cfg, algorithm_name, algorithm_cls, vec_env, paths, r
                 ent_coef=train_cfg.get("ent_coef", 0.005),
                 vf_coef=train_cfg.get("vf_coef", 0.5),
                 max_grad_norm=train_cfg.get("max_grad_norm", 0.5),
+                target_kl=train_cfg.get("target_kl"),
             )
         else:
             off_policy_kwargs = {
@@ -371,7 +404,7 @@ def build_callbacks(cfg, paths, spec, num_envs, algorithm_name, normalize,
             cfg.get("training", {}),
         )
         callbacks.append(
-            EvalCallback(
+            SeededEvalCallback(
                 best_eval_env,
                 callback_on_new_best=VecNormalizeBestModelCallback(best_model_path),
                 n_eval_episodes=best_eval_episodes,
@@ -493,6 +526,11 @@ def train(
 
     try:
         normalize = cfg["training"].get("normalize_observations", True)
+        normalize_reward = bool(cfg["training"].get("normalize_reward", False))
+        if normalize_reward and not normalize:
+            raise ValueError(
+                "training.normalize_reward requires training.normalize_observations"
+            )
         vecnormalize_env = None
         best_eval_env = None
         if normalize:
@@ -503,9 +541,14 @@ def train(
                 vec_env = VecNormalize.load(str(vecnorm_path), vec_env)
                 # Keep updating stats and continue training.
                 vec_env.training = True
-                vec_env.norm_reward = False
+                vec_env.norm_reward = normalize_reward
             else:
-                vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=False)
+                vec_env = VecNormalize(
+                    vec_env,
+                    norm_obs=True,
+                    norm_reward=normalize_reward,
+                    gamma=float(train_cfg.get("gamma", 0.99)),
+                )
             vecnormalize_env = vec_env
 
         if cfg["training"].get("check_nans", False):
