@@ -2383,3 +2383,52 @@ for obstacle traversal. That is another telemetry question, not a training run.
 
 **Artifacts:** `scratchpad/obstacle_ladder.json` (disposable; the table above is
 the record).
+
+## 2026-11-14 — Environment Audit: Three Terrain Defects, v11/v12 Conclusions Reopened
+
+**Source:** `reviews/code_review_2026-11-14.md`. No training. This entry records
+instrument defects, not a learning result.
+
+**What was wrong with the environment every terrain result since v9 ran on:**
+
+| Defect | Measured effect | Fixed in |
+|---|---|---|
+| Push applied at the world origin (`WORLD_FRAME`, `posObj=[0,0,0]`) | A yaw kick that grew with distance walked: +0.007 rad/s at x=0, 1.17 at 2 m, 4.54 at 5 m, 11.4 at 10 m. Lateral velocity change ~0.01 m/s, because the force lasted one 1/240 s tick. | `d8a63c1` |
+| "Uneven" slabs alternated ±2.5 cm around z=0 | Two of five slabs were buried; the terrain was three 2.5 cm platforms, i.e. a 2.5 cm step-edge test sitting on the 2–3 cm obstacle cliff measured above. | `d8a63c1` |
+| All terrain ended at x ≈ 3.6 m, at fixed positions | v9 walks ~13.7 m per episode, so roughly three quarters of a "terrain" episode was flat ground, and the layout was memorisable through the gait clock. | `d8a63c1` |
+| Foot clearance measured at the link COM | The COM sits 4 cm ahead of the ankle, mid-height in the foot box; a toe-down foot reports 2.5–3.7 cm more clearance than its sole has. | `gait.clearance_point: sole` added in `d8a63c1` |
+
+After the fix, one 180 N push for the new default 0.1 s gives −0.49 m/s lateral
+and −0.385 rad/s yaw at x = 0, 2, 5 and 10 m alike. Uneven is a smooth
+heightfield in [0, height] from x = 0.6 to 25.6 m; obstacles tile the same
+span with ±0.3 m spacing jitter; layouts are redrawn every episode.
+
+**What this does to earlier conclusions.**
+
+- *Push recovery 100% falls for every checkpoint* (2026-08-02 onward): at least
+  partly the yaw-torque bug. Pushes fired every 120 steps from step 60; the
+  recorded falls at 390–455 steps and 7–8 m line up with the push at step 420,
+  where the kick was ~7 rad/s on a robot with no yaw actuator. Inference, not
+  re-measured. **Status: unproven, pending re-evaluation.**
+- *v11 "specialisation, not generalisation"* and *v12 "the competition is
+  intrinsic"*: both trained and evaluated on the defective uneven and push
+  terrains, and on terrain that covered a quarter of each episode. The
+  "terrain types compete rather than compose" reading may be about 2.5 cm step
+  height rather than terrain type. **Status: reopened, not refuted, pending
+  re-evaluation.**
+- *The 2026-08-13 clearance puzzle* (5 cm target, 21–26 mm delivered): the COM
+  metric is a candidate explanation. Measuring it needs only an eval with
+  `gait.clearance_point: sole` on the same checkpoints.
+
+**Not re-measured in this session.** The v9/v11/v12 checkpoints are not present
+under `outputs/` in this checkout (it is gitignored and disposable), so the
+transfer suite was not re-run. The next step is that re-run, now 100 episodes
+per terrain with Wilson intervals on fall rates, plus the sole-clearance
+comparison, on those checkpoints or on retrained ones. Transfer-suite numbers
+from before 2026-11-14 are not comparable with numbers after it.
+
+**Methodology changes landed alongside** (`2cbaffa`): multi-seed reports sample
+sd, median, IQM and a bootstrap 95% CI on return and every behaviour metric,
+and warns below five seeds; best-model evaluation uses fixed, strided episode
+seeds; `training.net_arch`, `target_kl` and `normalize_reward` are now
+configurable so capacity can be tested rather than assumed.

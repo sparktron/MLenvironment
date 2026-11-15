@@ -33,13 +33,14 @@ ruff check src tests scripts
 python scripts/check_repo_policy.py                    # custom — enforces no tracked __pycache__/.venv/.egg-info and lockfile completeness
 ```
 
-`mypy src --ignore-missing-imports` runs in CI but is non-blocking.
+`mypy src --ignore-missing-imports` runs in CI and is blocking.
 
 ## Walker env quirks
 
-- Recent overhaul: env uses **PD position control** by default. The `sim.control` block in YAML is **nested** (`mode`, `position_gain`, `velocity_gain`); the wizard previously flattened it to `control: null`, which the env tolerates by falling back to defaults — but a hand-written YAML should keep the nested form.
+- Recent overhaul: env uses **PD position control** by default. The `sim.control` block in YAML is **nested** (`mode`, `position_gain`, `velocity_gain`). A flattened `control: null` is now an error (it used to fall back to defaults silently). Unknown `reward`/`termination` keys and an invalid `velocity_mode` also fail at construction.
 - Physics is **240 Hz** with **frame_skip=4** → 60 Hz control. `timestep`, `frame_skip`, `settle_steps` are all in the `sim` block.
 - Termination is **contact-based** (torso touches ground) plus `min_height` and `max_height` fallbacks. **Tilt does not end episodes.** `max_height: 1.5 m` is a deliberate backstop against PD-jackhammer self-launching exploits — don't loosen it without thinking.
+- **Terrain geometry (rebuilt 2026-11-14):** `uneven` is a smooth heightfield in [0, `height`] with `wavelength` (default 1 m); `obstacles` tile the track every `obstacle_spacing` ± `obstacle_spacing_jitter` (1.2 ± 0.3 m) with optional `obstacle_height_jitter`; both span x = 0.6 to 0.6 + `length` (25 m) and are redrawn every reset from a dedicated RNG unless `randomize: false`. Terrain bodies are **pooled** (PyBullet cannot free shapes) — don't create bodies per reset. Pushes act at the torso COM for `push_recovery.duration_s` (0.1 s). `gait.clearance_point: sole` measures clearance at the sole (default `com` is the legacy metric). `sim.limb_collision: true` gives thighs/shins collision.
 - **Terrain is per-episode when `terrain.mix` is set.** Each entry is a full terrain spec (`preset` plus its params, e.g. `height`, `obstacle_height`, `push_recovery`) with an optional relative `weight`. One is drawn per `reset()` from the env's seeded RNG, so a seeded run replays the same terrain sequence, and rollout workers diverge so a batch mixes terrains. Without `mix`, behaviour is unchanged. Sampling rebuilds **only** the static terrain boxes — `_build_world()` still runs once per env, preserving the reset optimisation (+0.23 ms/reset, ~0.04% of an episode). The episode's terrain is reported in `info["terrain_preset"]`; a mixed run's aggregate metrics otherwise hide which terrain caused a fall. An explicit but empty `mix: []` is an error, not "no mix". Curriculum terrain updates take effect at the next reset. Unknown live parameter keys raise an error.
 - Coordinate-free v2 obs shape is **35**: `z(1)+quat(4)+lin_vel(3)+ang_vel(3)+joint_pos(10)+joint_vel(10)+mass_scale(1)+friction_scale(1)+foot_contacts(2)`. Contacts expose the contact state used by contact-driven rewards. Set `observation.include_previous_action: true` to append the 10-D normalized action actually applied to PD control (shape **45**); this is checkpoint-incompatible.
 - Action shape is **10**: `[rHip, rKnee, rAnkle, lHip, lKnee, lAnkle, rShoulder, rElbow, lShoulder, lElbow]`. `action[i]=0` maps to the joint's rest pose (NOT joint midpoint).
@@ -101,8 +102,8 @@ Two distinct vec-env paths in `games/arena/training.py`, chosen by whether self-
   lockfile must contain every direct dep from `pyproject.toml`, or CI fails.
 - `max_height: 1.5 m` is a deliberate backstop against the PD-jackhammer
   self-launch exploit. Loosening it re-opens a known degenerate solution.
-- `sim.control` is **nested**. A flattened `control: null` is silently tolerated
-  and falls back to defaults — which looks like a working run and is not one.
+- `sim.control` is **nested**. A flattened `control: null` is an error; it used
+  to fall back to defaults, which looked like a working run and was not one.
 - An explicit but empty `terrain.mix: []` is an error, not "no mix".
 - Changing observation shape (35 → 45 with `include_previous_action`) is
   **checkpoint-incompatible**. Old checkpoints cannot be loaded.

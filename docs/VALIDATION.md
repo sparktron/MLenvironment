@@ -44,7 +44,7 @@ convention, not an enforced gate.**
 |---|---|---|
 | `ruff check src tests scripts` | lint | yes |
 | `python scripts/check_repo_policy.py` | no tracked `__pycache__`/`.venv`/`.egg-info`; lockfile completeness vs `pyproject.toml` | yes |
-| `mypy src --ignore-missing-imports` | types | **no — non-blocking** |
+| `mypy src --ignore-missing-imports` | types | **yes — blocking since 2026-11-14** |
 
 Type errors can therefore reach `master`.
 
