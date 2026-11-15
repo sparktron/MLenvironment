@@ -356,3 +356,15 @@ def test_wall_clock_throttle_disabled_by_default_zero(monkeypatch) -> None:
         cb._on_step()  # fake_now never advances
 
     assert len(cb.frames) == 3
+
+
+def test_capture_failures_are_counted_even_when_quiet() -> None:
+    cb = _stub_callback()
+    cb.model.get_env.return_value.env_method.side_effect = RuntimeError("no display")
+    for step in range(3):
+        cb.model.num_timesteps = step + 1
+        cb._on_step()
+    status = cb.capture_status()
+    assert status["capture_errors"] >= 1
+    assert "no display" in status["last_capture_error"]
+    assert cb.frames == type(cb.frames)(maxlen=cb.max_frames)

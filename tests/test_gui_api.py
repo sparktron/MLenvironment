@@ -740,7 +740,7 @@ def test_frames_run_without_callback_returns_empty_list(client) -> None:
 
     resp = c.get("/api/train/frames/run_no_cb")
     assert resp.status_code == 200
-    assert resp.get_json() == {"frames": []}
+    assert resp.get_json() == {"frames": [], "capture_errors": 0, "last_capture_error": None}
 
 
 def test_frames_returns_captured_frames(client) -> None:
@@ -771,6 +771,7 @@ def test_frames_since_parameter_forwarded_to_callback(client) -> None:
 
     fake_cb = MagicMock()
     fake_cb.get_frames.return_value = []
+    fake_cb.capture_status.return_value = {"capture_errors": 0, "last_capture_error": None}
     _inject_run_with_callback(gui_app.manager, "run_since", callback=fake_cb)
 
     resp = c.get("/api/train/frames/run_since?since=7")
@@ -786,6 +787,7 @@ def test_frames_since_defaults_to_zero(client) -> None:
 
     fake_cb = MagicMock()
     fake_cb.get_frames.return_value = []
+    fake_cb.capture_status.return_value = {"capture_errors": 0, "last_capture_error": None}
     _inject_run_with_callback(gui_app.manager, "run_default_since", callback=fake_cb)
 
     resp = c.get("/api/train/frames/run_default_since")
@@ -801,8 +803,42 @@ def test_frames_since_invalid_value_falls_back_to_zero(client) -> None:
 
     fake_cb = MagicMock()
     fake_cb.get_frames.return_value = []
+    fake_cb.capture_status.return_value = {"capture_errors": 0, "last_capture_error": None}
     _inject_run_with_callback(gui_app.manager, "run_bad_since", callback=fake_cb)
 
     resp = c.get("/api/train/frames/run_bad_since?since=notanumber")
     assert resp.status_code == 200
     fake_cb.get_frames.assert_called_once_with(since=0)
+
+
+def test_frames_negative_since_is_clamped_to_zero(client) -> None:
+    from unittest.mock import MagicMock
+    from rl_framework.gui import app as gui_app
+
+    c, _, _ = client
+    fake_cb = MagicMock()
+    fake_cb.get_frames.return_value = []
+    fake_cb.capture_status.return_value = {"capture_errors": 0, "last_capture_error": None}
+    _inject_run_with_callback(gui_app.manager, "run_negative_since", callback=fake_cb)
+
+    resp = c.get("/api/train/frames/run_negative_since?since=-5")
+    assert resp.status_code == 200
+    fake_cb.get_frames.assert_called_once_with(since=0)
+
+
+def test_frames_response_reports_capture_errors(client) -> None:
+    from unittest.mock import MagicMock
+    from rl_framework.gui import app as gui_app
+
+    c, _, _ = client
+    fake_cb = MagicMock()
+    fake_cb.get_frames.return_value = []
+    fake_cb.capture_status.return_value = {
+        "capture_errors": 3,
+        "last_capture_error": "RuntimeError: no display",
+    }
+    _inject_run_with_callback(gui_app.manager, "run_capture_errors", callback=fake_cb)
+
+    data = c.get("/api/train/frames/run_capture_errors").get_json()
+    assert data["capture_errors"] == 3
+    assert "no display" in data["last_capture_error"]

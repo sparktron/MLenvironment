@@ -398,6 +398,8 @@ def get_frames(run_id: str):
         since = int(request.args.get("since", 0))
     except (TypeError, ValueError):
         since = 0
+    # A negative cursor would match every buffered frame on every poll.
+    since = max(since, 0)
     result = manager.get_frames(run_id, since=since)
     if "error" in result:
         return jsonify(result), 404

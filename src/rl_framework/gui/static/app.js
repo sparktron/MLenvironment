@@ -15,6 +15,7 @@
   let activeRunStatus = null;     // status for selected dashboard run
   let pollTimer = null;           // setInterval id for dashboard polling
   let rewardHistory = [];         // [{x: timestep, y: reward}, ...]
+  const MAX_CLIENT_FRAMES = 500;   // client buffer cap (server keeps 200)
   let frameData = [];             // all captured frames (client-side buffer)
   let nextFrameSince = 0;         // high-water mark: fetch only frames >= this index
   let isPlaying = false;          // playback state
@@ -1298,13 +1299,24 @@
   async function pollFrames() {
     if (!activeRunId) return;
     var result = await api("GET", "/api/train/frames/" + activeRunId + "?since=" + nextFrameSince);
-    if (result.error || !result.frames || result.frames.length === 0) return;
+    if (result.error) return;
+    showFrameCaptureErrors(result);
+    if (!result.frames || result.frames.length === 0) return;
 
     var wasEmpty = frameData.length === 0;
 
     // Append only new frames; update high-water mark.
     result.frames.forEach(function (f) { frameData.push(f); });
     nextFrameSince = frameData[frameData.length - 1].frame_index + 1;
+    // Bound the client buffer like the server ring buffer, so a long run
+    // does not grow browser memory without limit. Keep the scrubber on the
+    // same frame when old ones are dropped.
+    var excess = frameData.length - MAX_CLIENT_FRAMES;
+    if (excess > 0) {
+      frameData.splice(0, excess);
+      currentFrameIndex = Math.max(0, currentFrameIndex - excess);
+      updateFrameDisplay();
+    }
     $("#frame-scrubber").max = frameData.length - 1;
 
     // Show the very first frame that arrives so the canvas isn't blank,
@@ -1312,6 +1324,19 @@
     // Never disturb the scrubber position once playback or seeking has begun.
     if (wasEmpty) {
       updateFrameDisplay();
+    }
+  }
+
+  function showFrameCaptureErrors(result) {
+    var indicator = $("#frame-indicator");
+    if (!indicator) return;
+    if (result.capture_errors > 0) {
+      indicator.title = result.capture_errors + " frame capture error(s); last: " +
+        (result.last_capture_error || "unknown");
+      indicator.classList.add("frame-capture-error");
+    } else {
+      indicator.title = "";
+      indicator.classList.remove("frame-capture-error");
     }
   }
 

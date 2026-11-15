@@ -62,6 +62,10 @@ class FrameCaptureCallback(BaseCallback):
         self.episode_num = 0
         self.last_capture_step = 0
         self.last_capture_wall_time = 0.0
+        # Capture failures used to print only at verbose >= 1, so a broken
+        # renderer looked like a run that simply produced no frames.
+        self.capture_errors = 0
+        self.last_capture_error: str | None = None
         self._lock = threading.Lock()
 
     def _on_step(self) -> bool:
@@ -148,8 +152,18 @@ class FrameCaptureCallback(BaseCallback):
                     f"[FrameCapture] Captured frame {self.frame_index} at step {timestep}"
                 )
         except Exception as e:
+            with self._lock:
+                self.capture_errors += 1
+                self.last_capture_error = f"{type(e).__name__}: {e}"
             if self.verbose >= 1:
                 print(f"[FrameCapture] Error capturing frame: {e}")
+
+    def capture_status(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "capture_errors": self.capture_errors,
+                "last_capture_error": self.last_capture_error,
+            }
 
     def get_frames(self, since: int = 0) -> list[dict[str, Any]]:
         """Return captured frames as dict list for API.

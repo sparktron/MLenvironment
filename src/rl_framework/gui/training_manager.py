@@ -169,10 +169,11 @@ class TrainingManager:
             if state is None:
                 return {"error": f"Unknown run_id: {run_id}"}
             if state.frame_capture_callback is None:
-                return {"frames": []}
+                return {"frames": [], "capture_errors": 0, "last_capture_error": None}
         # get_frames acquires its own lock; release ours first to avoid nesting.
-        frames = state.frame_capture_callback.get_frames(since=since)
-        return {"frames": frames}
+        callback = state.frame_capture_callback
+        frames = callback.get_frames(since=since)
+        return {"frames": frames, **callback.capture_status()}
 
     # ------------------------------------------------------------------
     # Lifecycle
