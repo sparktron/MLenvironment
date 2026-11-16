@@ -32,7 +32,7 @@ def _fake_run_one_seed_factory(fail_seed: int | None = None):
     """Return a _run_one_seed stub that raises for *fail_seed* and succeeds for others."""
 
     def _stub(args: tuple) -> tuple:
-        seed, cfg = args
+        seed, cfg, *_ = args
         if seed == fail_seed:
             raise RuntimeError(f"Intentional failure for seed {seed}")
         return seed, f"/fake/model_seed_{seed}", {"mean_return": float(seed) + 0.5}
@@ -76,7 +76,7 @@ def test_all_seeds_failed_raises_runtime_error(tmp_path: Path, monkeypatch) -> N
     """run_multi_seed raises RuntimeError when every seed fails."""
 
     def _always_fail(args: tuple) -> tuple:
-        seed, _ = args
+        seed, *_ = args
         raise RuntimeError(f"seed {seed} failed")
 
     monkeypatch.setattr(ms_module, "_run_one_seed", _always_fail)
@@ -115,7 +115,7 @@ def test_per_seed_configs_update_environment_seed(tmp_path: Path, monkeypatch) -
     seen: dict[int, int] = {}
 
     def _capture(args: tuple) -> tuple:
-        seed, cfg = args
+        seed, cfg, *_ = args
         seen[seed] = cfg["environment"]["seed"]
         return seed, f"/fake/model_seed_{seed}", {"mean_return": float(seed)}
 
@@ -184,7 +184,7 @@ def test_default_max_workers_unchanged_for_single_env_seeds(
 
 def test_aggregate_reports_intervals_and_behaviour_metrics(tmp_path: Path, monkeypatch) -> None:
     def _stub(args: tuple) -> tuple:
-        seed, _ = args
+        seed, *_ = args
         return seed, f"/fake/{seed}", {"mean_return": float(seed), "fall_rate": 0.1 * seed}
 
     monkeypatch.setattr(ms_module, "_run_one_seed", _stub)
@@ -203,3 +203,36 @@ def test_aggregate_warns_below_five_seeds(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(ms_module, "_run_one_seed", _fake_run_one_seed_factory())
     with pytest.warns(UserWarning, match="at least 5"):
         ms_module.run_multi_seed(_base_cfg(tmp_path), seeds=[0, 1, 2], max_workers=1)
+
+
+def test_resume_template_is_formatted_per_seed(tmp_path: Path, monkeypatch) -> None:
+    """Each seed must continue from its own seed-matched checkpoint."""
+    seen: dict[int, str | None] = {}
+
+    def _capture(args: tuple) -> tuple:
+        seed, _cfg, resume_from = args
+        seen[seed] = resume_from
+        return seed, f"/fake/model_seed_{seed}", {"mean_return": 1.0}
+
+    monkeypatch.setattr(ms_module, "_run_one_seed", _capture)
+    for seed in (3, 4):
+        ckpt = tmp_path / f"seed_{seed}.zip"
+        ckpt.write_bytes(b"x")
+    template = str(tmp_path / "seed_{seed}.zip")
+    ms_module.run_multi_seed(
+        _base_cfg(tmp_path), seeds=[3, 4], max_workers=1, resume_template=template
+    )
+    assert seen == {3: str(tmp_path / "seed_3.zip"), 4: str(tmp_path / "seed_4.zip")}
+
+
+def test_resume_template_missing_checkpoint_fails_before_training(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(ms_module, "_run_one_seed", lambda a: pytest.fail("trained"))
+    with pytest.raises(FileNotFoundError):
+        ms_module.run_multi_seed(
+            _base_cfg(tmp_path),
+            seeds=[9],
+            max_workers=1,
+            resume_template=str(tmp_path / "nope_{seed}.zip"),
+        )

@@ -15,15 +15,15 @@ from rl_framework.core.training.statistics import summarize, summarize_metrics
 
 
 def _run_one_seed(
-    args: tuple[int, dict[str, Any]],
+    args: tuple[int, dict[str, Any], str | None],
 ) -> tuple[int, str, dict[str, float]]:
     """Train + evaluate a single seed. Runs in a subprocess when parallelised."""
-    seed, cfg = args
+    seed, cfg, resume_from = args
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     os.environ.setdefault("BLAS_NUM_THREADS", "1")
     os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-    model_path = train(cfg)
+    model_path = train(cfg, resume_from=resume_from)
     metrics = evaluate(cfg, str(model_path) + ".zip")
     return seed, str(model_path), metrics
 
@@ -32,6 +32,7 @@ def run_multi_seed(
     cfg: dict[str, Any],
     seeds: list[int] | None = None,
     max_workers: int | None = None,
+    resume_template: str | None = None,
 ) -> dict[str, float]:
     """Train and evaluate the same config across multiple seeds, then aggregate.
 
@@ -47,6 +48,10 @@ def run_multi_seed(
         parallel rollout workers, avoiding nested process oversubscription.
         Pass ``1`` to force sequential execution (useful for debugging or when
         the training itself already saturates all CPUs via SubprocVecEnv).
+
+    resume_template:
+        Optional checkpoint path containing ``{seed}``, formatted per seed so
+        each seed continues from its own seed-matched checkpoint.
 
     Returns
     -------
@@ -75,12 +80,15 @@ def run_multi_seed(
     # experiment_name is left untouched. Each seed lands at the natural sibling
     # path outputs/<experiment_name>/seed_<seed>/, co-located with the
     # multi_seed_summary/ written below.
-    seed_args: list[tuple[int, dict[str, Any]]] = []
+    seed_args: list[tuple[int, dict[str, Any], str | None]] = []
     for seed in seeds:
         run_cfg = deepcopy(cfg)
         run_cfg["seed"] = seed
         run_cfg.setdefault("environment", {})["seed"] = seed
-        seed_args.append((seed, run_cfg))
+        resume_from = resume_template.format(seed=seed) if resume_template else None
+        if resume_from is not None and not Path(resume_from).is_file():
+            raise FileNotFoundError(f"resume checkpoint for seed {seed}: {resume_from}")
+        seed_args.append((seed, run_cfg, resume_from))
 
     per_seed_metrics: dict[int, dict[str, float]] = {}
     failed_seeds: dict[int, str] = {}
@@ -88,9 +96,9 @@ def run_multi_seed(
 
     if max_workers == 1:
         # Sequential path — avoids subprocess overhead and is easier to debug.
-        for seed, run_cfg in seed_args:
+        for seed, run_cfg, resume_from in seed_args:
             try:
-                seed, model_path, metrics = _run_one_seed((seed, run_cfg))
+                seed, model_path, metrics = _run_one_seed((seed, run_cfg, resume_from))
                 model_paths[seed] = model_path
                 per_seed_metrics[seed] = metrics
                 print(f"[MultiSeed] seed={seed}  metrics={metrics}")

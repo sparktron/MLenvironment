@@ -2432,3 +2432,44 @@ sd, median, IQM and a bootstrap 95% CI on return and every behaviour metric,
 and warns below five seeds; best-model evaluation uses fixed, strided episode
 seeds; `training.net_arch`, `target_kl` and `normalize_reward` are now
 configurable so capacity can be tested rather than assumed.
+
+## 2026-11-16 — Generalisation Re-run On The Fixed Terrain (pre-registration)
+
+**Written before any run below existed.** Results are appended in a later entry;
+this one fixes the hypotheses and the refutation criteria so they cannot be
+chosen after the data.
+
+**Code:** `7e2bb65` plus a `multi-seed --resume` change (per-seed `{seed}`
+checkpoint template, needed because v11/v12 continue from each v9 seed). Terrain
+fixes are in `d8a63c1`. **Machine:** i9-10900K, 10 cores / 20 threads (not the
+24 cores `AGENTS.md` assumes); measured 300k steps in 72 s at `num_envs: 24` and
+70 s at 18, i.e. ~4,200 fps and CPU-saturated either way. **Parallelism:** seeds
+run sequentially, `num_envs: 24`, `device: cpu`, `OMP_NUM_THREADS=1
+MKL_NUM_THREADS=1`. **Seeds:** 21–25 for every arm (seed-matched continuation).
+Configs are the committed `walker_reward_v9_flight_cost`,
+`walker_reward_v11_uneven_terrain`, `walker_reward_v12_mixed_terrain`, unchanged
+unless a later entry says otherwise.
+
+**Estimate:** v9 ~40 min/seed (3.4 h), v11 ~1.7 h, v12 ~3.4 h, plus ~2 h of
+evaluation; ~10 h total.
+
+**Hypotheses and refutation criteria** (fall rates from the 100-episode transfer
+suite with Wilson 95% intervals; "improves" means the seed's interval lies
+entirely below v9's for the same seed):
+
+- **H-sole.** The COM clearance metric overstates foot clearance. *Refuted if*
+  the mean sole-minus-COM clearance gap across the 5 v9 seeds is under 5 mm.
+- **H-v11 (old conclusion: specialisation, not generalisation).** v11 improves
+  its training terrain (uneven) but not obstacles or push recovery, and flat
+  does not improve. *Stands if* uneven improves in ≥4/5 seeds while obstacles
+  (2 cm, 3 cm) and push improve in ≤1/5. *Refuted if* obstacles or push improve
+  in ≥3/5 seeds. Anything between is inconclusive.
+- **H-v12 (old conclusion: mixed terrain refuted).** Per-episode mixed training
+  does not yield a policy that is good everywhere. *Refuted-as-refuted (i.e. mixed
+  terrain works) if* in ≥3/5 seeds flat fall rate is within 10 points of v9 and
+  uneven and push both improve over v9. *Stands if* ≤1/5 seeds meet that.
+  Between is inconclusive.
+- **Push recovery.** The old 100%-fall result was caused by the push bug.
+  *Refuted if* v9 still falls on ≥95% of push episodes in ≥4/5 seeds.
+
+Claims need all 5 seeds; any seed that fails is reported and blocks the claim.

@@ -115,7 +115,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--resume",
         default="",
-        help="Path to a saved PPO model (.zip) to resume training from",
+        help=(
+            "Path to a saved PPO model (.zip) to resume training from; "
+            "for multi-seed, a path containing {seed}"
+        ),
     )
     parser.add_argument(
         "--total-timesteps",
@@ -623,7 +626,10 @@ def main() -> None:
             [int(seed) for seed in args.seeds.split(",")] if args.seeds else None
         )
         agg = run_multi_seed(
-            cfg_dict, seeds=multi_seed_values, max_workers=args.max_workers
+            cfg_dict,
+            seeds=multi_seed_values,
+            max_workers=args.max_workers,
+            resume_template=args.resume or None,
         )
         result = agg
         if not args.json:
