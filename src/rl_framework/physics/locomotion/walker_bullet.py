@@ -444,7 +444,7 @@ class WalkerBulletEnv(gym.Env):
         )
         # The next observation receives the command that actually reached the
         # PD controller, including curriculum/action scaling and any latency.
-        self._previous_action = applied_action.copy()
+        self._previous_action = applied_action.astype(np.float32, copy=True)
         # Score against the schedule the policy actually saw, then advance.
         expected_stance = self._expected_stance(self._gait_phase)
         phase_contact_match = 0.5 * sum(

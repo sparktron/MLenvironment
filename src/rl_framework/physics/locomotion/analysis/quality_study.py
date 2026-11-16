@@ -18,6 +18,7 @@ from rl_framework.physics.locomotion.analysis.walker_diagnostics import (
     evaluate_walker_transfer_suite,
     summarize_walker_fall_windows,
 )
+from stable_baselines3.common.callbacks import BaseCallback
 from rl_framework.physics.locomotion.velocity_target_ramp_callback import VelocityTargetRampCallback
 
 
@@ -839,7 +840,7 @@ def _run_walker_velocity_ramp_study(
                 step_budget=step_budget,
                 output_dir=output_dir,
             )
-            callbacks = (
+            callbacks: list[BaseCallback] | None = (
                 [
                     VelocityTargetRampCallback(
                         start=0.15,
