@@ -36,3 +36,10 @@ testpaths = ["tests"]
 # `python -m pytest` does, so without this the scripts/ package is unimportable
 # and collection of tests/test_benchmark_device_matrix.py fails.
 pythonpath = ["."]
+
+[tool.coverage.run]
+# tests/fixtures/legacy_checkpoints/walker was saved before the move to
+# core/training/: its cloudpickled lr_schedule still names the old
+# src/rl_framework/training/sb3_runner.py, so loading it makes coverage record
+# a file that no longer exists and warn "couldnt-parse" at report time.
+omit = ["*/rl_framework/training/*"]
