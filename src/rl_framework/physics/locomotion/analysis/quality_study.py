@@ -11,7 +11,7 @@ import numpy as np
 from rl_framework.core.training.quality_study import (
     _apply_overrides, _atomic_json_write, _load_cfg, _prepare_cfg, _train_run,
 )
-from rl_framework.physics.locomotion.walker_diagnostics import (
+from rl_framework.physics.locomotion.analysis.walker_diagnostics import (
     calibrate_walker_slip_thresholds,
     collect_walker_fall_recovery_telemetry,
     evaluate_walker_checkpoint,

@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rl_framework.core.config.config import load_config, to_container  # noqa: E402
-from rl_framework.physics.locomotion.walker_diagnostics import (  # noqa: E402
+from rl_framework.physics.locomotion.analysis.walker_diagnostics import (  # noqa: E402
     collect_walker_swing_event_telemetry,
     evaluate_walker_transfer_suite,
 )

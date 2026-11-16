@@ -6,7 +6,7 @@ can be exercised without matplotlib.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -18,8 +18,8 @@ class ArenaRenderer:
     """Owns the matplotlib figure for one env."""
 
     def __init__(self) -> None:
-        self._fig = None
-        self._ax = None
+        self._fig: Any = None
+        self._ax: Any = None
 
     def render(self, env: OrganismArenaParallelEnv):
         import matplotlib
@@ -165,7 +165,7 @@ class ArenaRenderer:
         )
 
         if env.render_mode == "human":
-            plt.pause(1.0 / env.metadata["render_fps"])
+            plt.pause(1.0 / float(env.metadata["render_fps"]))  # type: ignore[arg-type]
             return None
 
         # rgb_array

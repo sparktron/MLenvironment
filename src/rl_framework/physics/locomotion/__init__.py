@@ -9,7 +9,7 @@ def _train_callbacks(cfg, paths, slot):
 
 
 def _studies():
-    from .quality_study import study_specs
+    from .analysis.quality_study import study_specs
     return study_specs()
 
 

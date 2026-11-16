@@ -303,9 +303,10 @@ class WalkerBulletEnv(gym.Env):
 
         # Draw this episode's terrain before anything builds it, so the first
         # reset and every later one go through the same path.
-        terrain_changed = self._pending_terrain is not None
-        if terrain_changed:
-            self.terrain.set_mix_from(self._pending_terrain)
+        pending = self._pending_terrain
+        terrain_changed = pending is not None
+        if pending is not None:
+            self.terrain.set_mix_from(pending)
             self._pending_terrain = None
         self.terrain.sample(self._rng)
 

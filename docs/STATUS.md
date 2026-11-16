@@ -1,6 +1,6 @@
 # Current Status
 
-**Updated:** 2026-11-14 · **Branch:** `master` · **Restructure baseline:** `ae6f09b`
+**Updated:** 2026-11-16 · **Branch:** `master` · **Restructure baseline:** `ae6f09b`
 
 ## Objective
 
@@ -24,6 +24,11 @@ experiment configs through one CLI, with a Flask GUI for experiment management.
   episode from pooled bodies; the push acts at the torso COM for
   `duration_s` (default 0.1 s). Transfer-suite numbers before this date are
   not comparable with later ones.
+- **Env structure refactor (2026-11-16, ADR-003):** `WalkerBulletEnv` split into
+  terrain/robot/sensing/perturbations/config/observation modules; live
+  parameters are declared on typed config and shared via
+  `core/config/live_params.py`; arena rendering split out and `step` phased.
+  Behaviour-preserving (rollouts diffed step-for-step against the old envs).
 - Arena with self-play (parallelises across cores) and shared-policy
   (single-process only) paths, plus Bradley-Terry Elo tournament ranking.
 - Flask GUI with a config wizard.
