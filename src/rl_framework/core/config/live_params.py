@@ -53,6 +53,8 @@ class LiveParam:
     key: str
     cast: Callable[[Any], Any] | None = None
     when: When = IMMEDIATE
+    # Used when ``cast`` is None and the field has no current value yet.
+    fallback: Callable[[Any], Any] | None = None
 
     def coerce(self, value: Any, current: Any = None) -> Any:
         if self.cast is not None:
@@ -61,7 +63,7 @@ class LiveParam:
             except ValueError as exc:
                 raise ValueError(f"{self.key}: {exc}") from exc
         if current is None:
-            return value
+            return self.fallback(value) if self.fallback is not None else value
         return type(current)(value)
 
 
