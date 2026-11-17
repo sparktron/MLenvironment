@@ -1029,7 +1029,7 @@ MLenvironment/
 ├── README.md
 ├── Dockerfile
 ├── pyproject.toml
-├── requirements.txt
+├── requirements-lock.txt
 │
 ├── src/rl_framework/
 │   ├── __init__.py
