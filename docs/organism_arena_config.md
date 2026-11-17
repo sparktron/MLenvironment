@@ -14,9 +14,9 @@ default N=2). Spaces are slot-symmetric, so one shared policy can fill any slot.
 |-----|--------:|---------|
 | `num_agents` | `2` | Number of organisms. `2` is a duel; `>2` is a free-for-all. Must be ≥ 2. Agents spawn evenly on a circle (the 2-agent case reduces exactly to the legacy `±0.6` layout). |
 
-**N-agent mechanics.** The observation stays a fixed 8-D and describes the
-*nearest living opponent*, so it is identical at N=2 and old checkpoints remain
-valid. An attack hits the attacker's nearest living opponent within
+**N-agent mechanics.** The observation is a fixed 13-D vector and describes the
+*nearest living opponent*, so its shape is the same at every N. Checkpoints
+trained on the earlier 8-D observation cannot be loaded. An attack hits the attacker's nearest living opponent within
 `attack_range` (single target). All attacks in a step resolve against the
 agents alive at the start of that step, so mutual knockouts are draws, not
 order-dependent wins. A knocked-out agent takes a one-time `−1` and becomes an
@@ -32,16 +32,20 @@ shared-policy SuperSuit path also supports N > 2. In N-agent self-play, the live
 policy's SB3 episode ends as soon as it is knocked out, even while the remaining
 arena agents continue their underlying match.
 
-## Observation (8-D, `float32`, pre-scaled to ~[-1, 1])
+## Observation (13-D, `float32`, pre-scaled to ~[-1, 1])
 
 | Index | Component | Meaning |
 |------:|-----------|---------|
 | 0–1 | `self_vel_x/y` | Displacement since last step, in units of `move_speed`. |
 | 2 | `health_frac` | Own health ÷ own max health. |
-| 3–4 | `rel_opp_x/y` | Opponent position relative to self, in units of the arena diameter (`2·arena_half_extent`). Zeroed when out of `sensing_radius`. |
-| 5 | `opp_health_frac` | Opponent health ÷ its max health. Zeroed when out of range. |
-| 6 | `cooldown_frac` | Own attack cooldown ÷ `cooldown_steps`. |
-| 7 | `opp_visible` | `1.0` if the opponent is within `sensing_radius`, else `0.0`. Disambiguates "out of range" from "adjacent, near-zero health". |
+| 3 | `energy_frac` | Own energy ÷ `resources.max_energy`. |
+| 4 | `size_frac` | Own current size ÷ 2. |
+| 5–6 | `rel_opp_x/y` | Opponent position relative to self, in units of the arena diameter (`2·arena_half_extent`). Zeroed when out of `sensing_radius`. |
+| 7 | `opp_health_frac` | Opponent health ÷ its max health. Zeroed when out of range. |
+| 8 | `cooldown_frac` | Own attack cooldown ÷ `cooldown_steps`. |
+| 9 | `opp_visible` | `1.0` if the opponent is within `sensing_radius`, else `0.0`. Disambiguates "out of range" from "adjacent, near-zero health". |
+| 10–11 | `rel_food_x/y` | Nearest food that is not currently consumed, relative to self, in arena-diameter units. Zeroed when no food is available. Not gated by `sensing_radius`. |
+| 12 | `food_visible` | `1.0` if any food is currently available, else `0.0`. |
 
 ## Action (3-D, `float32`, each in [-1, 1])
 
@@ -67,11 +71,15 @@ fires when `attack_trigger > 0.5` and the attacker is off cooldown.
 
 ## `environment.battle_rules`
 
-Unknown keys here raise a `UserWarning` and are ignored (typo guard).
+Unknown keys here are an error: config loading raises a `ValueError` that lists
+the valid keys (typo guard). The same applies to unknown keys under
+`environment.morphology` and `environment.resources`. `damage` and
+`attack_range` must be positive; `collision_damage` must be non-negative.
 
 | Key | Default | Meaning |
 |-----|--------:|---------|
 | `damage` | `0.05` | Base health removed per landed hit (before size and falloff scaling). |
+| `collision_damage` | `0.0` | Health removed from each organism when two organisms overlap, scaled by the other organism's size. `0` disables collision damage. |
 | `attack_range` | `0.2` | Distance at/under which an attack can connect. |
 | `cooldown_steps` | `3` | Steps an agent must wait between attacks. |
 | `sensing_radius` | `2.0` | Range within which the opponent is visible in the observation. Note the default arena's max separation is `2√2·extent ≈ 2.83`, so a radius of `2.0` leaves only the far corners blind — lower it for partial observability. |
@@ -82,6 +90,27 @@ Unknown keys here raise a `UserWarning` and are ignored (typo guard).
 Effective damage per hit = `damage · falloff(distance) · attacker_size`. Health
 always takes full damage so combat resolves; only the *dense per-hit reward* is
 scaled by reward annealing (below).
+
+## `environment.resources`
+
+Energy is spent on movement (`movement_cost` per unit of distance moved) and on
+attacks (`attack_cost` per attack). An organism with zero energy cannot move,
+and cannot attack without `attack_cost` energy. Food restores `food_energy`
+(capped at `max_energy`) to the first agent whose centre comes within
+`food_radius`, and that agent's reward rises by the energy it gained. Consumed
+food respawns after `food_respawn_steps`.
+
+| Key | Default | Meaning |
+|-----|--------:|---------|
+| `initial_energy` | `1.0` | Energy at spawn. Must be ≤ `max_energy`. |
+| `max_energy` | `1.0` | Energy cap. |
+| `movement_cost` | `0.01` | Energy spent per unit of distance moved. |
+| `attack_cost` | `0.04` | Energy spent per attack. |
+| `food_count` | `2` | Number of food items on the arena. |
+| `food_energy` | `0.35` | Energy restored when food is eaten. |
+| `food_radius` | `0.10` | Distance at which an organism eats food. |
+| `food_respawn_steps` | `40` | Steps before consumed food reappears. |
+| `food_placement` | `"uniform"` | `"uniform"` spreads food over the arena; `"center"` draws it from a central patch (0.3× the usual spawn extent). |
 
 ## Reward
 
