@@ -11,13 +11,14 @@ import numpy as np
 from rl_framework.core.training.quality_study import (
     _apply_overrides, _atomic_json_write, _load_cfg, _prepare_cfg, _train_run,
 )
-from rl_framework.physics.locomotion.walker_diagnostics import (
+from rl_framework.physics.locomotion.analysis.walker_diagnostics import (
     calibrate_walker_slip_thresholds,
     collect_walker_fall_recovery_telemetry,
     evaluate_walker_checkpoint,
     evaluate_walker_transfer_suite,
     summarize_walker_fall_windows,
 )
+from stable_baselines3.common.callbacks import BaseCallback
 from rl_framework.physics.locomotion.velocity_target_ramp_callback import VelocityTargetRampCallback
 
 
@@ -839,7 +840,7 @@ def _run_walker_velocity_ramp_study(
                 step_budget=step_budget,
                 output_dir=output_dir,
             )
-            callbacks = (
+            callbacks: list[BaseCallback] | None = (
                 [
                     VelocityTargetRampCallback(
                         start=0.15,

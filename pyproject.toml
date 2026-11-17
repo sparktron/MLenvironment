@@ -31,10 +31,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Put the repo root on sys.path so tests can `from scripts import ...`.
-# Bare `pytest` (as CI runs it) does not add the cwd to sys.path the way
-# `python -m pytest` does, so without this the scripts/ package is unimportable
-# and collection of tests/test_benchmark_device_matrix.py fails.
+# Put the repo root on sys.path (bare `pytest`, as CI runs it, does not add the
+# cwd the way `python -m pytest` does) so repo-root helpers stay importable.
 pythonpath = ["."]
 
 [tool.coverage.run]

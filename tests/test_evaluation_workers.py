@@ -12,7 +12,7 @@ from rl_framework.core.training.evaluation_workers import (
     episode_quotas,
     resolve_evaluation_workers,
 )
-from rl_framework.physics.locomotion.walker_diagnostics import _rollouts
+from rl_framework.physics.locomotion.analysis.walker_diagnostics import _rollouts
 
 
 class _SeedRecordingEnv(gym.Env):
@@ -142,7 +142,7 @@ def test_transfer_suite_resolves_obstacles_below_the_saturation_floor() -> None:
     """
     import inspect
 
-    from rl_framework.physics.locomotion import walker_diagnostics
+    from rl_framework.physics.locomotion.analysis import walker_diagnostics
 
     source = inspect.getsource(walker_diagnostics.evaluate_walker_transfer_suite)
     heights = [

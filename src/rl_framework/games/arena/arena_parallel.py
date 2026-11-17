@@ -9,6 +9,12 @@ from gymnasium import spaces
 from pettingzoo import ParallelEnv
 
 from rl_framework.core.config.config_merge import get_section
+from rl_framework.core.config.live_params import (
+    LiveParam,
+    LiveParamSet,
+    params_from_dataclass,
+)
+from rl_framework.games.arena.arena_render import ArenaRenderer
 
 
 @dataclass
@@ -44,12 +50,23 @@ class RewardRules:
     approach_weight: float = 0.0
 
 
-LIVE_PARAMS = frozenset(
-    {f"battle_rules.{key}" for key in BattleRules.__dataclass_fields__}
-    | {f"resources.{key}" for key in ResourceRules.__dataclass_fields__}
-    | {"reward.damage_scale", "reward.approach_weight", "sim.arena_half_extent"}
-    | {f"morphology.{key}" for key in ("base_size", "health", "episode_growth_scale")}
+# Every live key, declared once. Rules/resources fields are all tunable and keep
+# their runtime type; the rest are explicit. Morphology lives in a raw dict, so a
+# key not yet in the config falls back to float.
+LIVE_PARAM_SET = LiveParamSet(
+    [
+        *params_from_dataclass("battle_rules", BattleRules, all_live=True),
+        *params_from_dataclass("resources", ResourceRules, all_live=True),
+        LiveParam("reward.damage_scale", float),
+        LiveParam("reward.approach_weight", float),
+        LiveParam("sim.arena_half_extent", float),
+        *(
+            LiveParam(f"morphology.{key}", fallback=float)
+            for key in ("base_size", "health", "episode_growth_scale")
+        ),
+    ]
 )
+LIVE_PARAMS = LIVE_PARAM_SET.keys
 
 
 class OrganismArenaParallelEnv(ParallelEnv):
@@ -133,8 +150,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
         # signal eventually dominates. See update_live_params().
         self._damage_scale = float(self.reward_rules.damage_scale)
         self.step_count = 0
-        self._fig = None
-        self._ax = None
+        self._renderer = ArenaRenderer()
 
     def observation_space(self, agent: str):
         # Egocentric, slot-symmetric obs (13D), every component pre-scaled to
@@ -383,47 +399,37 @@ class OrganismArenaParallelEnv(ParallelEnv):
 
         Unknown keys and values that cannot be coerced raise an error.
         """
-        unknown = set(params) - LIVE_PARAMS
-        if unknown:
-            raise ValueError(f"Unknown live parameters {sorted(unknown)}; valid keys: {sorted(LIVE_PARAMS)}")
+        LIVE_PARAM_SET.check(params)
+        sections: dict[str, Any] = {
+            "battle_rules": self.rules,
+            "resources": self.resources,
+            "reward": self.reward_rules,
+        }
         for key, value in params.items():
-            if key == "reward.damage_scale":
-                self._damage_scale = float(value)
-                self.reward_rules.damage_scale = self._damage_scale
-                # setdefault leaves an explicit `reward: null` untouched (it
-                # only fills in a genuinely absent key); get_section replaces
-                # it with {} first so the write below cannot crash.
-                get_section(self.cfg, "reward")["damage_scale"] = self._damage_scale
-            elif key == "reward.approach_weight":
-                self.reward_rules.approach_weight = float(value)
-                get_section(self.cfg, "reward")["approach_weight"] = (
-                    self.reward_rules.approach_weight
-                )
-            elif key.startswith("battle_rules."):
-                field = key.removeprefix("battle_rules.")
-                if hasattr(self.rules, field):
-                    current = getattr(self.rules, field)
-                    cast_val = type(current)(value)
-                    setattr(self.rules, field, cast_val)
-                    get_section(self.cfg, "battle_rules")[field] = cast_val
-            elif key.startswith("morphology."):
-                field = key.removeprefix("morphology.")
-                current = self.morphology.get(field)
-                cast_val = type(current)(value) if current is not None else float(value)
+            section, field = key.split(".", 1)
+            spec = LIVE_PARAM_SET[key]
+            if section == "morphology":
+                cast_val = spec.coerce(value, current=self.morphology.get(field))
                 self.morphology[field] = cast_val
-                get_section(self.cfg, "morphology")[field] = cast_val
-            elif key.startswith("resources."):
-                field = key.removeprefix("resources.")
-                if hasattr(self.resources, field):
-                    current = getattr(self.resources, field)
-                    cast_val = type(current)(value)
-                    setattr(self.resources, field, cast_val)
-                    get_section(self.cfg, "resources")[field] = cast_val
-            elif key == "sim.arena_half_extent":
-                self.bounds = float(value)
-                get_section(self.cfg, "sim")["arena_half_extent"] = self.bounds
+            elif section == "sim":
+                cast_val = spec.coerce(value)
+                self.bounds = cast_val
+            else:
+                target = sections[section]
+                cast_val = spec.coerce(value, current=getattr(target, field))
+                setattr(target, field, cast_val)
+                if key == "reward.damage_scale":
+                    self._damage_scale = cast_val
+            # get_section also repairs an explicit `section: null` before the
+            # write, which setdefault would leave as None.
+            get_section(self.cfg, section)[field] = cast_val
 
     def step(self, actions: dict[str, np.ndarray]):
+        """Advance one tick. Rules live in the ``_phase_*`` methods below, in
+        order: movement, collisions, approach shaping, food, combat,
+        knock-outs, then outcome/observation assembly. Each phase mutates
+        ``self.state`` and the shared ``rewards`` dict only, so it can be
+        driven directly in tests without a PettingZoo wrapper."""
         if not self.agents:
             # Episode already over. Without this guard the empty truncations
             # dict below makes all(...) vacuously True and the step fabricates
@@ -433,18 +439,22 @@ class OrganismArenaParallelEnv(ParallelEnv):
         # Capture the active agent set at step entry; all returned dicts must share these keys.
         active_agents = list(self.agents)
         rewards = {agent: 0.0 for agent in active_agents}
-        terminations = {agent: False for agent in active_agents}
-        truncations = {
-            agent: self.step_count >= self.rules.max_steps for agent in active_agents
-        }
         pre_move_distances = {
             agent: self._nearest_opponent(agent)[1]
             for agent in active_agents
             if self._is_alive(agent)
         }
+        self._phase_movement(actions)
+        self._resolve_collisions(active_agents)
+        self._apply_approach_rewards(active_agents, pre_move_distances, rewards)
+        self._update_food(active_agents, rewards)
+        self._phase_combat(actions, active_agents, rewards)
+        self._phase_knockouts(active_agents, rewards)
+        return self._phase_outcome(active_agents, rewards)
 
-        # Movement, cooldown decay, and growth — living agents only; knocked-out
-        # spectators are inert until the episode ends for everyone.
+    def _phase_movement(self, actions: dict[str, np.ndarray]) -> None:
+        """Movement, cooldown decay, and growth — living agents only;
+        knocked-out spectators are inert until the episode ends for everyone."""
         for agent, action in actions.items():
             if agent not in self.state or not self._is_alive(agent):
                 continue
@@ -471,31 +481,38 @@ class OrganismArenaParallelEnv(ParallelEnv):
             self.state[agent]["cooldown"] = max(
                 0, int(self.state[agent]["cooldown"]) - 1
             )
-            # Apply growth: update size each step so episode_growth_scale takes
-            # effect. Max health tracks size, and current health is rescaled by
-            # the same factor so the health *fraction* is preserved — growth
-            # raises both the cap and current health, making a larger organism
-            # tankier as well as harder-hitting (its damage already scales with
-            # size). Without this, growth would buff offense only.
-            new_size = self._current_size(agent)
-            prev_max = self.state[agent]["max_health"]
-            new_max = self._max_health_for_size(new_size)
-            if prev_max > 0 and new_max != prev_max:
-                self.state[agent]["health"] *= new_max / prev_max
-            self.state[agent]["max_health"] = new_max
-            self.state[agent]["size"] = new_size
+            self._apply_growth(agent)
 
-        self._resolve_collisions(active_agents)
-        self._apply_approach_rewards(active_agents, pre_move_distances, rewards)
-        self._update_food(active_agents, rewards)
+    def _apply_growth(self, agent: str) -> None:
+        """Update size each step so ``episode_growth_scale`` takes effect.
 
-        # Attacks — each living attacker strikes its nearest living opponent
-        # within attack_range (single target, mirroring the nearest-opponent
-        # observation). For N=2 this is exactly the other agent. Targeting and
-        # attacker eligibility use a snapshot of the agents alive at the start
-        # of the attack phase, so all attacks in a step resolve simultaneously
-        # (an early kill does not cancel the victim's retaliation -> mutual KOs
-        # are draws, not wins).
+        Max health tracks size, and current health is rescaled by the same
+        factor so the health *fraction* is preserved — growth raises both the
+        cap and current health, making a larger organism tankier as well as
+        harder-hitting (its damage already scales with size). Without this,
+        growth would buff offense only.
+        """
+        new_size = self._current_size(agent)
+        prev_max = self.state[agent]["max_health"]
+        new_max = self._max_health_for_size(new_size)
+        if prev_max > 0 and new_max != prev_max:
+            self.state[agent]["health"] *= new_max / prev_max
+        self.state[agent]["max_health"] = new_max
+        self.state[agent]["size"] = new_size
+
+    def _phase_combat(
+        self,
+        actions: dict[str, np.ndarray],
+        active_agents: list[str],
+        rewards: dict[str, float],
+    ) -> None:
+        """Each living attacker strikes its nearest living opponent within
+        ``attack_range`` (single target, mirroring the nearest-opponent
+        observation). For N=2 this is exactly the other agent. Targeting and
+        attacker eligibility use a snapshot of the agents alive at the start
+        of the phase, so all attacks in a step resolve simultaneously (an early
+        kill does not cancel the victim's retaliation -> mutual KOs are draws,
+        not wins)."""
         combatants = {agent for agent in active_agents if self._is_alive(agent)}
         for attacker in active_agents:
             if attacker not in combatants or attacker not in actions:
@@ -527,12 +544,21 @@ class OrganismArenaParallelEnv(ParallelEnv):
                 rewards[target] -= dense_reward
                 self.state[attacker]["cooldown"] = self.rules.cooldown_steps
 
-        # Newly knocked-out agents take a one-time -1 and become inert.
+    def _phase_knockouts(
+        self, active_agents: list[str], rewards: dict[str, float]
+    ) -> None:
+        """Newly knocked-out agents take a one-time -1 and become inert."""
         for agent in active_agents:
             if agent not in self._dead and not self._is_alive(agent):
                 self._dead.add(agent)
                 rewards[agent] -= 1.0
 
+    def _phase_outcome(self, active_agents: list[str], rewards: dict[str, float]):
+        """Decide termination/truncation, attach the outcome, build observations."""
+        terminations = {agent: False for agent in active_agents}
+        truncations = {
+            agent: self.step_count >= self.rules.max_steps for agent in active_agents
+        }
         living = [agent for agent in active_agents if self._is_alive(agent)]
         timeout = self.step_count >= self.rules.max_steps
         ended_by_elimination = len(living) <= 1
@@ -667,164 +693,7 @@ class OrganismArenaParallelEnv(ParallelEnv):
                 food["respawn_at"] = self.step_count + self.resources.food_respawn_steps
 
     def render(self):
-        import matplotlib
-
-        if self.render_mode not in ("human", "rgb_array"):
-            return None
-
-        # Switch backend once, before the first figure exists — calling use()
-        # repeatedly after pyplot is live is at best a no-op and at worst
-        # clashes with an already-loaded backend. rgb_array never forces a
-        # backend so headless (Agg) rendering keeps working.
-        if self.render_mode == "human" and self._fig is None:
-            try:
-                matplotlib.use("TkAgg")
-            except ImportError as exc:
-                raise RuntimeError(
-                    "render_mode='human' needs a TkAgg-capable display; "
-                    "use render_mode='rgb_array' for headless rendering"
-                ) from exc
-
-        import matplotlib.patches as mpatches
-        import matplotlib.pyplot as plt
-
-        if self._fig is None:
-            self._fig, self._ax = plt.subplots(figsize=(5, 5))
-            self._fig.tight_layout()
-
-        ax = self._ax
-        ax.clear()
-        ax.set_xlim(-self.bounds, self.bounds)
-        ax.set_ylim(-self.bounds, self.bounds)
-        ax.set_aspect("equal")
-        ax.set_facecolor("#1a1a2e")
-        self._fig.patch.set_facecolor("#1a1a2e")
-        ax.tick_params(colors="white")
-        for spine in ax.spines.values():
-            spine.set_edgecolor("#444")
-
-        # Arena border
-        border = mpatches.FancyBboxPatch(
-            (-self.bounds, -self.bounds),
-            2 * self.bounds,
-            2 * self.bounds,
-            boxstyle="square,pad=0",
-            linewidth=2,
-            edgecolor="#888",
-            fill=False,
-        )
-        ax.add_patch(border)
-
-        # Per-agent fill/edge colours. The first two keep the legacy palette
-        # (blue A0, red A1); further agents are sampled from a qualitative
-        # colormap so N>2 arenas stay legible.
-        import matplotlib.colors as mcolors
-        from matplotlib import colormaps
-
-        base_palette = [("#4fc3f7", "#0288d1"), ("#ef9a9a", "#c62828")]
-
-        def _agent_colors(index: int) -> tuple[str, str]:
-            if index < len(base_palette):
-                return base_palette[index]
-            hexc = mcolors.to_hex(colormaps["tab10"](index % 10))
-            return hexc, hexc
-
-        for index, agent in enumerate(self.possible_agents):
-            if agent not in self.state:
-                continue
-            s = self.state[agent]
-            pos = s["pos"]
-            size = s["size"]
-            health = s["health"]
-            max_health = s["max_health"]
-            frac = np.clip(health / max_health, 0.0, 1.0) if max_health > 0 else 0.0
-            fill_color, edge_color = _agent_colors(index)
-            label = f"A{index}"
-
-            # Agent body circle — radius scales with size, normalised to arena
-            radius = 0.07 * size
-            circle = plt.Circle(pos, radius, color=fill_color, zorder=3)
-            ax.add_patch(circle)
-            circle_edge = plt.Circle(
-                pos, radius, fill=False, edgecolor=edge_color, linewidth=2, zorder=4
-            )
-            ax.add_patch(circle_edge)
-
-            # Attack range indicator (faint ring) when off cooldown
-            if s["cooldown"] == 0:
-                atk_ring = plt.Circle(
-                    pos,
-                    self.rules.attack_range,
-                    fill=False,
-                    edgecolor=edge_color,
-                    linewidth=0.8,
-                    linestyle="--",
-                    alpha=0.4,
-                    zorder=2,
-                )
-                ax.add_patch(atk_ring)
-
-            # Health bar above agent
-            bar_w = 0.18
-            bar_h = 0.025
-            bar_x = pos[0] - bar_w / 2
-            bar_y = pos[1] + radius + 0.03
-            # Background
-            ax.add_patch(
-                mpatches.Rectangle((bar_x, bar_y), bar_w, bar_h, color="#333", zorder=5)
-            )
-            # Fill
-            ax.add_patch(
-                mpatches.Rectangle(
-                    (bar_x, bar_y), bar_w * frac, bar_h, color=fill_color, zorder=6
-                )
-            )
-
-            # Cooldown pip
-            if s["cooldown"] > 0:
-                ax.text(
-                    pos[0],
-                    pos[1] - radius - 0.06,
-                    f"cd:{s['cooldown']}",
-                    color=edge_color,
-                    fontsize=6,
-                    ha="center",
-                    va="top",
-                    zorder=7,
-                )
-
-            ax.text(
-                pos[0],
-                pos[1],
-                label,
-                color="white",
-                fontsize=7,
-                ha="center",
-                va="center",
-                fontweight="bold",
-                zorder=8,
-            )
-
-        ax.set_title(
-            f"Organism Arena  step={self.step_count}", color="white", fontsize=9, pad=4
-        )
-
-        if self.render_mode == "human":
-            plt.pause(1.0 / self.metadata["render_fps"])
-            return None
-
-        # rgb_array
-        self._fig.canvas.draw()
-        buf = self._fig.canvas.buffer_rgba()
-        img = np.asarray(buf, dtype=np.uint8).reshape(
-            self._fig.canvas.get_width_height()[::-1] + (4,)
-        )
-        return img[:, :, :3]
+        return self._renderer.render(self)
 
     def close(self):
-        if self._fig is not None:
-            import matplotlib.pyplot as plt
-
-            plt.close(self._fig)
-            self._fig = None
-            self._ax = None
+        self._renderer.close()

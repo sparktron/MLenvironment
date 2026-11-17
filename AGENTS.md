@@ -46,6 +46,10 @@ python scripts/check_repo_policy.py                    # custom — enforces no 
 - Action shape is **10**: `[rHip, rKnee, rAnkle, lHip, lKnee, lAnkle, rShoulder, rElbow, lShoulder, lElbow]`. `action[i]=0` maps to the joint's rest pose (NOT joint midpoint).
 - Robot is Atlas-DRC-class: 28 kg torso, 65.9 kg total, hip/knee 190/220 N·m, ankle 100, shoulder 90, elbow 100 N·m.
 
+## Walker env layout
+
+`physics/locomotion/walker_bullet.py` only orchestrates `reset`/`step`; the rest is `config.py` (typed config; the live-parameter set is *derived* from `live_field` declarations — add a tunable field there, not in a hand-written set), `terrain.py`, `robot.py`, `sensing.py` (per-step `FootSnapshot`), `perturbations.py`, and `observation.py` (`ObservationLayout` named slices + `STEP_INFO_KEYS`). Analysis tooling (`quality_study`, `walker_diagnostics`) lives in `physics/locomotion/analysis/`. Live-parameter plumbing is shared in `core/config/live_params.py`. See ADR-003.
+
 ## Training throughput
 
 - This machine has 24 physical cores / 32 threads. `num_envs: 24` saturates the cores; over-subscription beyond that doesn't help.
@@ -88,7 +92,7 @@ Two distinct vec-env paths in `games/arena/training.py`, chosen by whether self-
 | `src/rl_framework/` | The package. `core/`, `physics/`, `games/`, `cli/`, `gui/`, `configs/`, `plugins.py` |
 | `src/rl_framework/configs/experiments/` | Experiment YAMLs — the default `--config-dir` |
 | `tests/` | pytest suite; CI gates coverage at 60% |
-| `scripts/` | Repo tooling, including `check_repo_policy.py` |
+| `scripts/` | Repo tooling, including `check_repo_policy.py`; `benchmark_device_matrix.py` is a shim over the package module |
 | `docs/` | Roadmap, studies, config references, the walker decision ledger |
 | `reviews/` | Point-in-time review artifacts |
 | `outputs/` | Run outputs — **gitignored, disposable, rebuildable** |

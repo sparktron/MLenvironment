@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from scripts import benchmark_device_matrix as bdm
+from rl_framework import benchmark_device_matrix as bdm
 
 
 def test_regimes_run_from_smaller_to_larger_worker_counts() -> None:
@@ -21,7 +21,7 @@ def test_matrix_metadata_identifies_runtime_script_and_order() -> None:
     metadata = bdm._matrix_metadata()
 
     assert metadata["matrix_version"] == "2026-05-28-small-first-v2"
-    assert metadata["script_path"].endswith("scripts/benchmark_device_matrix.py")
+    assert metadata["script_path"].endswith("rl_framework/benchmark_device_matrix.py")
     assert metadata["order"] == [
         "CPU-4workers",
         "CPU-8workers",
