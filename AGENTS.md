@@ -25,8 +25,10 @@ Everything goes through one entry point:
 python -m rl_framework.cli.main <subcommand> [--config-name <name>] [...]
 ```
 
-Subcommands: `train`, `eval`, `arena-eval`, `arena-tournament`, `sweep`, `multi-seed`, `render-replay`, `morph-search`, `gui`. `--config-name` is required for all except `gui`. Default `--config-dir` is `src/rl_framework/configs/experiments`. Outputs land in `outputs/<experiment_name>/seed_<seed>/{checkpoints,logs,videos}/`.
+Subcommands: `train`, `eval`, `arena-eval`, `arena-tournament`, `sweep`, `multi-seed`, `render-replay`, `morph-search`, `gui`, `registry`, `quality-study`. `--config-name` is required for all except `gui`, `registry`, and `quality-study`. Default `--config-dir` is `src/rl_framework/configs/experiments`. Outputs land in `outputs/<experiment_name>/seed_<seed>/{checkpoints,logs,videos}/`.
 
+- `registry`: `--registry-action inspect` (default; summary counts), `export` (full dump; capture with `--json`/`--json-out`), or `prune` (needs `--status`, `--older-than-days`, `--missing-only`, or explicit `--all`; `--dry-run` previews). Reads `<--base-dir>/run_registry.sqlite3` (default `outputs`).
+- `quality-study`: runs the priority-3 study chosen by `--study` (default `all`) over `--seeds` (default 0,1,2); state and report go to `--study-output-dir` (default `outputs/quality_studies`); supports `--dry-run` and `--resume-incomplete`.
 - `arena-eval`: head-to-head of `--policy` vs `--opponent` (either may be `random`); reports win/draw/timeout rates.
 - `arena-tournament`: round-robin over `--checkpoints` (comma-separated files/dirs; dirs contribute their `*.zip`) plus optional `--include-random`. Reports a Bradley-Terry Elo ranking; `--output` writes JSON, `--markdown-out` writes a report table.
 
