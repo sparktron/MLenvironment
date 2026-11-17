@@ -1,0 +1,889 @@
+{
+ "organism_arena_parallel": {
+  "environment": {
+   "battle_rules": {
+    "attack_falloff": {
+     "choices": [
+      "linear",
+      "binary"
+     ],
+     "desc": "Damage falloff with distance: linear (graded) or binary (hard cliff)",
+     "type": "choice",
+     "value": "linear"
+    },
+    "attack_range": {
+     "desc": "Attack range",
+     "max": 2,
+     "min": 0.05,
+     "type": "float",
+     "value": 0.2
+    },
+    "collision_damage": {
+     "desc": "Optional contact damage scaled by the other organism's size",
+     "max": 1,
+     "min": 0,
+     "type": "float",
+     "value": 0.0
+    },
+    "cooldown_steps": {
+     "desc": "Cooldown between attacks",
+     "max": 20,
+     "min": 0,
+     "type": "int",
+     "value": 3
+    },
+    "damage": {
+     "desc": "Damage per hit",
+     "max": 1,
+     "min": 0.01,
+     "type": "float",
+     "value": 0.06
+    },
+    "max_steps": {
+     "desc": "Max steps per episode",
+     "max": 10000,
+     "min": 50,
+     "type": "int",
+     "value": 400
+    },
+    "sensing_radius": {
+     "desc": "Distance at which an opponent becomes visible",
+     "max": 10,
+     "min": 0.1,
+     "type": "float",
+     "value": 2.0
+    },
+    "win_health_threshold": {
+     "desc": "Health below which opponent loses",
+     "max": 1,
+     "min": 0,
+     "type": "float",
+     "value": 0.0
+    }
+   },
+   "morphology": {
+    "base_size": {
+     "desc": "Base organism size",
+     "max": 5,
+     "min": 0.1,
+     "type": "float",
+     "value": 1.0
+    },
+    "episode_growth_scale": {
+     "desc": "Size growth per step (scales damage and max health)",
+     "max": 0.1,
+     "min": 0,
+     "type": "float",
+     "value": 0.0
+    },
+    "health": {
+     "desc": "Health pool (scaled by size each step)",
+     "max": 10,
+     "min": 0.1,
+     "type": "float",
+     "value": 1.2
+    }
+   },
+   "num_agents": {
+    "desc": "Number of organisms (2 = duel, >2 = free-for-all)",
+    "max": 8,
+    "min": 2,
+    "type": "int",
+    "value": 2
+   },
+   "resources": {
+    "attack_cost": {
+     "desc": "Energy spent per attack (attack fails if unaffordable)",
+     "max": 1,
+     "min": 0.0001,
+     "type": "float",
+     "value": 0.04
+    },
+    "food_count": {
+     "desc": "Simultaneous food pellets in the arena",
+     "max": 20,
+     "min": 0,
+     "type": "int",
+     "value": 2
+    },
+    "food_energy": {
+     "desc": "Energy restored per pellet eaten",
+     "max": 10,
+     "min": 0.01,
+     "type": "float",
+     "value": 0.35
+    },
+    "food_placement": {
+     "choices": [
+      "uniform",
+      "center"
+     ],
+     "desc": "Uniform food or a contested central food patch",
+     "type": "choice",
+     "value": "uniform"
+    },
+    "food_radius": {
+     "desc": "Pickup distance for a food pellet",
+     "max": 1,
+     "min": 0.01,
+     "type": "float",
+     "value": 0.1
+    },
+    "food_respawn_steps": {
+     "desc": "Steps before an eaten pellet reappears",
+     "max": 2000,
+     "min": 0,
+     "type": "int",
+     "value": 40
+    },
+    "initial_energy": {
+     "desc": "Energy at spawn (must be <= max energy)",
+     "max": 10,
+     "min": 0.01,
+     "type": "float",
+     "value": 1.0
+    },
+    "max_energy": {
+     "desc": "Energy cap; food refills up to this",
+     "max": 10,
+     "min": 0.01,
+     "type": "float",
+     "value": 1.0
+    },
+    "movement_cost": {
+     "desc": "Energy drained per unit of movement",
+     "max": 1,
+     "min": 0.0001,
+     "type": "float",
+     "value": 0.01
+    }
+   },
+   "reward": {
+    "approach_weight": {
+     "desc": "Reward weight for bounded progress toward the nearest opponent",
+     "max": 1,
+     "min": 0,
+     "type": "float",
+     "value": 0.0
+    }
+   },
+   "seed": {
+    "desc": "Environment random seed",
+    "type": "int",
+    "value": 11
+   },
+   "sim": {
+    "arena_half_extent": {
+     "desc": "Arena half-size",
+     "max": 5,
+     "min": 0.5,
+     "type": "float",
+     "value": 1.2
+    },
+    "collision_radius": {
+     "desc": "Per-unit-size body radius; min separation = radius x (sizes summed)",
+     "max": 0.5,
+     "min": 0.01,
+     "type": "float",
+     "value": 0.08
+    },
+    "move_speed": {
+     "desc": "Max movement per step (arena units)",
+     "max": 0.5,
+     "min": 0.01,
+     "type": "float",
+     "value": 0.05
+    },
+    "spawn_jitter": {
+     "desc": "Spawn position jitter half-width (0 = fixed spawns)",
+     "max": 1,
+     "min": 0,
+     "type": "float",
+     "value": 0.1
+    },
+    "speed_size_exponent": {
+     "desc": "How strongly size slows movement (0 = size-independent speed)",
+     "max": 3,
+     "min": 0,
+     "type": "float",
+     "value": 1.0
+    }
+   },
+   "type": {
+    "type": "fixed",
+    "value": "organism_arena_parallel"
+   }
+  },
+  "evaluation": {
+   "episodes": {
+    "desc": "Evaluation episodes",
+    "max": 100,
+    "min": 1,
+    "type": "int",
+    "value": 5
+   },
+   "workers": {
+    "desc": "Parallel walker evaluation processes",
+    "max": 32,
+    "min": 1,
+    "type": "int",
+    "value": 4
+   }
+  },
+  "extra": {
+   "curriculum": {
+    "enabled": {
+     "desc": "Ramp battle_rules difficulty as the configured metric improves",
+     "type": "bool",
+     "value": false
+    },
+    "level_params": {
+     "desc": "Per-level config overrides applied on level-up (dotted-key: value)",
+     "type": "json",
+     "value": {
+      "1": {
+       "battle_rules.cooldown_steps": 3,
+       "battle_rules.damage": 0.08
+      },
+      "2": {
+       "battle_rules.cooldown_steps": 2,
+       "battle_rules.damage": 0.1
+      },
+      "3": {
+       "battle_rules.cooldown_steps": 2,
+       "battle_rules.damage": 0.12
+      }
+     }
+    },
+    "level_up_thresholds": {
+     "desc": "Per-level metric threshold to advance, e.g. {\"0\": 0.6, \"1\": 0.65}",
+     "type": "json",
+     "value": {
+      "0": 0.6,
+      "1": 0.65,
+      "2": 0.7
+     }
+    },
+    "max_level": {
+     "desc": "Highest curriculum level reachable",
+     "max": 10,
+     "min": 1,
+     "type": "int",
+     "value": 3
+    },
+    "metric": {
+     "desc": "Logger/ep_info_buffer key gating level-ups",
+     "type": "text",
+     "value": "arena/agent_0_win_rate"
+    },
+    "warmup_steps": {
+     "desc": "Hold level-ups until this many timesteps have elapsed",
+     "max": 10000000,
+     "min": 0,
+     "type": "int",
+     "value": 5000
+    }
+   },
+   "reward_annealing": {
+    "anneal_steps": {
+     "desc": "Timesteps over which damage reward ramps down after the elimination gate opens",
+     "max": 10000000,
+     "min": 100,
+     "type": "int",
+     "value": 15000
+    },
+    "enabled": {
+     "desc": "Ramp the dense per-hit reward to 0 so the terminal win/loss signal dominates",
+     "type": "bool",
+     "value": false
+    },
+    "min_eliminations": {
+     "desc": "Observed non-timeout outcomes required before damage reward annealing starts",
+     "max": 1000000,
+     "min": 0,
+     "type": "int",
+     "value": 10
+    }
+   },
+   "self_play": {
+    "enabled": {
+     "desc": "Train agent_0 against frozen past-self snapshots (agent_1)",
+     "type": "bool",
+     "value": false
+    },
+    "max_league_size": {
+     "desc": "Max snapshots retained (oldest pruned first)",
+     "max": 50,
+     "min": 1,
+     "type": "int",
+     "value": 10
+    },
+    "sampling_mode": {
+     "choices": [
+      "uniform",
+      "recent_bias"
+     ],
+     "desc": "How opponents are sampled from the league",
+     "type": "choice",
+     "value": "uniform"
+    },
+    "snapshot_freq": {
+     "desc": "Save a league snapshot every N env timesteps",
+     "max": 1000000,
+     "min": 100,
+     "type": "int",
+     "value": 5000
+    }
+   }
+  },
+  "training": {
+   "batch_size": {
+    "desc": "Minibatch size (must divide n_steps \u00d7 num_envs)",
+    "max": 8192,
+    "min": 8,
+    "type": "int",
+    "value": 512
+   },
+   "check_nans": {
+    "desc": "Fail fast on NaN/Inf observations, rewards, or actions",
+    "type": "bool",
+    "value": false
+   },
+   "checkpoint_every": {
+    "desc": "Save checkpoint every N environment steps",
+    "max": 1000000,
+    "min": 100,
+    "type": "int",
+    "value": 50000
+   },
+   "clip_range": {
+    "desc": "PPO clip range",
+    "max": 1.0,
+    "min": 0.05,
+    "type": "float",
+    "value": 0.2
+   },
+   "device": {
+    "choices": [
+     "auto",
+     "cpu",
+     "cuda",
+     "cuda:0"
+    ],
+    "desc": "Training device (CPU is best for the bundled MLP policies)",
+    "type": "choice",
+    "value": "cpu"
+   },
+   "ent_coef": {
+    "desc": "Entropy bonus coefficient",
+    "max": 0.1,
+    "min": 0.0,
+    "type": "float",
+    "value": 0.005
+   },
+   "gae_lambda": {
+    "desc": "GAE-\u03bb",
+    "max": 1.0,
+    "min": 0.5,
+    "type": "float",
+    "value": 0.95
+   },
+   "gamma": {
+    "desc": "Discount factor",
+    "max": 0.9999,
+    "min": 0.5,
+    "type": "float",
+    "value": 0.99
+   },
+   "learning_rate": {
+    "desc": "Initial learning rate",
+    "max": 0.1,
+    "min": 1e-06,
+    "type": "float",
+    "value": 0.0003
+   },
+   "learning_rate_end": {
+    "desc": "Final LR (linear decay; omit for constant)",
+    "max": 0.1,
+    "min": 0.0,
+    "type": "float",
+    "value": 5e-05
+   },
+   "log_std_init": {
+    "desc": "PPO initial log action standard deviation",
+    "max": 2.0,
+    "min": -20.0,
+    "type": "float",
+    "value": 0.0
+   },
+   "max_grad_norm": {
+    "desc": "Gradient clipping norm",
+    "max": 5.0,
+    "min": 0.1,
+    "type": "float",
+    "value": 0.5
+   },
+   "n_epochs": {
+    "desc": "PPO update epochs per rollout",
+    "max": 50,
+    "min": 1,
+    "type": "int",
+    "value": 10
+   },
+   "n_steps": {
+    "desc": "Steps per env per rollout",
+    "max": 8192,
+    "min": 16,
+    "type": "int",
+    "value": 2048
+   },
+   "normalize_observations": {
+    "desc": "Normalize observations with VecNormalize",
+    "type": "bool",
+    "value": true
+   },
+   "num_envs": {
+    "desc": "Parallel environments (shared-policy arena requires 1; self-play configs can use more)",
+    "max": 32,
+    "min": 1,
+    "type": "int",
+    "value": 1
+   },
+   "policy": {
+    "choices": [
+     "MlpPolicy",
+     "CnnPolicy"
+    ],
+    "desc": "Policy network type",
+    "type": "choice",
+    "value": "MlpPolicy"
+   },
+   "total_timesteps": {
+    "desc": "Total training timesteps",
+    "max": 50000000,
+    "min": 1000,
+    "type": "int",
+    "value": 2000000
+   },
+   "vf_coef": {
+    "desc": "Value-function loss coefficient",
+    "max": 5.0,
+    "min": 0.0,
+    "type": "float",
+    "value": 0.5
+   }
+  }
+ },
+ "walker_bullet": {
+  "environment": {
+   "domain_randomization": {
+    "action_latency_steps": {
+     "desc": "Action latency (steps)",
+     "max": 10,
+     "min": 0,
+     "type": "int",
+     "value": 0
+    },
+    "friction_range": {
+     "desc": "Friction randomization [lo, hi]",
+     "max": 3.0,
+     "min": 0.1,
+     "type": "range",
+     "value": [
+      0.9,
+      1.1
+     ]
+    },
+    "mass_scale_range": {
+     "desc": "Mass scale randomization [lo, hi]",
+     "max": 2.0,
+     "min": 0.5,
+     "type": "range",
+     "value": [
+      0.95,
+      1.05
+     ]
+    },
+    "sensor_noise_std": {
+     "desc": "Gaussian sensor noise std",
+     "max": 1,
+     "min": 0,
+     "type": "float",
+     "value": 0.0
+    }
+   },
+   "gait": {
+    "touchdown_debounce_steps": {
+     "desc": "Minimum control steps between counted touchdowns per foot",
+     "max": 60,
+     "min": 1,
+     "type": "int",
+     "value": 3
+    }
+   },
+   "reset_randomization": {
+    "position_xy_noise": {
+     "desc": "XY position noise at reset",
+     "max": 1,
+     "min": 0,
+     "type": "float",
+     "value": 0.02
+    },
+    "yaw_noise": {
+     "desc": "Yaw noise at reset (rad)",
+     "max": 1,
+     "min": 0,
+     "type": "float",
+     "value": 0.08
+    }
+   },
+   "reward": {
+    "alive_bonus": {
+     "desc": "Bonus per step while alive (dominant)",
+     "max": 20,
+     "min": 0,
+     "type": "float",
+     "value": 5.0
+    },
+    "fall_penalty": {
+     "desc": "One-time penalty on fall (terminal step)",
+     "max": 100,
+     "min": 0,
+     "type": "float",
+     "value": 10.0
+    },
+    "forward_velocity_weight": {
+     "desc": "Peak weight of Gaussian velocity reward",
+     "max": 20,
+     "min": 0,
+     "type": "float",
+     "value": 1.5
+    },
+    "gait_step_progress_clip": {
+     "desc": "Maximum credited pelvis progress per alternating touchdown (m)",
+     "max": 1,
+     "min": 0,
+     "type": "float",
+     "value": 0.25
+    },
+    "gait_step_progress_weight": {
+     "desc": "Reward per metre of bounded alternating-step progress",
+     "max": 200,
+     "min": 0,
+     "type": "float",
+     "value": 0.0
+    },
+    "orientation_penalty_weight": {
+     "desc": "Per-step tilt penalty (|roll|+|pitch|)",
+     "max": 10,
+     "min": 0,
+     "type": "float",
+     "value": 0.3
+    },
+    "stance_slip_penalty_clip": {
+     "desc": "Optional cap on penalized stance slip speed; 0 is unbounded",
+     "max": 10,
+     "min": 0,
+     "type": "float",
+     "value": 0.0
+    },
+    "stance_slip_penalty_weight": {
+     "desc": "Penalty on contacting-foot planar slip speed",
+     "max": 20,
+     "min": 0,
+     "type": "float",
+     "value": 0.0
+    },
+    "target_velocity": {
+     "desc": "Target forward velocity (m/s)",
+     "max": 5,
+     "min": 0,
+     "type": "float",
+     "value": 1.0
+    },
+    "torque_penalty_weight": {
+     "desc": "Per-step torque-magnitude penalty",
+     "max": 1,
+     "min": 0,
+     "type": "float",
+     "value": 0.01
+    },
+    "velocity_sigma": {
+     "desc": "Sigma of velocity Gaussian (m/s)",
+     "max": 5.0,
+     "min": 0.05,
+     "type": "float",
+     "value": 0.5
+    }
+   },
+   "seed": {
+    "desc": "Environment random seed",
+    "type": "int",
+    "value": 42
+   },
+   "sim": {
+    "action_scale": {
+     "desc": "Multiplier on clipped policy actions; curricula can ramp this from a safer initial range",
+     "max": 1.0,
+     "min": 0.01,
+     "type": "float",
+     "value": 1.0
+    },
+    "control": {
+     "mode": {
+      "choices": [
+       "pd",
+       "torque"
+      ],
+      "desc": "Actuator mode: PD position targets or raw torque",
+      "type": "choice",
+      "value": "pd"
+     },
+     "position_gain": {
+      "desc": "PD position gain (Kp)",
+      "max": 10.0,
+      "min": 0.0,
+      "type": "float",
+      "value": 0.1
+     },
+     "velocity_gain": {
+      "desc": "PD velocity gain (Kd)",
+      "max": 10.0,
+      "min": 0.0,
+      "type": "float",
+      "value": 1.0
+     }
+    },
+    "frame_skip": {
+     "desc": "Physics ticks per agent step",
+     "max": 16,
+     "min": 1,
+     "type": "int",
+     "value": 4
+    },
+    "friction": {
+     "desc": "Ground friction",
+     "max": 2.0,
+     "min": 0.0,
+     "type": "float",
+     "value": 0.9
+    },
+    "gravity": {
+     "desc": "Gravity (m/s^2)",
+     "max": 0,
+     "min": -20,
+     "type": "float",
+     "value": -9.81
+    },
+    "mass": {
+     "desc": "Torso mass (kg) \u2014 Atlas DRC: 28",
+     "max": 200,
+     "min": 0.1,
+     "type": "float",
+     "value": 28.0
+    },
+    "max_force": {
+     "desc": "Global torque scale (legacy; 35 = 1.0\u00d7 of per-joint Atlas caps)",
+     "max": 500,
+     "min": 1,
+     "type": "float",
+     "value": 35.0
+    },
+    "settle_steps": {
+     "desc": "Sim ticks holding rest pose after reset",
+     "max": 240,
+     "min": 0,
+     "type": "int",
+     "value": 30
+    },
+    "timestep": {
+     "desc": "Physics timestep (s)",
+     "max": 0.05,
+     "min": 0.0005,
+     "type": "float",
+     "value": 0.004166666666666667
+    }
+   },
+   "termination": {
+    "max_height": {
+     "desc": "Torso COM height above which 'flying' is detected (m)",
+     "max": 10,
+     "min": 0.5,
+     "type": "float",
+     "value": 1.5
+    },
+    "max_steps": {
+     "desc": "Max steps per episode (truncation)",
+     "max": 10000,
+     "min": 50,
+     "type": "int",
+     "value": 800
+    },
+    "min_height": {
+     "desc": "Torso COM height below which fall is detected (m)",
+     "max": 1,
+     "min": 0,
+     "type": "float",
+     "value": 0.18
+    }
+   },
+   "type": {
+    "type": "fixed",
+    "value": "walker_bullet"
+   }
+  },
+  "evaluation": {
+   "episodes": {
+    "desc": "Evaluation episodes",
+    "max": 100,
+    "min": 1,
+    "type": "int",
+    "value": 5
+   },
+   "workers": {
+    "desc": "Parallel walker evaluation processes",
+    "max": 32,
+    "min": 1,
+    "type": "int",
+    "value": 4
+   }
+  },
+  "training": {
+   "batch_size": {
+    "desc": "Minibatch size (must divide n_steps \u00d7 num_envs)",
+    "max": 8192,
+    "min": 8,
+    "type": "int",
+    "value": 512
+   },
+   "check_nans": {
+    "desc": "Fail fast on NaN/Inf observations, rewards, or actions",
+    "type": "bool",
+    "value": false
+   },
+   "checkpoint_every": {
+    "desc": "Save checkpoint every N environment steps",
+    "max": 1000000,
+    "min": 100,
+    "type": "int",
+    "value": 50000
+   },
+   "clip_range": {
+    "desc": "PPO clip range",
+    "max": 1.0,
+    "min": 0.05,
+    "type": "float",
+    "value": 0.2
+   },
+   "device": {
+    "choices": [
+     "auto",
+     "cpu",
+     "cuda",
+     "cuda:0"
+    ],
+    "desc": "Training device (CPU is best for the bundled MLP policies)",
+    "type": "choice",
+    "value": "cpu"
+   },
+   "ent_coef": {
+    "desc": "Entropy bonus coefficient",
+    "max": 0.1,
+    "min": 0.0,
+    "type": "float",
+    "value": 0.005
+   },
+   "gae_lambda": {
+    "desc": "GAE-\u03bb",
+    "max": 1.0,
+    "min": 0.5,
+    "type": "float",
+    "value": 0.95
+   },
+   "gamma": {
+    "desc": "Discount factor",
+    "max": 0.9999,
+    "min": 0.5,
+    "type": "float",
+    "value": 0.99
+   },
+   "learning_rate": {
+    "desc": "Initial learning rate",
+    "max": 0.1,
+    "min": 1e-06,
+    "type": "float",
+    "value": 0.0003
+   },
+   "learning_rate_end": {
+    "desc": "Final LR (linear decay; omit for constant)",
+    "max": 0.1,
+    "min": 0.0,
+    "type": "float",
+    "value": 5e-05
+   },
+   "log_std_init": {
+    "desc": "PPO initial log action standard deviation",
+    "max": 2.0,
+    "min": -20.0,
+    "type": "float",
+    "value": 0.0
+   },
+   "max_grad_norm": {
+    "desc": "Gradient clipping norm",
+    "max": 5.0,
+    "min": 0.1,
+    "type": "float",
+    "value": 0.5
+   },
+   "n_epochs": {
+    "desc": "PPO update epochs per rollout",
+    "max": 50,
+    "min": 1,
+    "type": "int",
+    "value": 10
+   },
+   "n_steps": {
+    "desc": "Steps per env per rollout",
+    "max": 8192,
+    "min": 16,
+    "type": "int",
+    "value": 2048
+   },
+   "normalize_observations": {
+    "desc": "Normalize observations with VecNormalize",
+    "type": "bool",
+    "value": true
+   },
+   "num_envs": {
+    "desc": "Parallel environments (SubprocVecEnv)",
+    "max": 32,
+    "min": 1,
+    "type": "int",
+    "value": 8
+   },
+   "policy": {
+    "choices": [
+     "MlpPolicy",
+     "CnnPolicy"
+    ],
+    "desc": "Policy network type",
+    "type": "choice",
+    "value": "MlpPolicy"
+   },
+   "total_timesteps": {
+    "desc": "Total training timesteps",
+    "max": 50000000,
+    "min": 1000,
+    "type": "int",
+    "value": 2000000
+   },
+   "vf_coef": {
+    "desc": "Value-function loss coefficient",
+    "max": 5.0,
+    "min": 0.0,
+    "type": "float",
+    "value": 0.5
+   }
+  }
+ }
+}
