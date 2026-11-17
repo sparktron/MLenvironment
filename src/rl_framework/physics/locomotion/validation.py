@@ -1,28 +1,30 @@
-"""Task-specific experiment configuration validation."""
+"""Task-specific experiment configuration validation.
+
+Key sets come from the config types, not from literals here (ADR-004):
+reward/termination fields from their dataclasses, terrain and push-recovery
+keys from the terrain live-parameter declarations, presets from ``terrain``,
+clearance points and observation versions from ``config``. Only the rules the
+types cannot express (ranges, signs, cross-field checks) are written out.
+"""
 
 from dataclasses import fields
 from typing import Any
 
 from rl_framework.core.config.config import _ensure_int
+from rl_framework.physics.locomotion.config import (
+    OBSERVATION_VERSIONS,
+    PUSH_RECOVERY_KEYS,
+    TERRAIN_SPEC_KEYS,
+    VALID_CLEARANCE_POINTS,
+)
 from rl_framework.physics.locomotion.rewards import VELOCITY_MODES, WalkerReward
 from rl_framework.physics.locomotion.terminations import WalkerTermination
+from rl_framework.physics.locomotion.terrain import TERRAIN_PRESETS
 
-_VALID_PRESETS = {"flat", "uneven", "obstacles", "push_recovery"}
-_VALID_CLEARANCE_POINTS = {"com", "sole"}
-_TERRAIN_KEYS = {
-    "preset",
-    "height",
-    "obstacle_height",
-    "mix",
-    "push_recovery",
-    "length",
-    "width",
-    "randomize",
-    "wavelength",
-    "obstacle_spacing",
-    "obstacle_spacing_jitter",
-    "obstacle_height_jitter",
-}
+# Reward fields that may legitimately be negative.
+_SIGNED_REWARD_KEYS = {"target_velocity"}
+# Terrain `mix` entries add a relative sampling weight to a full terrain spec.
+_MIX_ENTRY_KEYS = {"weight"}
 _POSITIVE_TERRAIN_KEYS = ("length", "width", "wavelength", "obstacle_spacing")
 _NON_NEGATIVE_TERRAIN_KEYS = (
     "height",
@@ -30,9 +32,6 @@ _NON_NEGATIVE_TERRAIN_KEYS = (
     "obstacle_spacing_jitter",
     "obstacle_height_jitter",
 )
-_PUSH_KEYS = {"interval_steps", "force", "start_step", "duration_s"}
-# Reward fields that may legitimately be negative.
-_SIGNED_REWARD_KEYS = {"target_velocity"}
 
 
 def _is_number(value: Any) -> bool:
@@ -48,11 +47,11 @@ def _reject_unknown(section: dict[str, Any], valid: set[str], name: str) -> None
 
 
 def _validate_terrain_spec(spec: dict[str, Any], name: str) -> None:
-    _reject_unknown(spec, _TERRAIN_KEYS | {"weight"}, name)
+    _reject_unknown(spec, set(TERRAIN_SPEC_KEYS) | _MIX_ENTRY_KEYS, name)
     preset = spec.get("preset", "flat")
-    if preset not in _VALID_PRESETS:
+    if preset not in TERRAIN_PRESETS:
         raise ValueError(
-            f"{name}.preset must be one of {sorted(_VALID_PRESETS)}, got {preset!r}"
+            f"{name}.preset must be one of {sorted(TERRAIN_PRESETS)}, got {preset!r}"
         )
     for key in _POSITIVE_TERRAIN_KEYS:
         if key in spec and (not _is_number(spec[key]) or spec[key] <= 0):
@@ -65,7 +64,7 @@ def _validate_terrain_spec(spec: dict[str, Any], name: str) -> None:
     push = spec.get("push_recovery") or {}
     if not isinstance(push, dict):
         raise ValueError(f"{name}.push_recovery must be a mapping")
-    _reject_unknown(push, _PUSH_KEYS, f"{name}.push_recovery")
+    _reject_unknown(push, set(PUSH_RECOVERY_KEYS), f"{name}.push_recovery")
     for key in ("interval_steps", "start_step"):
         if key in push:
             _ensure_int(push[key], f"{name}.push_recovery.{key}", min_value=0)
@@ -97,7 +96,7 @@ def validate_config(cfg: dict[str, Any]) -> None:
         raise TypeError("environment.sim.limb_collision must be bool")
     observation = env_cfg.get("observation") or {}
     version = observation.get("version", "v1")
-    if version not in {"v1", "v2"}:
+    if version not in OBSERVATION_VERSIONS:
         raise ValueError("environment.observation.version must be 'v1' or 'v2'")
     coordinate_free = observation.get("coordinate_free", False)
     if not isinstance(coordinate_free, bool):
@@ -151,10 +150,10 @@ def validate_config(cfg: dict[str, Any]) -> None:
                     f"environment.gait.{key} must be a non-negative number, got {value!r}"
                 )
     clearance_point = gait.get("clearance_point", "com")
-    if clearance_point not in _VALID_CLEARANCE_POINTS:
+    if clearance_point not in VALID_CLEARANCE_POINTS:
         raise ValueError(
             "environment.gait.clearance_point must be one of "
-            f"{sorted(_VALID_CLEARANCE_POINTS)}, got {clearance_point!r}"
+            f"{sorted(VALID_CLEARANCE_POINTS)}, got {clearance_point!r}"
         )
 
     terrain = env_cfg.get("terrain") or {}
