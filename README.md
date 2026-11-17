@@ -1,1379 +1,693 @@
-# 🤖 RL Experiment Framework
+# RL Experiment Framework
 
-**A powerful, modular reinforcement learning framework for training and evaluating single-agent locomotion and multi-agent competitive agents.**
+Train and evaluate PPO agents on two [PyBullet](https://pybullet.org/) environments, driven entirely by YAML files:
 
-Built on [Gymnasium](https://gymnasium.farama.org/), [PettingZoo](https://pettingzoo.farama.org/), [PyBullet](https://pybullet.org/), and [Stable-Baselines3](https://stable-baselines3.readthedocs.io/).
+- **Walker** (`walker_bullet`): a single-agent, Atlas-class bipedal robot learning to walk, built on [Gymnasium](https://gymnasium.farama.org/).
+- **Organism arena** (`organism_arena_parallel`): an N-agent competitive arena, built on [PettingZoo](https://pettingzoo.farama.org/), with self-play, a frozen-opponent league, and head-to-head evaluation.
 
-✨ **Key features:** YAML-driven experiments • No code changes needed • GPU-accelerated (auto-detected) • Multi-seed aggregation • Self-play league • Domain randomization • Curriculum learning
-
----
-
-## 🚀 Quick Start
-
-```bash
-# 1. Install
-git clone https://github.com/sparktron/MLenvironment.git && cd MLenvironment
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements-lock.txt
-pip install --no-deps -e .
-
-# 2. Train a robot walker
-python -m rl_framework.cli.main train --config-name robot_walk_basic
-
-# 3. Monitor with TensorBoard
-tensorboard --logdir outputs/
-
-# 4. Evaluate and render video
-python -m rl_framework.cli.main render-replay \
-  --config-name robot_walk_basic \
-  --model-path outputs/robot_walk_basic/seed_0/checkpoints/final_model.zip
-```
-
-**Or run in Docker:**
-
-```bash
-docker build -t rl-framework . && \
-docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-name robot_walk_basic
-```
+Training uses [Stable-Baselines3](https://stable-baselines3.readthedocs.io/). A command-line tool and a small web GUI cover training, sweeps, multi-seed runs, evaluation, tournaments, and replay rendering.
 
 ---
 
-## Table of Contents
+## Contents
 
 - [Requirements](#requirements)
 - [Installation](#installation)
-  - [Local (pip)](#local-pip)
-  - [Docker](#docker)
-- [Web GUI](#-web-based-gui)
-- [CLI Reference](#-cli-commands)
-  - [train](#train)
-  - [eval](#eval)
-  - [sweep](#sweep)
-  - [multi-seed](#multi-seed)
-  - [render-replay](#render-replay)
-  - [registry](#registry)
-  - [quality-study](#quality-study)
+- [Quick start](#quick-start)
+- [Command reference](#command-reference)
 - [Configuration](#configuration)
-  - [YAML Structure](#yaml-structure)
-  - [Included Experiments](#included-experiments)
-  - [Environment Types](#environment-types)
-- [Features](#features)
-  - [Domain Randomisation](#domain-randomisation)
-  - [Sensor Noise](#sensor-noise)
-  - [Action Latency](#action-latency)
-  - [Curriculum Learning](#curriculum-learning)
-  - [Parallel CPU Rollouts](#parallel-cpu-rollouts)
-  - [Multi-Seed Aggregation](#multi-seed-aggregation)
-  - [Self-Play League](#self-play-league)
-- [Project Structure](#project-structure)
-- [Testing](#testing)
-- [Extending the Framework](#extending-the-framework)
-  - [Add a New Environment](#add-a-new-environment)
-  - [Add a New Morphology](#add-a-new-morphology)
-  - [Swap the RL Algorithm](#swap-the-rl-algorithm)
-- [Architecture](#architecture)
-- [Performance Tuning](#performance-tuning)
-- [Known Limitations](#known-limitations)
-- [Roadmap](#roadmap)
-- [Maintenance Notes](#maintenance-notes)
-- [Changelog](#changelog)
-- [License](#license)
+- [Environments](#environments)
+- [Outputs](#outputs)
+- [Web GUI](#web-gui)
+- [Shipped experiments](#shipped-experiments)
+- [Development](#development)
+- [Project layout](#project-layout)
+- [Documentation](#documentation)
 
 ---
 
 ## Requirements
 
-| Requirement | Minimum |
-|---|---|
-| **Python** | 3.10+ |
-| **pip** | 21+ |
-| **OS** | Linux / macOS (Windows via WSL) |
-
-> 💡 PyBullet GUI rendering on Linux requires an X11 display
-
-### Dependencies (auto-installed)
-
-| Package | Version | Purpose |
-|---|---|---|
-| gymnasium | >= 0.29 | Single-agent environment API |
-| pettingzoo | >= 1.24 | Multi-agent environment API |
-| supersuit | >= 3.9 | PettingZoo-to-VecEnv wrappers |
-| stable-baselines3 | >= 2.3 | PPO training + checkpoints |
-| pybullet | >= 3.2 | Physics simulation |
-| omegaconf | >= 2.3 | Config loading and composition |
-| numpy | >= 1.26 | Numerical operations |
-| tensorboard | >= 2.15 | Training visualisation |
-| PyYAML | >= 6.0 | YAML parsing |
-| flask | >= 3.0 | Web GUI server |
-
-### Optional dev dependencies
-
-| Package | Version | Purpose |
-|---|---|---|
-| pytest | >= 8.0, != 9.0.2 | Test runner |
-| pytest-cov | >= 7.1 | Coverage reporting and CI coverage gate |
-| ruff | >= 0.4 | Linting and formatting |
+- Python 3.10 or newer. CI and the Docker image use **Python 3.11**, which is the recommended version.
+- Linux is the tested platform. PyBullet builds from a wheel on common platforms.
+- CPU training works out of the box. The walker and arena policies are small MLPs and train faster on CPU than on GPU. Set `training.device` to `cuda` only if you have a tested GPU setup.
 
 ---
 
-## 📦 Installation
+## Installation
 
-### 💻 Local (pip)
-
-```bash
-git clone https://github.com/sparktron/MLenvironment.git && cd MLenvironment
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements-lock.txt  # pinned runtime + dev dependencies (single source of versions)
-pip install --no-deps -e .            # the package itself, editable; --no-deps keeps the lockfile authoritative
-```
-
-**Verify:**
+The dependencies are pinned in `requirements-lock.txt`. Install from the lockfile so your environment matches CI.
 
 ```bash
-python -c "from rl_framework.cli.main import main; print('✓ Ready')"
+git clone https://github.com/sparktron/MLenvironment.git
+cd MLenvironment
+
+python3.11 -m venv .venv
+source .venv/bin/activate
+
+pip install --upgrade pip
+pip install -r requirements-lock.txt
+pip install -e .
 ```
 
-### 🐳 Docker
+`pip install -e .` installs the `rl_framework` package itself. It does not change any pinned versions. These are the same steps CI runs.
+
+Check the install:
+
+```bash
+python -m rl_framework.cli.main --help
+```
+
+Always activate `.venv` before running the CLI or `pytest`. Otherwise you can end up using a different Python with different packages.
+
+### Docker
+
+The Docker image runs the same CLI. Build it from the repository root:
 
 ```bash
 docker build -t rl-framework .
-docker run --rm -v "$(pwd)/outputs:/app/outputs" \
-  rl-framework train --config-name robot_walk_basic
 ```
 
-*Image: `python:3.11-slim` + editable install. All CLI args forwarded.*
-
----
-
-## 🌐 Web-Based GUI
-
-**New!** Launch the interactive web GUI to set up and monitor experiments without touching YAML or the terminal.
+Mount `outputs/` so results persist after the container exits:
 
 ```bash
-python -m rl_framework.cli.main gui              # http://127.0.0.1:5001
-python -m rl_framework.cli.main gui --port 8080   # custom port
+docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework \
+  train --config-name walker_smoke_cpu
 ```
 
-### GUI Features
-
-| Feature | Description |
-|---|---|
-| **4-Step Experiment Wizard** | Choose environment → Configure parameters → Set training hyperparameters → Review & launch; blank names and invalid configs are rejected before launch |
-| **Visual Parameter Editor** | All fields with descriptions, type hints, and min/max ranges — no YAML editing |
-| **Template Loading** | Start from any existing config (robot_walk_basic, organisms_fight_arena, etc.) |
-| **Real-Time Dashboard** | Live training metrics: reward, loss, entropy, learning rate, timesteps — updates every 2 seconds |
-| **Reward Chart** | Interactive canvas chart tracking episode reward over training time |
-| **Live Parameter Tuning** | Modify learning rate, reward weights, and termination thresholds **during training** — changes apply at the next rollout |
-| **Outputs Browser** | Browse and inspect completed experiments and their saved checkpoints |
-| **Run Analysis** | Compare registry-backed metrics and artifacts, surface best checkpoints, launch replays, and rate self-play leagues |
-
-**Example flow:**
-1. Click "Walker (Locomotion)" environment card
-2. Fill in experiment name and environment parameters (GUI validates ranges)
-3. Set total_timesteps, learning_rate, batch_size
-4. Review YAML preview
-5. Click "Launch Training" — training runs in a background thread
-6. Switch to Dashboard tab to watch real-time metrics and apply live parameter tweaks
+The image installs PyTorch and its CUDA libraries from the lockfile, so it is several gigabytes. `.dockerignore` keeps `.venv/`, `outputs/` and `.git/` out of the build context.
 
 ---
 
-## 🎮 CLI Commands
+## Quick start
 
-**Syntax:** `python -m rl_framework.cli.main <command> --config-name <name> [options]`
+Run a short training job to confirm everything works (about a minute on CPU):
 
-`gui` and `registry` do not require `--config-name`.
+```bash
+python -m rl_framework.cli.main train --config-name walker_smoke_cpu --total-timesteps 1024
+```
 
-| Flag | Required | Default | Description |
-|---|---|---|---|
-| `--config-name` | **Yes** | — | YAML config name (without extension) |
-| `--config-dir` | No | `src/rl_framework/configs/experiments` | Config directory |
-| `--model-path` | Eval/replay only | — | Path to trained model `.zip` |
-| `--seeds` | multi-seed only | — | Comma-separated: `0,1,2,3,4` |
-| `--max-workers` | multi-seed only | `1` when `num_envs > 1`; otherwise CPU count | Parallel worker processes |
-| `--device` | No | config value | Override training device for this run: `auto`, `cpu`, `cuda`, `cuda:<N>` |
-| `--resume` | train only | — | Path to a saved matching-algorithm `.zip` to continue training from |
-| `--trials` | morph-search only | 5 | Number of morphology mutations to evaluate |
+The command prints the path of the saved model, for example `outputs/walker_smoke_cpu/seed_0/checkpoints/final_model`. Evaluate that checkpoint:
 
-### 🏋️ `train` — Train an SB3 agent
+```bash
+python -m rl_framework.cli.main eval \
+  --config-name walker_smoke_cpu \
+  --model-path outputs/walker_smoke_cpu/seed_0/checkpoints/final_model.zip
+```
+
+Then train the arena and compare two checkpoints head to head:
+
+```bash
+python -m rl_framework.cli.main train --config-name organisms_fight_arena --total-timesteps 1024
+
+python -m rl_framework.cli.main arena-eval \
+  --config-name organisms_fight_arena \
+  --policy outputs/organisms_fight_arena/seed_11/checkpoints/final_model.zip \
+  --opponent random \
+  --n-episodes 20
+```
+
+For a real experiment, drop `--total-timesteps` to use the config's full budget, and view learning curves with TensorBoard:
 
 ```bash
 python -m rl_framework.cli.main train --config-name robot_walk_basic
+tensorboard --logdir outputs/
 ```
 
-**Output files:**
+---
 
-```
-outputs/
-├── <experiment_name>/
-│   └── seed_<N>/
-│       ├── checkpoints/final_model.zip          # Trained policy
-│       ├── checkpoints/vecnormalize.pkl         # Normalization stats
-│       └── logs/
-│           ├── events.out.tfevents.* (TensorBoard)
-│           └── eval_metrics.csv
+## Command reference
+
+Every command goes through one entry point:
+
+```bash
+python -m rl_framework.cli.main <command> [options]
 ```
 
-**Monitor in real-time:**
+| Command | Purpose |
+|---|---|
+| `train` | Train one run from a config. |
+| `eval` | Evaluate a walker checkpoint on its environment. |
+| `arena-eval` | Head-to-head evaluation of two arena policies (or one vs. `random`). |
+| `arena-tournament` | Round-robin over checkpoints, ranked by Bradley-Terry Elo. |
+| `sweep` | Expand `sweep.parameters` into a grid of runs. |
+| `multi-seed` | Run one config across several seeds in parallel and aggregate the results. |
+| `render-replay` | Render a GIF of a policy (walker or arena matchup). |
+| `morph-search` | Mutate arena morphology parameters and keep the best by tournament Elo. |
+| `registry` | Inspect, export, or prune the run registry. |
+| `quality-study` | Run the staged learning-quality study matrices. |
+| `gui` | Start the web experiment manager. |
+
+`--config-name` is required for every command except `gui`, `registry` and `quality-study`. Configs are read from `src/rl_framework/configs/experiments/` unless you pass `--config-dir`.
+
+### Common options
+
+| Option | Meaning |
+|---|---|
+| `--config-name NAME` | YAML file name without the `.yaml` extension. |
+| `--config-dir DIR` | Directory containing experiment YAMLs. Default: `src/rl_framework/configs/experiments`. |
+| `--seed N` | Override the run seed (sets both the global and environment seed). |
+| `--device DEVICE` | Override `training.device`: `auto`, `cpu`, `cuda`, or `cuda:N`. |
+| `--total-timesteps N` | Override `training.total_timesteps`. Useful for smoke tests. |
+| `--json` | Print the result as one JSON line and suppress human-readable output. Good for scripts. |
+| `--json-out PATH` | Write the JSON result to a file. |
+
+### `train`
+
+Trains one run and saves the final model.
+
+```bash
+python -m rl_framework.cli.main train --config-name robot_walk_basic
+python -m rl_framework.cli.main train --config-name robot_walk_basic --resume outputs/robot_walk_basic/seed_42/checkpoints/final_model.zip
+```
+
+`--resume PATH` continues training from a saved `.zip` model. Checkpoints are tied to their observation shape, so resume only with a config that matches the one that produced the checkpoint.
+
+### `eval`
+
+Runs a walker checkpoint for `evaluation.episodes` episodes and reports mean return, episode length, and termination statistics. Requires `--model-path`.
+
+```bash
+python -m rl_framework.cli.main eval --config-name robot_walk_basic \
+  --model-path outputs/robot_walk_basic/seed_42/checkpoints/final_model.zip
+```
+
+### `arena-eval`
+
+Plays `--policy` against `--opponent` for `--n-episodes` episodes per spawn orientation. Roles are swapped by default so a spawn-position advantage does not inflate results. Reports win, draw and timeout rates.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--policy PATH` | required | Checkpoint under test. |
+| `--opponent PATH\|random` | `random` | Opponent checkpoint, or `random` for a random-action baseline. |
+| `--n-episodes N` | `100` | Episodes per spawn orientation. |
+| `--no-swap-roles` | off | Keep the fixed spawn positions (introduces positional bias). |
+| `--policies A,B,...` | none | N-agent evaluation: one checkpoint per arena slot, in order. |
+| `--output PATH` | none | Write the result as JSON. |
+
+```bash
+python -m rl_framework.cli.main arena-eval --config-name organisms_fight_arena \
+  --policy outputs/organisms_fight_arena/seed_11/checkpoints/final_model.zip \
+  --opponent random --n-episodes 50 --json-out results/eval.json
+```
+
+### `arena-tournament`
+
+Plays every checkpoint against every other and ranks them by Bradley-Terry Elo.
+
+| Option | Meaning |
+|---|---|
+| `--checkpoints A,B,DIR` | Comma-separated checkpoint files and/or directories. Each directory contributes its `*.zip` files. |
+| `--include-random` | Add a random-action baseline. |
+| `--n-episodes N` | Episodes per pairing. |
+| `--output PATH` | Write the standings as JSON. |
+| `--markdown-out PATH` | Write the standings as a Markdown table. |
+
+```bash
+python -m rl_framework.cli.main arena-tournament --config-name organisms_fight_arena \
+  --checkpoints outputs/organisms_fight_arena/runs/ --include-random \
+  --markdown-out reports/league.md
+```
+
+### `sweep`
+
+Expands `sweep.parameters` into the Cartesian product of values and trains each combination. Run names and output directories are derived from the swept values.
+
+```bash
+python -m rl_framework.cli.main sweep --config-name robot_walk_basic --dry-run   # list the planned runs
+python -m rl_framework.cli.main sweep --config-name robot_walk_basic             # run them
+python -m rl_framework.cli.main sweep --config-name robot_walk_basic --resume-incomplete
+```
+
+`--resume-incomplete` continues an interrupted sweep from its saved state. Sweep runs are written under `outputs/<experiment>/runs/<run_id>/`.
+
+### `multi-seed`
+
+Runs the same config across several seeds in parallel and aggregates the results. A learning claim needs multiple seeds, so use this rather than a single run when comparing configs.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--seeds 0,1,2,3,4` | `multi_seed.seeds` in the config, else `0`–`4` | Seeds to run. |
+| `--max-workers N` | CPU count | Parallel worker processes. |
+| `--resume PATH` | none | Resume each seed from a checkpoint path containing `{seed}`. |
+
+```bash
+python -m rl_framework.cli.main multi-seed --config-name robot_walk_basic --seeds 0,1,2,3,4 --max-workers 4
+```
+
+The aggregate is written to `outputs/<experiment>/multi_seed_summary/aggregate.csv`.
+
+### `render-replay`
+
+Renders a replay of a policy into the run's `videos/` directory. The walker writes an MP4 from one checkpoint. The arena writes a GIF: `agent_0` is `--model-path`, and `agent_1` is `--replay-opponent` (or the same policy if omitted).
+
+```bash
+python -m rl_framework.cli.main render-replay --config-name organisms_fight_arena \
+  --model-path outputs/organisms_fight_arena/seed_11/checkpoints/final_model.zip \
+  --replay-opponent random
+```
+
+### `morph-search`
+
+Arena only. Trains `--trials` mutations of the arena morphology, scores them by tournament Elo, and reports the best parameters. It rejects `mean_return` scoring: the arena is zero-sum, so mean return ranks trials on noise rather than skill.
+
+```bash
+python -m rl_framework.cli.main morph-search --config-name organisms_fight_arena --trials 5
+```
+
+### `registry`
+
+Inspects the SQLite run registry at `outputs/run_registry.sqlite3`.
+
+| Option | Meaning |
+|---|---|
+| `--registry-action inspect\|export\|prune` | Summary counts (default), full JSON dump, or delete matching records. |
+| `--base-dir DIR` | Directory holding the registry. Default: `outputs`. |
+| `--prune-target analysis-jobs\|runs\|artifacts` | What `prune` deletes. Default: `analysis-jobs`. |
+| `--status a,b` | Only records with these statuses (for example `failed,interrupted`). |
+| `--older-than-days N` | Only records older than N days. |
+| `--missing-only` | For `artifacts`: only remove index rows whose files are gone. |
+| `--all` | Allow an unfiltered prune. |
+| `--dry-run` | Show what would be pruned without deleting anything. |
+
+```bash
+python -m rl_framework.cli.main registry --registry-action inspect
+python -m rl_framework.cli.main registry --registry-action prune --prune-target analysis-jobs \
+  --status failed --older-than-days 30 --dry-run
+```
+
+`prune` never deletes artifact files from disk. `--prune-target artifacts` only removes index rows.
+
+### `quality-study`
+
+Runs the staged learning-quality study matrices and writes state, models and a report to `--study-output-dir` (default `outputs/quality_studies`).
+
+| Option | Meaning |
+|---|---|
+| `--study NAME` | One of `walker`, `walker-velocity`, `walker-gait`, `walker-velocity-ramp`, `walker-swing-touchdown`, `walker-slip-recovery`, `walker-action-memory`, `arena`, `algorithms`, `all` (default). |
+| `--seeds 0,1,2` | Seeds for the study. Default `0,1,2`. |
+| `--study-step-budget N` | Override the per-run step budget. |
+| `--study-wall-clock-seconds N` | Per-run wall-clock budget. Default `900`. |
+| `--study-eval-episodes N` | Episodes per evaluation. Default `20`. |
+| `--resume-incomplete` | Resume from saved state. |
+| `--dry-run` | Plan the study without training. |
+
+```bash
+python -m rl_framework.cli.main quality-study --study walker-gait --dry-run
+```
+
+Study results and their interpretation are recorded in [`docs/learning_quality_studies.md`](docs/learning_quality_studies.md).
+
+---
+
+## Configuration
+
+Each experiment is one YAML file in `src/rl_framework/configs/experiments/`. The loader and validator reject unknown keys and invalid values before anything starts, so typos fail loudly rather than falling back to defaults.
+
+### Top-level sections
+
+| Section | Required | Purpose |
+|---|---|---|
+| `experiment_name` | yes | Names the output directory. |
+| `seed` | yes | Global seed. |
+| `environment` | yes | Environment type, physics, rewards, and rules. |
+| `training` | yes | PPO hyperparameters and device. |
+| `evaluation` | no | Episodes per evaluation, optional best-model tracking. |
+| `output` | no | `base_dir` (default `outputs`). |
+| `sweep` | no | `parameters`: a mapping of dotted keys to lists of values. |
+| `self_play`, `reward_annealing`, `curriculum` | arena only | Arena training features. |
+| `morphology_search` | arena only | Settings for `morph-search`. |
+
+Dotted keys address nested values, for example `environment.reward.target_velocity`.
+
+### Walker example
+
+This is `robot_walk_basic.yaml` (validated). Physics and control live under `environment.sim`, and the PD control block is nested.
+
+```yaml
+experiment_name: robot_walk_basic
+seed: 42
+
+environment:
+  type: walker_bullet
+  seed: 42
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  reward:
+    alive_bonus: 0.25
+    forward_velocity_weight: 2.0
+    target_velocity: 1.0
+    velocity_sigma: 0.5
+    orientation_penalty_weight: 0.3
+    torque_penalty_weight: 0.01
+    fall_penalty: 10.0
+  terrain:
+    preset: flat
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  policy: MlpPolicy
+  total_timesteps: 2000000
+  num_envs: 24
+  n_steps: 2048
+  batch_size: 512
+  n_epochs: 10
+  learning_rate: 0.0003
+  learning_rate_end: 0.00005
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.005
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  checkpoint_every: 50000
+  normalize_observations: true
+  device: cpu
+
+evaluation:
+  episodes: 5
+
+output:
+  base_dir: outputs
+
+sweep:
+  parameters:
+    environment.reward.target_velocity: [0.5, 1.0, 1.5]
+    environment.reward.torque_penalty_weight: [0.005, 0.01]
+```
+
+### Arena example
+
+This is `organisms_fight_arena.yaml` (validated). Arena rules are split across `sim`, `morphology`, `battle_rules`, `resources`, and `reward`, and the training features are top-level sections.
+
+```yaml
+experiment_name: organisms_fight_arena
+seed: 11
+
+environment:
+  type: organism_arena_parallel
+  seed: 11
+  sim:
+    arena_half_extent: 1.2
+    move_speed: 0.05
+    collision_radius: 0.08
+    speed_size_exponent: 1.0
+    spawn_jitter: 0.1
+  morphology:
+    base_size: 1.0
+    episode_growth_scale: 0.0
+    health: 1.2
+  battle_rules:
+    damage: 0.06
+    collision_damage: 0.0
+    attack_range: 0.2
+    cooldown_steps: 3
+    max_steps: 400
+    win_health_threshold: 0.0
+  resources:
+    initial_energy: 1.0
+    max_energy: 1.0
+    movement_cost: 0.01
+    attack_cost: 0.04
+    food_count: 2
+    food_energy: 0.35
+    food_radius: 0.10
+    food_respawn_steps: 40
+    food_placement: uniform
+  reward:
+    approach_weight: 0.0
+
+training:
+  policy: MlpPolicy
+  total_timesteps: 30000
+  learning_rate: 0.0003
+  n_steps: 1024
+  batch_size: 256
+  checkpoint_every: 5000
+  normalize_observations: true
+  device: cpu
+  num_envs: 8
+
+evaluation:
+  episodes: 5
+
+self_play:
+  enabled: true
+  snapshot_freq: 5000
+  max_league_size: 10
+  sampling_mode: uniform
+
+reward_annealing:
+  enabled: true
+  anneal_steps: 15000
+  min_eliminations: 10
+
+curriculum:
+  enabled: true
+  metric: arena/agent_0_win_rate
+  warmup_steps: 5000
+  max_level: 3
+  level_up_thresholds:
+    0: 0.60
+    1: 0.65
+    2: 0.70
+  level_params:
+    1:
+      battle_rules.cooldown_steps: 3
+      battle_rules.damage: 0.08
+    2:
+      battle_rules.cooldown_steps: 2
+      battle_rules.damage: 0.10
+    3:
+      battle_rules.cooldown_steps: 2
+      battle_rules.damage: 0.12
+
+output:
+  base_dir: outputs
+
+sweep:
+  parameters:
+    environment.battle_rules.attack_range: [0.15, 0.2, 0.25]
+    environment.battle_rules.cooldown_steps: [2, 3, 4]
+```
+
+### Frequently changed walker keys
+
+| Key | Meaning |
+|---|---|
+| `environment.observation.version` | `v1` (35-D) or `v2` (37-D, adds foot-contact bits). |
+| `environment.observation.coordinate_free` | Drops global x/y. Requires `v2`. |
+| `environment.observation.include_previous_action` | Appends the 10-D action last applied (45-D total with the default base). **Changing this changes the observation shape and makes older checkpoints unloadable.** |
+| `environment.terrain.preset` | `flat`, `uneven`, or `obstacles`. |
+| `environment.terrain.mix` | List of terrain specs, each with an optional relative `weight`. One is drawn per reset. An explicit empty list is an error. |
+| `environment.push_recovery` | Random pushes applied at the torso centre of mass for `duration_s` (0.1 s). |
+| `environment.gait.clearance_point` | `com` (legacy) or `sole`. |
+
+### Walker defaults
+
+When a key is omitted, these defaults apply. The shipped configs override some of them (for example, `robot_walk_basic` uses `mass: 28.0`).
+
+| Group | Key | Default |
+|---|---|---|
+| `sim` | `mass`, `friction`, `max_torque`, `timestep`, `frame_skip`, `settle_steps` | `3.0`, `0.8`, `35.0`, `0.00416667`, `4`, `30` |
+| `reward` | `alive_bonus`, `forward_velocity_weight`, `target_velocity`, `velocity_sigma` | `0.25`, `2.0`, `1.0`, `0.5` |
+| `reward` | `orientation_penalty_weight`, `torque_penalty_weight`, `fall_penalty` | `0.3`, `0.01`, `10.0` |
+| `reward` | `velocity_mode` | `gaussian` |
+| `termination` | `min_height`, `max_height`, `max_steps` | `0.18`, `1.5`, `1000` |
+| `gait` | `cycle_period_s`, `stance_duty`, `clearance_point`, `touchdown_debounce_steps` | `1.0`, `0.6`, `com`, `3` |
+
+Gait, slip and clearance reward weights default to `0.0`, so they are off unless a config enables them.
+
+### Arena defaults
+
+| Group | Key | Default |
+|---|---|---|
+| `environment` | `num_agents` | `2` (must be at least 2) |
+| `sim` | `arena_half_extent`, `move_speed`, `spawn_jitter` | `1.0`, `0.05`, `0.1` |
+| `morphology` | `base_size`, `health`, `episode_growth_scale` | `1.0`, `1.0`, `0.0` |
+| `battle_rules` | `damage`, `attack_range`, `cooldown_steps`, `sensing_radius` | `0.05`, `0.2`, `3`, `2.0` |
+| `battle_rules` | `max_steps`, `win_health_threshold`, `attack_falloff` | `400`, `0.0`, `linear` |
+| `resources` | `initial_energy`, `max_energy`, `food_count`, `food_energy` | `1.0`, `1.0`, `2`, `0.35` |
+| `reward` | `approach_weight`, `damage_scale` | `0.0`, `1.0` |
+
+Unknown keys under the arena sections and the walker's `reward` and `termination` blocks are rejected at load time. The full arena reference, including the N-agent rules and what each setting does, is in [`docs/organism_arena_config.md`](docs/organism_arena_config.md).
+
+---
+
+## Environments
+
+### Walker (`walker_bullet`)
+
+A single-agent bipedal robot (Atlas-DRC class, 65.9 kg total, 28 kg torso) in PyBullet.
+
+- **Physics:** 240 Hz simulation with `frame_skip: 4`, so the policy acts at 60 Hz.
+- **Control:** PD position control by default. `action[i] = 0` maps to the joint's rest pose, not its midpoint.
+- **Action (10-D):** `[rHip, rKnee, rAnkle, lHip, lKnee, lAnkle, rShoulder, rElbow, lShoulder, lElbow]`, each in `[-1, 1]`.
+- **Observation:** torso height, orientation quaternion, linear and angular velocity, joint positions and velocities, mass and friction scale, and (in `v2`) foot-contact flags. Shape is 35 (`v1`, or `v2` coordinate-free), 37 (`v2`), or 45 with `include_previous_action`.
+- **Termination:** contact-based (the torso touches the ground), with `min_height` and `max_height` as fallbacks. **Tilt does not end an episode.** `max_height: 1.5` m is a deliberate backstop against a PD-control exploit in which the robot launches itself. Do not loosen it without reading [`docs/walker_learning_history.md`](docs/walker_learning_history.md) first.
+- **Terrain:** `flat`, `uneven` (a smooth heightfield), or `obstacles` (boxes every `obstacle_spacing ± jitter` metres), redrawn each reset unless `randomize: false`. Use `terrain.mix` to draw a different terrain each episode. The episode's terrain is reported in `info["terrain_preset"]`.
+- **Randomisation:** reset noise on position and yaw, mass and friction scaling, and random pushes (`push_recovery`).
+
+### Organism arena (`organism_arena_parallel`)
+
+An N-agent PettingZoo `ParallelEnv` on a square arena (agents `agent_0` … `agent_{N-1}`, default N = 2). Agents spawn on a circle, and the policy is slot-symmetric, so one shared policy can fill any slot.
+
+- **Action (3-D):** `[move_x, move_y, attack_trigger]`. The move vector is norm-clamped to `move_speed`. An attack fires when `attack_trigger > 0.5` and the attacker is off cooldown.
+- **Observation (13-D):** own velocity (x, y), health fraction, energy fraction, size, relative position of the nearest opponent (x, y), that opponent's health, cooldown fraction, a visibility flag, and the nearest food position (x, y) with a visibility flag.
+- **Combat:** an attack hits the nearest living opponent within `attack_range`. Damage falls off linearly with distance (or steps down with `attack_falloff: binary`), and it scales with the attacker's size. Attacks in one step resolve together, so mutual knockouts are draws.
+- **Endings:** a knockout gives the winner `+1` and the loser `-1`. The episode also ends at `max_steps`, which counts as a timeout.
+- **Training features:** self-play against a frozen league (`self_play`), annealing the dense per-hit reward to zero (`reward_annealing`), a win-rate-gated difficulty curriculum (`curriculum`), and morphology search (`morph-search`).
+
+---
+
+## Outputs
+
+Each run writes to `outputs/<experiment_name>/seed_<seed>/`. Sweep runs go to `outputs/<experiment_name>/runs/<run_id>/seed_<seed>/`.
+
+```
+outputs/<experiment_name>/seed_<seed>/
+├── run_metadata.json              # run provenance and configuration
+├── checkpoints/
+│   ├── final_model.zip            # final policy (load this for eval and replay)
+│   ├── final_model_vecnormalize.pkl
+│   ├── ppo_model_<steps>_steps.zip  # periodic checkpoints (checkpoint_every)
+│   └── best_model.zip             # when evaluation.best_model.enabled is true
+├── logs/
+│   ├── PPO_*/                     # TensorBoard event files
+│   ├── eval_metrics.csv           # one row per evaluation
+│   └── monitor_env*.csv.monitor.csv
+└── videos/                        # render-replay output (walker: MP4, arena: GIF)
+```
+
+Notes:
+
+- **Observation normalisation.** When `normalize_observations: true`, the policy needs its matching `*_vecnormalize.pkl`. The loader looks for `<model-stem>_vecnormalize.pkl` first, then falls back to a shared `vecnormalize.pkl`. Keep the pair together.
+- **Multi-seed.** `multi-seed` writes `outputs/<experiment>/multi_seed_summary/aggregate.csv`, with the mean, standard deviation, median, interquartile mean, and 95% CI of mean return across seeds.
+- **Registry.** Runs are indexed in `outputs/run_registry.sqlite3`, which `registry` reads. The `outputs/` directory is disposable and gitignored, so copy anything you need to keep.
+
+To watch progress:
 
 ```bash
 tensorboard --logdir outputs/
 ```
 
-### 📊 `eval` — Evaluate a trained policy
-
-```bash
-python -m rl_framework.cli.main eval \
-  --config-name robot_walk_basic \
-  --model-path outputs/robot_walk_basic/seed_42/checkpoints/final_model.zip
-```
-
-**Output:**
-- Stdout: `mean_return` and `std_return`
-- CSV append: `outputs/<experiment>/seed_<N>/logs/eval_metrics.csv`
-
-Works for **locomotion** (Gymnasium) and **organism arena** (PettingZoo).
-
-### 🔍 `sweep` — Hyperparameter grid search
-
-```bash
-python -m rl_framework.cli.main sweep --config-name robot_walk_basic
-```
-
-Runs a **Cartesian-product** sweep over `sweep.parameters` in your YAML:
-
-```yaml
-sweep:
-  parameters:
-    environment.reward.target_velocity: [0.5, 1.0, 1.5]        # 3 values
-    environment.reward.torque_penalty_weight: [0.005, 0.01]   # 2 values
-    # Result: 3 × 2 = 6 independent training runs
-```
-
-### 🎲 `multi-seed` — Train across multiple seeds (statistical significance)
-
-```bash
-python -m rl_framework.cli.main multi-seed \
-  --config-name robot_walk_basic --seeds 0,1,2,3,4
-
-# Run seeds in parallel (default: all CPUs):
-python -m rl_framework.cli.main multi-seed \
-  --config-name robot_walk_basic --seeds 0,1,2,3,4 --max-workers 4
-
-# Force CPU for this invocation (without editing YAML):
-python -m rl_framework.cli.main multi-seed \
-  --config-name robot_walk_basic --seeds 0,1,2,3,4 --max-workers 4 --device cpu
-
-# Force sequential (useful when training already saturates CPUs via num_envs):
-python -m rl_framework.cli.main multi-seed \
-  --config-name robot_walk_basic --seeds 0,1,2 --max-workers 1
-```
-
-Trains and evaluates **the same config** across multiple random seeds for statistical rigor. Seeds run in **parallel by default** using separate processes.
-
-### 🧪 Automated 4-run CPU/GPU benchmark matrix (CLI only)
-
-Run the fixed matrix:
-- `CPU-4workers`
-- `CPU-8workers`
-- `GPU-1worker`
-- `GPU-2workers`
-
-```bash
-python scripts/benchmark_device_matrix.py \
-  --config-name robot_walk_basic \
-  --seeds 0,1,2,3
-```
-
-If your shell cannot find the script path, run the module entrypoint instead:
-
-```bash
-python -m rl_framework.benchmark_device_matrix \
-  --config-name robot_walk_basic \
-  --seeds 0,1,2,3
-```
-
-By default, the benchmark overrides each run to `--total-timesteps 20000` so the matrix completes quickly.
-
-The script runs regimes from smaller to larger worker counts (`CPU-4workers` → `CPU-8workers` → `GPU-1worker` → `GPU-2workers`). It prints the matrix version, resolved script path, and execution order before launching any workers. It streams each regime's terminal output live, prints periodic heartbeats while waiting, appends progress events to `outputs/benchmark_device_matrix_progress.jsonl`, persists completed regimes in `outputs/benchmark_device_matrix_state.json`, measures wall-clock runtime, and prints a JSON summary plus a winner. Resume a matching interrupted matrix with `--resume`; changed inputs require a new state file.
-
-If the first run line still shows `CPU-10workers` or lacks `[matrix] version:` / `[matrix] script:` lines, you are running an older checkout or a different copy of `scripts/benchmark_device_matrix.py`; update that checkout before rerunning.
-
-**Decision rule (default):**
-- Find the best `mean_return_mean` across the 4 regimes.
-- Keep regimes within **3%** of that best reward.
-- Choose the **fastest** (lowest wall-clock time) among those.
-
-You can tighten/relax reward guardrails:
-
-```bash
-python scripts/benchmark_device_matrix.py \
-  --config-name robot_walk_basic \
-  --seeds 0,1,2,3 \
-  --reward-tolerance-ratio 0.02
-```
-
-Run a longer benchmark:
-
-```bash
-python scripts/benchmark_device_matrix.py \
-  --config-name robot_walk_basic \
-  --seeds 0,1,2,3 \
-  --total-timesteps 100000
-```
-
-If you suspect a stall, tune watchdogs:
-
-```bash
-python scripts/benchmark_device_matrix.py \
-  --config-name robot_walk_basic \
-  --seeds 0,1,2,3 \
-  --inactivity-timeout-s 600 \
-  --heartbeat-s 15
-```
-
-Maximum debug tracing (default is already enabled):
-
-```bash
-python scripts/benchmark_device_matrix.py \
-  --config-name robot_walk_basic \
-  --seeds 0,1,2,3 \
-  --debug
-```
-
-**Output:**
-
-```
-outputs/
-├── <experiment>/
-│   ├── seed_0/, seed_1/, ...
-│   └── multi_seed_summary/
-│       └── aggregate.csv
-```
-
-**CSV format:**
-
-```csv
-seed,mean_return
-0,142.5
-1,138.2
-...
-aggregate_mean,145.98
-aggregate_std,5.76
-```
-
-### 🎬 `render-replay` — Generate videos of trained policies
-
-```bash
-python -m rl_framework.cli.main render-replay \
-  --config-name robot_walk_basic \
-  --model-path outputs/robot_walk_basic/seed_42/checkpoints/final_model.zip
-```
-
-**Output:**
-- Gymnasium envs (locomotion): MP4 in `outputs/<experiment>/seed_<N>/videos/`
-- PettingZoo parallel envs (organism arena): animated GIF (`replay.gif`) in the same folder
-
-For policies trained with `normalize_observations: true`, replay loads the saved
-VecNormalize sidecar next to the model before calling `predict()`.
-
-### ⏯️ Resuming training
-
-Pass `--resume <checkpoint.zip>` to `train` to continue from a saved model.
-Both the PPO policy/optimizer state and the sibling `vecnormalize.pkl`
-running stats are restored, and TensorBoard timesteps continue where they
-left off.
-
-```bash
-python -m rl_framework.cli.main train \
-  --config-name robot_walk_basic \
-  --resume outputs/robot_walk_basic/seed_42/checkpoints/final_model.zip
-```
-
-### 🧬 `morph-search` — Random morphology search
-
-```bash
-python -m rl_framework.cli.main morph-search \
-  --config-name organism_arena_base --trials 8
-```
-
-Mutates the organism's morphology parameters (base size, health) across N
-trials, trains every candidate first, and then ranks them in one round-robin
-tournament under the original config's common environment. The resulting Elo
-ratings share a competitor field and evaluation protocol, so they are directly
-comparable. Tournament Elo is selected with `morphology_search.scoring:
-tournament_elo` (the only supported/default mode). Currently scoped to
-`organism_arena_parallel`. The legacy
-shared-policy `mean_return` mode is rejected outright — the arena is
-zero-sum, so a shared policy's mean return sums to ~0 by construction and
-would rank trials on noise, not skill.
-
-### 🗂️ `registry` — Inspect, export, and prune run metadata
-
-```bash
-# Summary counts, including missing artifact paths
-python -m rl_framework.cli.main registry --registry-action inspect
-
-# Full JSON backup of every registry table
-python -m rl_framework.cli.main registry --registry-action export \
-  --json-out outputs/registry-export.json
-
-# Preview stale analysis-job cleanup, then rerun without --dry-run to apply
-python -m rl_framework.cli.main registry --registry-action prune \
-  --prune-target analysis-jobs --status interrupted,failed \
-  --older-than-days 30 --dry-run
-
-# Remove artifact index rows whose files no longer exist
-python -m rl_framework.cli.main registry --registry-action prune \
-  --prune-target artifacts --missing-only
-```
-
-Use `--base-dir` when the registry is outside `outputs`. Run pruning also
-removes the selected runs' event, tuning, and artifact-index rows in one
-transaction. Maintenance never deletes checkpoint or other artifact files.
-An unfiltered prune is rejected unless `--all` is supplied explicitly.
-
-### 🧭 `quality-study` — Reproducible learning-quality comparisons
-
-Run the Priority 3 walker, arena, and algorithm study matrices with durable,
-resumable state and machine-readable reports:
-
-```bash
-OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
-  --study all --seeds 0,1,2
-```
-
-`--study` also accepts `walker`, `walker-velocity`, `walker-gait`,
-`walker-velocity-ramp`, `walker-swing-touchdown`, `walker-slip-recovery`,
-`walker-action-memory`, `arena`, or `algorithms`.
-The `walker-velocity` study resumes seed-matched balance checkpoints from
-`--study-source-dir`. `walker-slip-recovery` uses the final natural-velocity
-checkpoint directory, runs its conditional 1M screens, and requires
-`--study-approved-variant <name>` before a sole objective winner may enter
-three-seed confirmation. `walker-action-memory` trains matched 35-D control and
-45-D previous-action policies as new lineages; its default seed-21 screen is
-10M steps per arm because the observation shapes are checkpoint-incompatible.
-The default promotion budgets are 750k walker steps, 150k walker-velocity
-continuation steps, 30k arena steps, and 500k algorithm steps plus a 900-second
-wall-clock comparison. Override them with
-`--study-step-budget`, `--study-wall-clock-seconds`, and
-`--study-eval-episodes`; use
-`--resume-incomplete` to continue from `state.json`. Results are written to
-`outputs/quality_studies/{report.json,report.md}`. See
-[`docs/learning_quality_studies.md`](docs/learning_quality_studies.md) for the
-matrix, metrics, readiness gates, and preliminary findings.
-
-The 2026-07-25 promotion-scale run did **not** promote a preset. At 300k steps
-and three seeds, every walker transfer evaluation remained
-`untrained_equivalent`; `rebalanced_flat` showed partial forward stepping but
-fell far sooner than the 800-step zero-action baseline. At 30k arena steps and
-three seeds, common/resource-native tournaments timed out universally and the
-depth-native timeout rate was 99.7%, with essentially no learned attack damage.
-PPO/SAC/TD3 comparisons remain deferred until walker behavior improves.
-
-The current walker matrix compares four exploration-noise candidates:
-`balance_low_std`, `balance_low_std_low_entropy`,
-`balance_low_std_conservative`, and `balance_low_std_slow_scale`, all with
-`num_envs: 24`, `n_steps: 128`, and `batch_size: 256`. A one-seed 100k screen
-selects a balance candidate only when stochastic flat-terrain evaluation
-averages at least 600 steps, falls at most 30% of the time, stays within
-0.75 m of its starting position, and keeps peak torso height below 1 m.
-Curriculum progression is frozen until 200k steps so this short screen measures
-balance only.
-Reports distinguish this `balance_ready` result from final `promotion_ready`;
-promotion still requires robust locomotion transfer (at least 760 steps, 3 m
-displacement, at most 10% falls, and peak torso height below 1 m). Arena depth candidates test feasible combat
-(`attack_range: 0.4`, `attack_cost: 0.02`) with and without distance-progress
-shaping; their gate requires nonzero hits/damage and timeout below 90%.
-
-The 2026-07-26 focused walker run completed all nine 300k-step trainings and
-their 20-episode diagnostics. `curriculum_flat` ranked first, but no evaluation
-cleared the locomotion gate and no preset was promoted. On flat terrain,
-`curriculum_flat` averaged 177.6 deterministic steps, 0.59 m displacement, and
-a 73.3% fall rate across seeds. The equalized rollout schedule removed the
-earlier comparison confound without producing robust walking.
-
-The subsequent balance-first implementation uses the documented 28 kg torso,
-starts with a restricted action range, and gates faster motion on episode
-length, displacement, and fall rate rather than reward. A one-seed 100k screen
-learned deterministic standing for all 800 steps, but not locomotion: the base
-policy moved only 0.10 m and its stochastic policy averaged 275 steps with a
-100% fall rate over 20 episodes. The conservative variant improved stochastic
-survival to 405 steps and an 85% fall rate, still below the short-run scaling
-gate. PPO/SAC/TD3 comparisons remain deferred.
-
-The exploration-noise follow-up exposed PPO's initial action standard
-deviation and compared four level-0 variants. At 100k steps, the selected
-`balance_low_std_conservative` candidate averaged 800 stochastic steps with
-0% falls. Continuing it for 150k at a 0.15 m/s target produced 675 stochastic
-steps, 25% falls, and 1.12 m displacement. A subsequent independent
-three-seed staged replication (100k balance + 200k low velocity) averaged
-700 steps, an 18% fall rate, and 0.93 m displacement. Seed 22 reached 1.60 m
-with 5% falls, but the other seeds did not reproduce that locomotion, so the
-candidate remains unpromoted.
-
-The next reproducible continuation matrix sharpens the low-velocity Gaussian
-with `velocity_sigma` values 0.15 and 0.10, plus a 0.15/1.5-weight candidate:
-
-```bash
-OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
-  --study walker-velocity --seeds 21,22,23 \
-  --study-step-budget 150000 \
-  --study-source-dir outputs/walker_stochastic_balance_candidate \
-  --study-output-dir outputs/quality_studies_walker_velocity
-```
-
-Each seed must independently average at least 600 stochastic steps, move at
-least 1 m, fall at most 30% of the time, and remain below 1 m peak torso
-height. Mean performance cannot hide a failed seed.
-
-The 150k continuation study completed all nine runs. `velocity_sigma_010`
-ranked first with 703 mean stochastic steps, 20% falls, and 0.90 m
-displacement, but only seed 22 passed the per-seed gate. Tighter reward
-discrimination improved the best seed without making locomotion consistent;
-the higher 1.5 forward weight reduced mean displacement to 0.73 m. No
-candidate was promoted.
-
-The gait-coordination iteration is defined in the
-[gait-coordination plan](docs/plans/2026-07-26-walker-gait-coordination.md).
-Phase 1 telemetry and zero-default structural rewards are implemented. The
-seed-22 50k rejection screen preserved balance in all four variants. Combined
-ranked first at 751 steps, 10% falls, and 1.86 m displacement, narrowly ahead
-of slip-only and the zero-weight control. The evidence-scale matrix is:
-
-```bash
-OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m rl_framework.cli.main quality-study \
-  --study walker-gait --seeds 21,22,23 \
-  --study-step-budget 150000 \
-  --study-source-dir outputs/quality_studies_walker_velocity_150k_20260726/models/quality_walker_velocity_sigma_010 \
-  --study-output-dir outputs/quality_studies_walker_gait_150k_20260726
-```
-
-The matrix includes a zero-weight continuation control, alternating-touchdown
-progress, stance-slip penalty, and their combination. It logs support,
-touchdown, alternation, progress, slip, flight, same-foot sequence, and action
-delta telemetry without changing the observation shape.
-
-The append-only
-[walker learning experiment history](docs/walker_learning_history.md) records
-the complete teaching narrative: hypotheses, isolated changes, fixed gates,
-successful mechanisms, failures, visual checks, and the decision produced by
-each study. New learning experiments should add a dated entry there rather
-than replacing earlier failures with only the latest conclusion.
-
-The completed 150k matrix promoted no variant. Slip-only was the closest:
-seed 22 reached 793 stochastic steps, 5% falls, and 2.00 m displacement, while
-seed 23 reached 738 steps, 10% falls, and 1.26 m. Seed 21 reached 733 steps,
-10% falls, and 1.52 m but missed the frozen 0.18 m/s stance-slip ceiling at
-0.190 m/s. Stochastic renders of seeds 21 and 22 showed legitimate upright,
-compact alternating steps with no launch, prone, sliding, or same-foot tapping
-exploit. Their selected 800-step rollouts moved 2.04 m and 2.01 m,
-respectively; seed 22 also fell early in two of five sampled rollouts.
-
-A follow-up seed-21 50k rejection screen tested stronger slip penalties without
-changing the gate. Weight 0.75 reached 682 steps, 20% falls, 0.967 m, and
-0.1794 m/s slip, failing displacement. Weight 1.0 reached 729 steps, 20%
-falls, 1.093 m, and 0.18065 m/s slip, failing the unchanged slip ceiling.
-Neither candidate advanced to the three-seed 150k rerun, so the conditional
-300k and flat/uneven/obstacle/push transfer stages were not run. The final
-target remains 760 steps, at most 10% falls, and 3 m displacement.
-
-The corrected seed-21 50k velocity-ramp screen retained slip weight 0.5 and
-compared fixed 0.15 m/s with a 0.15--0.25 m/s target ramp. The ramp reached
-0.200 m stochastic displacement versus 0.104 m control, below the predeclared
-+0.25 m improvement requirement, and missed the existing displacement/fall
-gates. Qualified-swing telemetry found no longer stride or swing, so the ramp
-was rejected without a three-seed or transfer stage.
-
-The next velocity-ramp design resets its economics: the staged candidate uses
-an `alive_bonus` of 0.125 and a 2.0 terminal fall penalty, then linearly ramps
-the target from 0.15 to 1.0 m/s across 3,000,000 continuation steps. Ramp
-screening and evidence gates require that full schedule, so shorter runs do
-not evaluate a nearly unchanged quasi-static target.
-
-The seed-21 3M screen completed both the fixed-target control and the full
-ramp. The ramp increased stochastic displacement from 1.97 m to 7.70 m, but
-failed the frozen gate with a 40% fall rate and 0.317 m/s stance slip (limits:
-30% and 0.18 m/s). It is not promoted.
-
-The subsequent 10M-per-seed re-baseline confirmed that the ramp learns genuine
-high-speed forward progress, not a launch: deterministic displacement was
-9.02–11.26 m at the final 1.0 m/s target, with peak height below 0.71 m. It is
-not yet reliable walking: stance slip was 0.41–0.57 m/s, and seed 23 fell in
-60% of stochastic rollouts. The next evaluation phase isolates slip/recovery
-mechanisms before adding more speed or reward variants.
-
-The slip/recovery phase then pooled five stochastic rollouts from each final
-seed and recorded every 0.5 s pre-fall window. Five of six falls were recovery
-failures; only one was touchdown overshoot, so the conditional PD-damping
-screen was not run. Seed-21 1M slip weights 0.25 and 0.5 reduced stochastic
-slip from 0.500 m/s to 0.348 and 0.290 m/s, respectively, but both missed the
-0.18 m/s gate. All three policies still produced 19–23 alternating touchdowns
-per 100 steps with 6.7–7.5 cm strides, and the renders confirmed short-stride
-contact chatter. No candidate advanced to recovery-noise, three-seed
-confirmation, or transfer testing.
-
-The next gated workflow, `walker-action-memory`, keeps the strongest measured
-bounded slip intervention fixed and varies only whether the policy observes
-the 10-D command applied on the preceding control step. Both arms train from
-scratch under the same natural-velocity ramp. The candidate must pass the
-unchanged fall, slip, displacement, height, cadence, stride, clearance,
-touchdown-progress, flight, and same-foot-sequence limits at 10M steps before
-visual approval can unlock seeds 22–23 and transfer. A 2,400-step functional
-smoke completed both arms and correctly remained non-advancing; it is not
-learning evidence.
-
-The follow-up seed-21 50k sustained-swing touchdown screen calibrated its
-thresholds from 3,155 individual stochastic touchdown events—not episode
-means—on the fixed-target control: 50 ms airborne duration and 0.5 mm clearance
-(the respective p75 values). It kept the 0.15 m/s target, 0.5 slip weight, and
-all frozen gates, rewarding bounded alternating-touchdown progress only when
-both thresholds were met. The candidate improved stochastic displacement from
-0.104 m to 0.260 m (+0.157 m), but missed the required +0.25 m, the existing
-1 m displacement floor, and the 0.003 m progress-per-alternating-touchdown
-floor. It is rejected; no multi-seed, 300k, or transfer stage was run.
-
-A subsequent telemetry-only seed-21 control analysis tested whether sustained
-touchdown foot placement predicts the pelvis progress to the next touchdown.
-Across 578 event pairs, lead had near-zero correlation with that progress
-(`r = -0.054`), so foot-placement shaping is not justified and no additional
-50k candidate was run.
-
-The subsequent stance-phase analysis found 3,985 completed foot stances across
-20 seed-21 control episodes. Mean stance pelvis advance correlated positively
-with episode displacement (`r = 0.705`), but duration correlated negatively
-(`r = -0.492`) and slip positively (`r = 0.308`). That contradicts the required
-low-slip, longer-advance mechanism, so no stance-progress reward screen was run.
+The key curves are `rollout/ep_rew_mean` and `rollout/ep_len_mean`.
 
 ---
 
-## ⚙️ Configuration
+## Web GUI
 
-Every experiment is defined by a **single YAML file** — no code changes needed. Below is the complete schema:
+The GUI is a Flask app for building experiments and watching them.
 
-### Full YAML Schema
-
-```yaml
-# ─── Identity ───────────────────────────────────────────────────
-experiment_name: my_experiment       # Used as the output directory name
-seed: 42                             # Global random seed
-
-# ─── Environment ────────────────────────────────────────────────
-environment:
-  type: walker_bullet                # "walker_bullet" or "organism_arena_parallel"
-  seed: 42                           # Environment-level seed (should match global)
-
-  # --- Locomotion-specific (type: walker_bullet) ---
-  sim:
-    gravity: -9.81                   # Gravitational acceleration (m/s^2)
-    mass: 28.0                       # Atlas-class torso mass (kg)
-    friction: 0.9                    # Ground lateral friction coefficient
-    max_force: 35.0                  # Global scale for per-joint torque limits
-    timestep: 0.004166667            # 240 Hz physics
-    frame_skip: 4                    # 60 Hz policy control
-    settle_steps: 30                 # Rest-pose physics ticks after reset
-    action_scale: 1.0                # Multiplier on clipped policy actions
-    control:
-      mode: pd
-      position_gain: 0.1
-      velocity_gain: 1.0
-
-  reward:
-    alive_bonus: 0.25                # Small uprightness incentive; locomotion dominates
-    forward_velocity_weight: 2.0     # Weight on velocity-tracking reward
-    target_velocity: 1.0             # Desired forward velocity (m/s)
-    velocity_sigma: 0.5              # Width of target-velocity Gaussian
-    orientation_penalty_weight: 1.0  # Weight on roll+pitch penalty
-    torque_penalty_weight: 0.01      # Weight on action magnitude penalty
-    fall_penalty: 10.0               # One-time terminal fall penalty
-    gait_step_progress_weight: 0.0   # Opt-in alternating-touchdown progress
-    gait_step_progress_clip: 0.25    # Max credited progress per event (m)
-    stance_slip_penalty_weight: 0.0  # Opt-in contacting-foot slip penalty
-    stance_slip_penalty_clip: 0.0    # Optional slip cap; 0 keeps it unbounded
-
-  gait:
-    touchdown_debounce_steps: 3      # Per-foot event debounce
-
-  termination:
-    min_height: 0.18                 # Low-height contact fallback (metres)
-    max_height: 1.5                  # Reject self-launch behavior
-    max_steps: 800                   # Episode truncates after this many steps
-
-  reset_randomization:
-    position_xy_noise: 0.02          # Uniform noise on start x, y position
-    yaw_noise: 0.08                  # Uniform noise on start yaw angle (radians)
-
-  domain_randomization:
-    mass_scale_range: [0.95, 1.05]   # Multiply base mass by U(low, high) each reset
-    friction_range: [0.9, 1.1]       # Multiply base friction by U(low, high) each reset
-    sensor_noise_std: 0.0            # Gaussian std added to observations (0 = off)
-    action_latency_steps: 0          # FIFO delay on actions (0 = off)
-
-  observation:
-    version: v2                      # v1 legacy; v2 adds two foot-contact bits
-    coordinate_free: true             # v2 only: remove global x/y position
-
-  terrain:
-    preset: flat                     # flat | uneven | obstacles | push_recovery
-    height: 0.025                    # Uneven terrain height variation (m)
-    obstacle_height: 0.10            # Obstacle height (m)
-    push_recovery:
-      interval_steps: 120
-      start_step: 60
-      force: 180.0                   # Lateral impulse magnitude
-
-  # --- Multi-agent-specific (type: organism_arena_parallel) ---
-  sim:
-    arena_half_extent: 1.2           # Arena boundary in each direction
-    move_speed: 0.05                 # Base movement speed before size scaling
-    collision_radius: 0.08           # Base organism collision radius
-    speed_size_exponent: 1.0         # Larger bodies move more slowly
-
-  morphology:
-    base_size: 1.0                   # Agent body scale at episode start
-    episode_growth_scale: 0.0        # Size increase per step (0 = no growth)
-    health: 1.2                      # Base health (scaled by size)
-
-  battle_rules:
-    damage: 0.06                     # Base damage per hit
-    collision_damage: 0.0           # Optional contact damage, scaled by body size
-    attack_range: 0.2                # Distance threshold for attacks
-    cooldown_steps: 3                # Steps between consecutive attacks
-    max_steps: 400                   # Episode truncation limit
-    win_health_threshold: 0.0        # Health at or below triggers termination
-
-  resources:
-    initial_energy: 1.0              # Spawn energy (must be <= max_energy)
-    max_energy: 1.0
-    movement_cost: 0.01              # Cost per movement command magnitude
-    attack_cost: 0.04                # Attack requires and consumes energy
-    food_count: 2
-    food_energy: 0.35
-    food_radius: 0.10
-    food_respawn_steps: 40
-    food_placement: uniform          # uniform | center (contested patch)
-
-  reward:
-    approach_weight: 0.0             # Reward for closing on the opponent
-
-# ─── Training ───────────────────────────────────────────────────
-training:
-  algorithm: PPO                     # PPO (default), SAC, or TD3 (walker-only)
-  policy: MlpPolicy                  # SB3 policy class
-  total_timesteps: 20000             # Total training steps
-  learning_rate: 0.0003              # PPO learning rate
-  log_std_init: -1.0                 # PPO initial action log std (exp(-1) ≈ 0.37)
-  ent_coef: 0.0                      # PPO entropy bonus coefficient
-  n_steps: 1024                      # Steps per rollout buffer
-  batch_size: 256                    # Minibatch size
-  checkpoint_every: 5000             # Save a checkpoint every N environment steps
-  normalize_observations: true       # Wrap env in VecNormalize
-  check_nans: false                  # Set true to fail fast on NaN/Inf values
-  num_envs: 8                        # >1 uses SubprocVecEnv for parallelism
-  device: cpu                        # Default for bundled MLP experiments
-  # device: auto                     # Opt into CUDA discovery when appropriate
-  torch_num_threads: 1               # Optional PyTorch update-thread cap
-  worker_start_method: spawn         # Optional: fork | forkserver | spawn
-
-# ─── Evaluation ─────────────────────────────────────────────────
-evaluation:
-  episodes: 5                        # Number of eval episodes (locomotion)
-  workers: 4                         # Parallel walker eval processes (omit = auto)
-  max_steps: 400                     # Max steps per eval episode (organism)
-
-# ─── Output ─────────────────────────────────────────────────────
-output:
-  base_dir: outputs                  # Root directory for all experiment outputs
-
-# ─── Sweep ──────────────────────────────────────────────────────
-sweep:
-  parameters:                        # Dotted-key → list-of-values
-    environment.reward.target_velocity: [0.5, 1.0, 1.5]
-    environment.reward.torque_penalty_weight: [0.005, 0.01]
-
-# ─── Multi-Seed ────────────────────────────────────────────────
-multi_seed:
-  seeds: [0, 1, 2, 3, 4]            # Seeds for aggregate runs
-
-# ─── Curriculum ─────────────────────────────────────────────────
-curriculum:
-  enabled: false                     # Set true to activate
-  level_up_threshold: 150.0          # Mean reward to advance a level
-  level_up_conditions:               # Optional conjunctive behavior gate
-    0:
-      rollout/ep_len_mean: {min: 700}
-      walker/fall_rate: {max: 0.1}
-  max_level: 3                       # Maximum curriculum level
-  level: 0                           # Starting level (usually 0)
-  level_params:                      # Overrides applied at each level
-    1:
-      reward.target_velocity: 1.0
-      termination.max_tilt_radians: 0.9
-    2:
-      reward.target_velocity: 1.5
-      termination.max_tilt_radians: 0.7
-    3:
-      reward.target_velocity: 2.0
-      termination.max_tilt_radians: 0.5
-
-# ─── Self-Play ──────────────────────────────────────────────────
-self_play:
-  enabled: false                     # Set true to activate (organism only)
-  snapshot_freq: 5000                # Save a snapshot every N timesteps
-  max_league_size: 10                # Maximum stored opponent snapshots
-
-# ─── Arena Dense-Reward Annealing ──────────────────────────────
-reward_annealing:
-  enabled: false
-  anneal_steps: 15000                # Decay duration after gate opens
-  min_eliminations: 10               # Non-timeout outcomes required to start
+```bash
+python -m rl_framework.cli.main gui --port 5001
 ```
 
-### 📋 Included Experiment Configs
+Open `http://127.0.0.1:5001`. The wizard has four steps: **Environment**, **Parameters**, **Training**, and **Review & Launch**. It builds experiment configs from the same schema the CLI validates against.
 
-| Config | Environment | Description |
-|---|---|---|
-| **robot_walk_basic** | `walker_bullet` | Bipedal locomotion with domain randomization. Sweeps velocity & torque penalty. ✅ Good for getting started |
-| **robot_push_recovery** | `walker_bullet` | Lateral push-recovery curriculum plus aggressive mass/friction randomization. |
-| **walker_balance_curriculum** | `walker_bullet` | Balance-first, behavior-gated action/velocity curriculum using explicit Atlas-class physics. |
-| **walker_stochastic_balance_candidate** | `walker_bullet` | Winning 100k stochastic-balance stage: low initial policy variance and 15% action range. |
-| **walker_low_velocity_candidate** | `walker_bullet` | Single 10M-step, three-seed natural-velocity re-baseline: low survival/fall economics, reopened exploration, a 0.5 action scale, `gamma: 0.995`, and a built-in 0.15→1.0 m/s ramp over 3M steps. |
-| **walker_curriculum_flat** | `walker_bullet` | Flat-ground speed curriculum. |
-| **walker_curriculum_uneven** | `walker_bullet` | Uneven-terrain speed curriculum. |
-| **walker_curriculum_obstacles** | `walker_bullet` | Low-obstacle speed curriculum. |
-| **organisms_fight_arena** | `organism_arena_parallel` | Self-play combat arena with parallel rollout workers. Sweeps attack range & cooldown. |
-| **organisms_growth_competition** | `organism_arena_parallel` | Two-agent arena with in-episode growth. Sweeps base size & damage. |
+Options: `--host` (default `127.0.0.1`) and `--port` (default `5001`).
 
-### 🎮 Environment Types
+The GUI reloads when its Python code changes. **Stop any running training before editing `gui/app.py`, because a reload kills in-process training.**
 
-#### `walker_bullet` — Single-agent locomotion (Gymnasium)
+---
 
-Rigid-body bipedal walker in PyBullet. Goal: maintain upright posture while tracking target velocity.
+## Shipped experiments
 
-| Property | Value |
+All 29 configs in `src/rl_framework/configs/experiments/` pass validation. Start with these:
+
+| Config | What it is |
 |---|---|
-| **Observation** | v1 `Box(35,)`; v2 `Box(37,)` adds right/left foot contacts. Coordinate-free v2 is `Box(35,)`: `z`, orientation/velocities, 20 joint values, domain-randomization scales, and two contacts. Set `include_previous_action: true` to append the 10-D applied PD action (`Box(45,)`); this is checkpoint-incompatible. |
-| **Action** | `Box(10,)` — normalized joint targets for hips, knees, ankles, shoulders, and elbows |
-| **Reward** | alive bonus + velocity tracking − orientation penalty − torque penalty |
+| `walker_smoke_cpu` | Short walker run for checking the install. |
+| `robot_walk_basic` | Walker baseline with target-velocity and torque-penalty sweep. |
+| `robot_push_recovery` | Walker with random push perturbations. |
+| `walker_curriculum_flat`, `_uneven`, `_obstacles` | Single-terrain walker runs. |
+| `walker_balance_curriculum`, `walker_stochastic_balance_candidate` | Balance-focused walker variants. |
+| `walker_reward_v2` … `v12` | Reward-shaping variants used in the walker learning history. |
+| `walker_ppo_baseline`, `walker_sac_baseline`, `walker_td3_baseline` | Algorithm comparison baselines. |
+| `organisms_fight_arena` | Arena with self-play, reward annealing, and a curriculum. |
+| `organisms_growth_competition` | Arena variant with growth. |
 
-#### `organism_arena_parallel` — Multi-agent competitive (PettingZoo)
-
-2D N-agent arena with movement, attacks, optional in-episode growth, and an
-on-disk self-play league for frozen past-self opponents.
-
-| Property | Value |
-|---|---|
-| **Observation** | `Box(13,)` — velocity, health, energy, size, nearest-opponent state, cooldown, and nearest-food state |
-| **Action** | `Box(3,)` — move-x, move-y, attack trigger (> 0.5) |
-| **Reward** | damage dealt − damage received ± win/loss bonus |
+Experiment results and the reasoning behind each variant are recorded in [`docs/walker_learning_history.md`](docs/walker_learning_history.md), including refuted hypotheses.
 
 ---
 
-## ⭐ Features
+## Development
 
-### 🔀 Domain Randomization
-
-Mass and friction are randomised at each episode reset, controlled by:
-
-```yaml
-domain_randomization:
-  mass_scale_range: [0.8, 1.2]     # base_mass *= U(0.8, 1.2)
-  friction_range: [0.7, 1.3]       # base_friction *= U(0.7, 1.3)
-```
-
-### 🔊 Sensor Noise
-
-Gaussian noise injection for **sim-to-real transfer**. Prevents overfitting to perfect simulator observations.
-
-```yaml
-domain_randomization:
-  sensor_noise_std: 0.01           # standard deviation (0 = disabled)
-```
-
-### ⏱️ Action Latency
-
-FIFO delay between agent decisions and physics application — simulates real-world communication/actuator delays.
-
-```yaml
-domain_randomization:
-  action_latency_steps: 2          # 0 = off, N > 0 = apply action from N steps ago
-```
-
-### 📚 Curriculum Learning
-
-Automatically increases difficulty as the agent improves. A curriculum can
-use the legacy single metric threshold or conjunctive behavior conditions.
-
-```yaml
-curriculum:
-  enabled: true
-  level_up_threshold: 150.0   # default threshold for all levels
-  # Optional: per-level thresholds (override the default above)
-  level_up_thresholds:
-    0: 100.0    # threshold to leave level 0
-    1: 150.0
-    2: 200.0
-  # Optional replacement for the single-metric threshold at a level.
-  level_up_conditions:
-    0:
-      rollout/ep_len_mean: {min: 700}
-      walker/fall_rate: {max: 0.1}
-    1:
-      rollout/ep_len_mean: {min: 600}
-      walker/forward_displacement_mean: {min: 1.0}
-      walker/fall_rate: {max: 0.3}
-  max_level: 3
-  level_params:
-    1:
-      reward.target_velocity: 1.0
-    2:
-      reward.target_velocity: 1.5
-    3:
-      reward.target_velocity: 2.0
-```
-
-Level parameters use dotted-key notation to override environment values at
-runtime. `sim.action_scale` can safely expand the policy's applied action range
-as balance improves. All configured conditions for a level must pass before it
-advances.
-
-### 🖥️ Training Device
-
-The bundled MLP experiments default to `"cpu"`. PyBullet rollouts are CPU-only,
-and these small policies are typically slower on GPU because transfer overhead
-outweighs the update cost. Override via the YAML key when using a larger policy:
-
-```yaml
-training:
-  device: cpu       # default for bundled MLP experiments
-  # device: auto    # GPU if available, otherwise CPU
-  # device: cuda    # require GPU (fails if CUDA is unavailable)
-  # device: cuda:1  # pin to a specific GPU on multi-GPU machines
-  # device: cpu     # force CPU
-```
-
-Accepted values: `auto`, `cpu`, `cuda`, `cuda:<N>` (e.g. `cuda:0`). Any other string is rejected at config-validation time with a clear error message.
-
-> **Note:** PyBullet physics simulation is CPU-only. GPU acceleration applies to the PPO neural network only and remains useful for larger networks or image-based (`CnnPolicy`) policies.
-
-### ⚡ Parallel CPU Rollouts
-
-Run multiple envs across processes for faster PyBullet rollout collection.
-Benchmark before pushing walker runs toward the physical core count, because
-larger rollout batches can change PPO update stability.
-
-```yaml
-training:
-  num_envs: 8                       # SubprocVecEnv (1 = DummyVecEnv, no overhead)
-  check_nans: false                 # Set true while diagnosing unstable runs
-  torch_num_threads: 1              # Optional cap for PyTorch update threads
-  worker_start_method: spawn        # Optional: fork | forkserver | spawn
-```
-
-The two runtime controls are opt-in. `torch_num_threads` constrains the PPO
-update process; `worker_start_method` is passed to `SubprocVecEnv` and only
-matters when `num_envs > 1`. Use `spawn` when process isolation is more
-important than startup time, and benchmark before making either setting a
-long-run default. Evaluation reloads checkpoints on the configured
-`training.device` (CPU by default) instead of independently auto-selecting a
-device. Walker `eval`, quality-study checkpoint diagnostics, and periodic
-best-model evaluation run episodes in process-backed vector environments.
-Set `evaluation.workers` to cap their process count; when omitted, evaluation
-uses up to the available logical CPUs but never more workers than episodes.
-Episode seeds remain deterministic and non-overlapping across workers.
-Shared-policy arena evaluation remains single-process because its SuperSuit
-adapter does not support multiple process workers. If the optional
-`evaluation` section is omitted, evaluation uses five episodes.
-
-See [local training presets](docs/training_presets.md) for ready-to-run smoke,
-overnight, high-throughput, arena self-play, and multi-seed commands.
-
-### 📈 Multi-Seed Aggregation
-
-Train across multiple seeds for **statistically rigorous** results. When each
-training run uses parallel rollout workers (`training.num_envs > 1`),
-multi-seed defaults to one sequential worker to avoid nested process
-oversubscription. Set `--max-workers` explicitly only after sizing the combined
-process count. See [`multi-seed` command](#-multi-seed--train-across-multiple-seeds-statistical-significance) above.
-
-### 🏆 Self-Play League
-
-Breaks co-adaptation by maintaining a league of frozen past opponents. The live policy trains against random league members, not copies of itself.
-
-```yaml
-self_play:
-  enabled: true
-  snapshot_freq: 5000               # Freeze a snapshot every 5k steps
-  max_league_size: 10               # Keep ≤ 10 past versions
-```
-
-Snapshots saved to `checkpoints/league/`. Oldest pruned automatically.
-With `self_play.enabled: true`, `training.num_envs > 1` uses the native SB3
-vector-env path and can parallelize arena rollout collection. Shared-policy
-arena training still uses the SuperSuit path and must keep `num_envs: 1`.
-The shared-policy adapter supplies `render_mode` metadata locally, so this
-otherwise-compatible boundary no longer emits SB3's missing-render-mode warning.
-Arena damage-reward annealing updates environments at rollout boundaries rather
-than every step, avoiding unnecessary cross-process calls during parallel runs.
-GUI live frame capture configures RGB rendering only on rollout worker 0 and
-throttles capture by wall-clock time. Other workers remain internally headless
-while advertising the uniform render metadata required by SB3 vector envs.
-For N-agent matches, the live policy's training episode ends immediately on its
-own knockout instead of collecting inert spectator transitions.
-
----
-
-## 📂 Project Structure
-
-```text
-MLenvironment/
-├── README.md
-├── Dockerfile
-├── pyproject.toml
-├── requirements-lock.txt
-│
-├── src/rl_framework/
-│   ├── __init__.py
-│   │
-│   ├── cli/
-│   │   ├── __init__.py
-│   │   └── main.py                     # CLI entry point and command dispatcher
-│   │
-│   ├── gui/
-│   │   ├── __init__.py
-│   │   ├── app.py                      # Flask web app + REST API
-│   │   ├── training_manager.py         # Background training orchestrator
-│   │   ├── templates/
-│   │   │   └── index.html              # Single-page wizard + dashboard
-│   │   └── static/
-│   │       ├── style.css               # Dark-themed responsive UI
-│   │       └── app.js                  # Frontend: wizard, polling, tuning
-│   │
-│   ├── configs/experiments/
-│   │   ├── robot_walk_basic.yaml
-│   │   ├── robot_push_recovery.yaml
-│   │   ├── organisms_fight_arena.yaml
-│   │   └── organisms_growth_competition.yaml
-│   │
-│   ├── core/                         # Task-independent registry, config, training, utilities
-│   ├── physics/locomotion/           # Walker environment and studies
-│   ├── games/arena/                  # Arena, self-play, tournament, evolution
-│   └── plugins.py                    # Built-in task module list
-│
-└── tests/
-    ├── test_env_api.py                 # Gymnasium + PettingZoo API compliance
-    └── test_reproducibility.py         # Seed determinism tests
-```
-
----
-
-## ✅ Testing
+Set up as in [Installation](#installation), then run the same checks CI runs:
 
 ```bash
-pytest                                    # Run all tests
-pytest tests/test_env_api.py -v          # Specific test
-ruff check src/ tests/                    # Lint & format check
-mypy src --ignore-missing-imports         # Static type check
-python scripts/check_repo_policy.py       # Lockfile + tracked artifact policy checks
+pytest -q --cov=src/rl_framework --cov-fail-under=60   # tests, coverage gate at 60%
+ruff check src tests scripts                            # lint
+mypy src --ignore-missing-imports                       # type check (blocking in CI)
+python scripts/check_repo_policy.py                     # no tracked caches or venvs; lockfile completeness
 ```
 
-### Reproducibility And Best Models
+- Dependencies are pinned in `requirements-lock.txt`. Every direct dependency in `pyproject.toml` must appear there, or CI fails.
+- Run `pytest` and the policy check before committing. For changes to environment behaviour, the training pipeline, or rewards and termination, also run a short functional smoke test (an env reset and step, a few hundred training steps, or an eval of an existing checkpoint).
+- Results, including negative ones, go in [`docs/walker_learning_history.md`](docs/walker_learning_history.md).
+- Architecture decisions are in [`docs/decisions/`](docs/decisions/).
 
-Use strict provenance to require a complete run manifest, and deterministic mode
-to enforce framework-level random seeds, deterministic PyTorch algorithms, one
-PyTorch update thread, and spawned rollout workers:
+### Performance notes
 
-```yaml
-reproducibility:
-  strict: true
-  deterministic: true
+- `num_envs: 24` matches the 24 physical cores of the reference machine. More workers than cores does not help.
+- For `SubprocVecEnv` runs, export `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` so the workers do not compete for threads.
+
+---
+
+## Project layout
+
+```
+src/rl_framework/
+├── cli/            # command-line entry point (cli/main.py)
+├── configs/        # experiment YAMLs (configs/experiments/) and config helpers
+├── core/           # shared config, training runners, registry, utilities
+├── physics/
+│   └── locomotion/ # walker env: config, terrain, robot, rewards, observation, analysis
+├── games/
+│   └── arena/      # organism arena env, tournaments, morphology search
+├── gui/            # Flask app and static assets
+└── plugins.py      # task registration hooks
+tests/              # pytest suite
+scripts/            # repo tooling (policy check, device benchmark, transfer report)
+docs/               # status, config references, decisions, learning history
 ```
 
-Each training run writes `run_metadata.json` with the resolved config, hash,
-git commit, lockfile hash, and runtime details. Deterministic mode improves
-repeatability but cannot promise bit-identical PyBullet results across platforms
-or drivers.
+The `rl_framework/` directory at the repository root contains only an `__init__.py` and is not the package.
 
-Walker experiments can also retain the best observed policy, with a separate
-VecNormalize evaluation environment and a matching sidecar:
+---
 
-```yaml
-evaluation:
-  episodes: 5
-  workers: 4
-  best_model:
-    enabled: true
-    eval_every: 50000
-    episodes: 5
-    workers: 4
-```
+## Documentation
 
-This writes `checkpoints/best_model.zip` and
-`checkpoints/best_model_vecnormalize.pkl`. Best-model selection is currently
-supported for `walker_bullet`; use `arena-eval`/`arena-tournament` for arena
-checkpoint comparison.
-
-| Test | Verifies |
+| Document | Contents |
 |---|---|
-| `test_env_api.py` | Gymnasium & PettingZoo API compliance (shapes, types, interfaces) |
-| `test_reproducibility.py` | Determinism: identical seeds → identical observations |
+| [`docs/STATUS.md`](docs/STATUS.md) | Current state of the project and known problems. |
+| [`docs/walker_learning_history.md`](docs/walker_learning_history.md) | Walker decision ledger, including refuted hypotheses. |
+| [`docs/organism_arena_config.md`](docs/organism_arena_config.md) | Full arena configuration reference. |
+| [`docs/learning_quality_studies.md`](docs/learning_quality_studies.md) | The `quality-study` matrices and how to read them. |
+| [`docs/training_presets.md`](docs/training_presets.md) | Training presets. |
+| [`docs/VALIDATION.md`](docs/VALIDATION.md) | Validation evidence. |
+| [`docs/decisions/`](docs/decisions/) | Architecture decision records. |
+| [`VISUALIZATION_GUIDE.md`](VISUALIZATION_GUIDE.md) | Visualization and replay guide. |
 
----
+## License
 
-## 🔧 Extending the Framework
-
-### ➕ Add a New Environment
-
-1. Create a task package under `src/rl_framework/physics/` or `src/rl_framework/games/`, or in an external Python package.
-2. Register a `TaskSpec` using `rl_framework.core.registry.register_task` when the package imports.
-3. Add the package to `src/rl_framework/plugins.py`, or set `RL_FRAMEWORK_PLUGINS` to its module name.
-4. Add a YAML config in `src/rl_framework/configs/experiments/` and API and determinism tests.
-
-### 🦾 Add a New Morphology
-
-1. Add keys to `morphology` block in YAML
-2. Parse in `arena_parallel.py` (`_spawn_agent()`, `_current_size()`)
-3. Add to `sweep.parameters` for grid search
-4. Optionally use `evolution/simple_search.py` for random mutation
-
-### 🤖 Swap the RL Algorithm
-
-Set `training.algorithm: SAC` or `TD3` in a walker config. The runner,
-evaluation flow, checkpoints, and VecNormalize sidecars are shared with PPO.
-
----
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        CLI (main.py)                                │
-│  train│eval│sweep│multi-seed│render-replay │ gui (new!)            │
-├──────┴────┴─────┴──────────┴──────────────┴────────────────────────┤
-│                                                                     │
-│  ┌──────────────────────┐      ┌──────────────────────────────┐     │
-│  │  CLI Runners         │      │  Flask GUI (gui/app.py)      │     │
-│  │  ├─ sb3_runner       │      │  REST API + web interface    │     │
-│  │  ├─ eval_runner      │      │  └─ training_manager.py      │     │
-│  │  ├─ sweep            │      │     (background thread)      │     │
-│  │  └─ multi_seed       │      └──────────────────────────────┘     │
-│  └──────────┬───────────┘                    │                     │
-│             │                               │                     │
-│  ┌──────────┴───────────────────────────────┴──────────────────┐    │
-│  │              Callbacks (SB3)                                │    │
-│  │  ├── CheckpointCallback                                    │    │
-│  │  ├── CurriculumCallback                                    │    │
-│  │  ├── SelfPlayCallback                                      │    │
-│  │  └── LiveTuningCallback (reads JSON for real-time tuning)  │    │
-│  └──────────────────────┬────────────────────────────────────┘     │
-│                         │                                          │
-│  ┌──────────────────────┴────────────────────────────────────┐     │
-│  │               Environment Layer                           │     │
-│  │  registry.py → make_env()                                 │     │
-│  │  ┌──────────────────────┐  ┌───────────────────────────┐  │     │
-│  │  │   walker_bullet      │  │ organism_arena_parallel   │  │     │
-│  │  │   (Gymnasium)        │  │ (PettingZoo Parallel)     │  │     │
-│  │  │   dynamics.py        │  │ battle rules + growth     │  │     │
-│  │  │   rewards.py         │  └───────────────────────────┘  │     │
-│  │  │   terminations.py    │                                 │     │
-│  │  └──────────────────────┘                                 │     │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │  Utils: config.py (OmegaConf) │ logging_utils.py (CSV)      │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### Design Decisions
-
-| Concern | Choice | Rationale |
-|---|---|---|
-| Single-agent API | Gymnasium | Stable, widely supported, simple step/reset contract |
-| Multi-agent API | PettingZoo Parallel | Matches SB3 shared-policy path via SuperSuit |
-| Physics backend | PyBullet | Lightweight, no licence friction; swap to MuJoCo via registry |
-| RL algorithm | SB3 PPO, SAC, TD3 | PPO default; SAC/TD3 walker-only baselines |
-| Config system | OmegaConf / Hydra | Readable YAML + structured overrides |
-| Experiment ops | TensorBoard + CSV + SB3 checkpoints | Low-dependency, works offline |
-
----
-
-## ⚡ Performance Tuning
-
-| Technique | Action | Expected Gain |
-|---|---|---|
-| **Parallel rollouts** | Set `training.num_envs: 4+` | ~3-4× on 4 cores |
-| **GPU training** | `device: cpu` for bundled MLP configs | Set `auto`/`cuda` explicitly for larger nets or CnnPolicy |
-| **Longer rollouts** | Increase `training.n_steps` | Better sample efficiency |
-| **Reduce logging** | Set `verbose: 0` | Minor |
-
-**For massive scale:** Consider [Brax](https://github.com/google/brax) (JAX vectorization) or [RLlib](https://www.ray.io/rllib) (distributed).
-
----
-
-## ⚠️ Known Limitations
-
-| Limitation | Workaround |
-|---|---|
-| **CPU physics** | PyBullet simulation is CPU-only; GPU speeds up the neural network only |
-| **Shared-policy arena parallelism** | Shared-policy SuperSuit arena training is single-process; enable `self_play` to use the native SB3 parallel path |
-| **Single active GUI run** | Use CLI runs for concurrent experiments until GUI run orchestration grows beyond the current single-run policy |
-| **Sequential sweeps** | Use `xargs` / `GNU parallel` / job scheduler for parallel hyperparameter sweeps |
-
----
-
-## Roadmap
-
-The active development plan lives in [`docs/open_items_todo.md`](docs/open_items_todo.md). The next work is grouped into:
-
-- The durable experimental decision ledger lives in
-  [`docs/walker_learning_history.md`](docs/walker_learning_history.md). Append
-  every walker learning experiment with its hypothesis, constants, results,
-  failure modes, visual evidence, and decision.
-- (2026-07-26) The walker gait gate was corrected: its original
-  "at least 15 alternating touchdowns per 100 steps" floor was calibrated from a
-  chattering baseline and would have rejected a real 1 Hz gait. It is now a
-  cadence band (1.5–8.5 per 100 steps) with stride, clearance, and progress
-  floors, and variant ranking no longer scores raw cadence. Measured throughput
-  is 5,970 fps, so re-baseline at 5–10M steps per seed rather than 150k before
-  comparing variants.
-- (2026-07-29) The walker gait gate is frozen at version 2 before the corrected
-  v7 rerun. It gates the physical contact-point slip metric at 0.18 m/s,
-  requires at least 10% double support, and permits at most 10% flight. The
-  support thresholds come from the configured anti-phase reference
-  (`stance_duty: 0.6` gives 20% nominal double support and zero flight), not
-  from candidate outcomes. The seed-21 10M corrected v7 rerun then passed 10/12
-  criteria: clearance improved from 17.6 to 32.5 mm and true slip from 0.163 to
-  0.124 m/s, but double support reached only 4.91% and flight remained 12.96%.
-  It is rejected for promotion; seeds 22–23 are not run.
-  The next isolated seed-21 candidate, `walker_reward_v8_support_overlap`,
-  rewards double support only during the phase reference's intended overlap.
-  Its full seed-21 evaluation recovered 11.59% double support and kept true
-  slip at 0.170 m/s, but stochastic flight was 22.04%; it is rejected under
-  gait gate v2 and does not advance to seeds 22–23.
-- Priority 0 correctness fixes are currently cleared for the arena self-play validation path; new confirmed bugs should be added here first.
-- Learning-quality decisions are made through the resumable `quality-study`
-  matrices; candidate defaults remain gated on promotion-scale evidence.
-- The 2026-07-25 promotion run cleared the evidence-budget gates but no
-  behavioral promotion gate. The follow-up implementation now equalizes walker
-  rollout/update frequency and adds explicit locomotion gates. Arena studies
-  now include feasible-combat and approach-shaping candidates, while dense hit
-  reward cannot anneal until eliminations have occurred.
-- Throughput and operations: multi-run GUI orchestration beyond the current
-  single-run policy.
-- Feature additions should be proposed only after the study reports identify a
-  measured bottleneck or strategic gap.
-
-Arena mechanics now include size-scaled collision radii, optional body-contact
-damage, uniform or center-contested food placement, energy costs for movement
-and attacks, and inverse size/speed scaling. Terminal episode metrics report
-contacts, damage, food pickups, attacks, and energy depletion for tournament
-studies. The richer mechanics expand the arena observation from 8 to 13 values,
-so existing arena checkpoints are not compatible with them.
-
-Walker observation v2 is checkpoint-incompatible with v1: v2 adds right/left
-foot-contact signals, and coordinate-free v2 removes global x/y while retaining
-height. Start a new run with `walker_v2_smoke_cpu`, `walker_sac_baseline`, or
-`walker_td3_baseline`; do not resume across observation versions.
-
-`arena-eval --policies a.zip,b.zip,c.zip` assigns one checkpoint per N-agent
-slot. N-agent tournaments rotate competitors through slots and derive Elo from
-placement scores. For N-agent replay, pass comma-separated `--replay-opponent`
-paths for every slot after `agent_0`. `morphology_search` ranks trials by
-one common post-training tournament Elo (`morphology_search.scoring:
-tournament_elo`, the default and only supported mode).
-
----
-
-## 🛠️ Maintenance Notes
-
-- Historical audit artifact: `docs/exhaustive_repo_review_2026-04-22.md`
-- Incremental fixes report: `docs/fixes_2026-04-22.md`
-- Open items and future plan: `docs/open_items_todo.md`
-- UI review roadmap: `docs/ui_roadmap.md`
-
-### Run Registry
-
-Each train run is registered in `outputs/run_registry.sqlite3` (or the configured
-`output.base_dir`). Every training invocation gets a fresh opaque registry
-identity. Reusable sweep and morphology labels such as `morph_000` remain
-separate output variant IDs and are exposed as `variant_id` in registry reads.
-The SQLite registry snapshots the resolved config, records status/metrics events
-and tuning commands, indexes artifacts, and links resumed runs to their parent.
-GUI tuning uses this durable queue, so commands survive a GUI process restart
-until the training callback claims them. The `registry` CLI reports table/status
-counts, exports every table as JSON, and safely prunes filtered runs, analysis
-jobs, or stale artifact index entries; see the CLI section for examples.
-
-### GUI Analysis
-
-The **Analysis** tab reads the run registry to compare the latest episode reward
-and length across runs and chart persisted metric history. Filters narrow the
-comparison by free-text run search, experiment, status, algorithm, and
-environment; the history metric is selectable and charts up to the ten newest
-matching runs. The view also shows recorded artifacts and distinguishes
-`best_model` from final/periodic checkpoints. Replay launches prefer
-`best_model.zip` and fall back to `final_model.zip`. Arena runs can launch a
-background round-robin rating job for league snapshots; at least two snapshots
-and `run_metadata.json` are required. Analysis jobs remain visible in the tab
-until completion and do not interrupt training.
-- Agent workflow notes: `AGENTS.md`
-
----
-
-## 📝 Changelog
-
-### v0.4.0
-
-**🐛 Bug Fixes:**
-- `eval_runner.py` — Arena eval now treats `episode_outcome: timeout` as truncation and uses the same SuperSuit/SB3 adapter as training, so timeout rates and done masks are recorded correctly
-- `gui/app.py` — Fixed path traversal vulnerability in `GET /api/outputs`: the `base_dir` query parameter is now ignored; the server always uses its own `_DEFAULT_OUTPUTS_DIR`
-- `gui/app.py` — `POST /api/train/stop/<run_id>` now returns **409 Conflict** (not 404) when the run exists but is not in a stoppable state; 404 is still returned for unknown run IDs
-- `live_tuning_callback.py` — Removed redundant `self.model.learning_rate = lr` assignment; SB3 uses `lr_schedule` (not the `learning_rate` attribute) to drive optimizer updates, so the stale write had no effect and was misleading
-- `gui/static/app.js` — `api()` fetch helper now wraps calls in `try/catch`; network failures and JSON parse errors previously caused silent unhandled promise rejections
-
-### v0.3.0
-
-**✨ New Features:**
-- 🖥️ **GPU acceleration** — `training.device` config key added. Defaults to `"auto"`, which selects an NVIDIA GPU when available and falls back to CPU otherwise. Accepted values: `auto`, `cpu`, `cuda`, `cuda:<N>`. All five bundled experiment configs updated.
-- `config.py` — `_validate_device()` rejects unrecognised device strings at startup with a clear error message.
-
-### v0.2.0
-
-**🐛 Bug Fixes:**
-- `eval_runner.py` — Multi-agent eval no longer crashes (`len(observation_space)` → `vec_env.num_envs`)
-- `config.py` — `_ensure_int` now correctly rejects booleans (Python `bool` is a subclass of `int`)
-- `app.py` — Path traversal fixed in `GET /api/configs/<name>` and `PUT /api/configs/<name>`
-
-**✨ Improvements:**
-- `arena_parallel.py` — Removed unused `energy` field (dead state that inflated obs from 7 → 8)
-- `app.py` — GUI auto-creates `configs/experiments/` directory on startup
-- `walker_bullet.py` — PyBullet client now disconnects if `__init__` fails partway through
-- `rewards.py` — Forward velocity error clamped to prevent unbounded negative rewards
-- `curriculum_callback.py` — Support per-level `level_up_thresholds` dict in addition to the global default
-- `training_manager.py` — `stop_run()` now actually halts training via a `_StopOnEvent` callback
-- `training/__init__.py` — Lazy imports so unit tests don't crash when torch is unavailable
-- `multi_seed_runner.py` — Seeds run in parallel by default (`ProcessPoolExecutor`); `--max-workers 1` for sequential
-- `tests/test_env_api.py` — Added edge-case tests for health depletion, max-step truncation, and agent-list clearing
-
-### v0.1.0
-
-**🐛 Bug Fixes:**
-- `eval_runner.py` — Multi-agent eval now loads trained model (was: random actions)
-- `arena_parallel.py` — In-episode growth now updates size each step (was: always zero)
-- `arena_parallel.py` — All five PettingZoo dicts now share consistent keys
-- `sweep.py` — Helpful error messages for invalid sweep parameter paths
-
-**✨ New Features:**
-- 🌐 **Web GUI** (`python -m rl_framework.cli.main gui`) — interactive wizard for experiment setup, real-time dashboard with reward charts, and live parameter tuning during training
-- 🔊 Sensor noise injection (`domain_randomization.sensor_noise_std`)
-- ⏱️ Action latency simulation (`domain_randomization.action_latency_steps`)
-- 📚 Curriculum learning with level-gated overrides
-- ⚡ `SubprocVecEnv` parallel rollouts
-- 🎲 Multi-seed aggregation (`multi-seed` command)
-- 🏆 Self-play league callback (organisms)
-
----
-
-## 📜 License
-
-See [LICENSE](LICENSE) in repository.
+No license file is included yet.
