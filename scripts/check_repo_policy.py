@@ -56,8 +56,11 @@ def _dependency_names_from_lockfile(lockfile_path: Path) -> set[str]:
 def _check_import_directions(package: Path) -> list[str]:
     """Check every import and non-docstring literal in the framework tree."""
     violations: list[str] = []
-    allowed = {"core": {"core"}, "physics": {"core", "physics"},
-               "games": {"core", "games"}}
+    allowed = {
+        "core": {"core"},
+        "physics": {"core", "physics"},
+        "games": {"core", "games"},
+    }
     for path in sorted(package.rglob("*.py")):
         relative = path.relative_to(package)
         layer = relative.parts[0]
@@ -70,8 +73,11 @@ def _check_import_directions(package: Path) -> list[str]:
         docstrings = {
             id(node.body[0].value)
             for node in ast.walk(tree)
-            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.body and isinstance(node.body[0], ast.Expr)
+            if isinstance(
+                node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+            )
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
             and isinstance(node.body[0].value, ast.Constant)
             and isinstance(node.body[0].value.value, str)
         }
@@ -83,9 +89,13 @@ def _check_import_directions(package: Path) -> list[str]:
                 module = node.module or ""
                 if node.level:
                     try:
-                        module = importlib.util.resolve_name("." * node.level + module, current_package)
+                        module = importlib.util.resolve_name(
+                            "." * node.level + module, current_package
+                        )
                     except ImportError:
-                        violations.append(f"{path}:{node.lineno}: invalid relative import: {ast.unparse(node)}")
+                        violations.append(
+                            f"{path}:{node.lineno}: invalid relative import: {ast.unparse(node)}"
+                        )
                         continue
                 targets = [module]
                 if module == "rl_framework":
@@ -93,22 +103,54 @@ def _check_import_directions(package: Path) -> list[str]:
             for target in targets:
                 if target != "rl_framework" and not target.startswith("rl_framework."):
                     continue
-                exception = (relative.as_posix() == "core/registry.py"
-                             and isinstance(node, ast.ImportFrom) and node.level == 0
-                             and node.module == "rl_framework.plugins"
-                             and len(node.names) == 1 and node.names[0].name == "PLUGIN_MODULES")
+                exception = (
+                    relative.as_posix() == "core/registry.py"
+                    and isinstance(node, ast.ImportFrom)
+                    and node.level == 0
+                    and node.module == "rl_framework.plugins"
+                    and len(node.names) == 1
+                    and node.names[0].name == "PLUGIN_MODULES"
+                )
                 destination = target.removeprefix("rl_framework.").split(".")[0]
-                if not exception and (layer == "plugins.py" or destination not in allowed[layer]):
-                    violations.append(f"{path}:{node.lineno}: {ast.unparse(node)}: {layer} import rule")
-            if (layer == "core" and isinstance(node, ast.Constant)
-                    and isinstance(node.value, str) and id(node) not in docstrings
-                    and (node.value in {"walker_bullet", "organism_arena_parallel"}
-                         or node.value.startswith(("rl_framework.physics", "rl_framework.games")))):
-                violations.append(f"{path}:{node.lineno}: {node.value!r}: core task literal rule")
+                if not exception and (
+                    layer == "plugins.py" or destination not in allowed[layer]
+                ):
+                    violations.append(
+                        f"{path}:{node.lineno}: {ast.unparse(node)}: {layer} import rule"
+                    )
+            if (
+                layer == "core"
+                and isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and id(node) not in docstrings
+                and (
+                    node.value in {"walker_bullet", "organism_arena_parallel"}
+                    or node.value.startswith(
+                        ("rl_framework.physics", "rl_framework.games")
+                    )
+                )
+            ):
+                violations.append(
+                    f"{path}:{node.lineno}: {node.value!r}: core task literal rule"
+                )
     return violations
 
 
+def _check_no_root_shim(repo_root: Path) -> list[str]:
+    """The package lives only at src/rl_framework; a root-level copy shadows it (ADR-004)."""
+    if (repo_root / "rl_framework").exists():
+        return [
+            "rl_framework/ at the repo root must not exist; the package is src/rl_framework (ADR-004)"
+        ]
+    return []
+
+
 def main() -> int:
+    shim = _check_no_root_shim(Path("."))
+    if shim:
+        for violation in shim:
+            print(violation)
+        return 1
     imports = _check_import_directions(Path("src/rl_framework"))
     if imports:
         for violation in imports:

@@ -14,7 +14,8 @@ Built on [Gymnasium](https://gymnasium.farama.org/), [PettingZoo](https://pettin
 # 1. Install
 git clone https://github.com/sparktron/MLenvironment.git && cd MLenvironment
 python -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -r requirements-lock.txt
+pip install --no-deps -e .
 
 # 2. Train a robot walker
 python -m rl_framework.cli.main train --config-name robot_walk_basic
@@ -122,9 +123,8 @@ docker run --rm -v "$(pwd)/outputs:/app/outputs" rl-framework train --config-nam
 ```bash
 git clone https://github.com/sparktron/MLenvironment.git && cd MLenvironment
 python -m venv .venv && source .venv/bin/activate
-pip install -e .                    # Core dependencies
-pip install -e ".[dev]"             # + dev tools (pytest, pytest-cov, ruff)
-# CI uses pinned dependencies from requirements-lock.txt
+pip install -r requirements-lock.txt  # pinned runtime + dev dependencies (single source of versions)
+pip install --no-deps -e .            # the package itself, editable; --no-deps keeps the lockfile authoritative
 ```
 
 **Verify:**
@@ -1029,7 +1029,7 @@ MLenvironment/
 ├── README.md
 ├── Dockerfile
 ├── pyproject.toml
-├── requirements.txt
+├── requirements-lock.txt
 │
 ├── src/rl_framework/
 │   ├── __init__.py

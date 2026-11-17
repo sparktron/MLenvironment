@@ -10,7 +10,12 @@ PPO training framework (Stable-Baselines3) on PyBullet physics envs, with a Flas
 ## Environment setup
 
 - A venv lives at `.venv/`. **Always activate it before running python or pytest** — `source .venv/bin/activate` — or the wrong interpreter / missing deps will silently break things.
-- Install from `requirements-lock.txt` (CI does this, not `pip install -e .`). The lockfile must contain every direct dep from `pyproject.toml`; CI fails otherwise.
+- Install in two steps, in this order (CI does the same):
+  ```
+  pip install -r requirements-lock.txt
+  pip install --no-deps -e .
+  ```
+  The lockfile is the only source of dependency versions; `--no-deps` stops the editable install from re-resolving them. The package is imported as `rl_framework` from anywhere once installed; there is no root-level shim. The lockfile must contain every direct dep from `pyproject.toml`; CI fails otherwise. See [`docs/decisions/004-editable-install-src-layout.md`](docs/decisions/004-editable-install-src-layout.md).
 
 ## CLI
 
@@ -96,14 +101,16 @@ Two distinct vec-env paths in `games/arena/training.py`, chosen by whether self-
 | `docs/` | Roadmap, studies, config references, the walker decision ledger |
 | `reviews/` | Point-in-time review artifacts |
 | `outputs/` | Run outputs — **gitignored, disposable, rebuildable** |
-| `rl_framework/` (root) | Contains only `__init__.py`. Not the package — see Known problems in `docs/STATUS.md` |
 
 ## Important invariants
 
 - **Activate `.venv/` first.** Without it the wrong interpreter silently
   produces wrong results rather than an error.
-- **Install from `requirements-lock.txt`, not `pip install -e .`** — and the
-  lockfile must contain every direct dep from `pyproject.toml`, or CI fails.
+- **Install the lockfile first, then `pip install --no-deps -e .`.** The
+  lockfile is the only source of dependency versions, and it must contain every
+  direct dep from `pyproject.toml`, or CI fails. (This replaced the old
+  "lockfile, not `pip install -e .`" rule; see
+  `docs/decisions/004-editable-install-src-layout.md`.)
 - `max_height: 1.5 m` is a deliberate backstop against the PD-jackhammer
   self-launch exploit. Loosening it re-opens a known degenerate solution.
 - `sim.control` is **nested**. A flattened `control: null` is an error; it used

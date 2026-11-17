@@ -29,11 +29,18 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# Non-Python assets the package loads at runtime. `configs/` and the GUI
+# static/template folders have no __init__.py, so package discovery skips them
+# and they are only shipped when named here.
+rl_framework = [
+  "configs/experiments/*.yaml",
+  "gui/static/*",
+  "gui/templates/*",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Put the repo root on sys.path (bare `pytest`, as CI runs it, does not add the
-# cwd the way `python -m pytest` does) so repo-root helpers stay importable.
-pythonpath = ["."]
 
 [tool.coverage.run]
 # tests/fixtures/legacy_checkpoints/walker was saved before the move to

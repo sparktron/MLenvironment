@@ -50,7 +50,7 @@ Type errors can therefore reach `master`.
 
 ### CI
 
-Runs the above. Installs from `requirements-lock.txt`, not `pip install -e .`;
+Runs the above. Installs `requirements-lock.txt` first, then `pip install --no-deps -e .`;
 a lockfile missing any direct dependency fails the build.
 
 ### Host simulation
