@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -9,63 +8,15 @@ from gymnasium import spaces
 from pettingzoo import ParallelEnv
 
 from rl_framework.core.config.config_merge import get_section
-from rl_framework.core.config.live_params import (
-    LiveParam,
-    LiveParamSet,
-    params_from_dataclass,
-)
 from rl_framework.games.arena.arena_render import ArenaRenderer
-
-
-@dataclass
-class BattleRules:
-    damage: float = 0.05
-    collision_damage: float = 0.0
-    attack_range: float = 0.2
-    cooldown_steps: int = 3
-    sensing_radius: float = 2.0
-    max_steps: int = 400
-    win_health_threshold: float = 0.0
-    attack_falloff: str = (
-        "linear"  # "linear" (distance-graded) or "binary" (hard cliff)
-    )
-
-
-@dataclass
-class ResourceRules:
-    initial_energy: float = 1.0
-    max_energy: float = 1.0
-    movement_cost: float = 0.01
-    attack_cost: float = 0.04
-    food_count: int = 2
-    food_energy: float = 0.35
-    food_radius: float = 0.10
-    food_respawn_steps: int = 40
-    food_placement: str = "uniform"
-
-
-@dataclass
-class RewardRules:
-    damage_scale: float = 1.0
-    approach_weight: float = 0.0
-
-
-# Every live key, declared once. Rules/resources fields are all tunable and keep
-# their runtime type; the rest are explicit. Morphology lives in a raw dict, so a
-# key not yet in the config falls back to float.
-LIVE_PARAM_SET = LiveParamSet(
-    [
-        *params_from_dataclass("battle_rules", BattleRules, all_live=True),
-        *params_from_dataclass("resources", ResourceRules, all_live=True),
-        LiveParam("reward.damage_scale", float),
-        LiveParam("reward.approach_weight", float),
-        LiveParam("sim.arena_half_extent", float),
-        *(
-            LiveParam(f"morphology.{key}", fallback=float)
-            for key in ("base_size", "health", "episode_growth_scale")
-        ),
-    ]
+from rl_framework.games.arena.config import (
+    LIVE_PARAM_SET,
+    BattleRules,
+    ResourceRules,
+    RewardRules,
 )
+
+# Re-exported: the live-key set now lives in games/arena/config.py.
 LIVE_PARAMS = LIVE_PARAM_SET.keys
 
 
@@ -113,7 +64,9 @@ class OrganismArenaParallelEnv(ParallelEnv):
             **{k: v for k, v in rules_cfg.items() if k in BattleRules.__annotations__}
         )
         resource_cfg = get_section(cfg, "resources")
-        unknown_resources = sorted(set(resource_cfg) - set(ResourceRules.__annotations__))
+        unknown_resources = sorted(
+            set(resource_cfg) - set(ResourceRules.__annotations__)
+        )
         if unknown_resources:
             warnings.warn(
                 f"Ignoring unknown resources keys {unknown_resources}; "
@@ -121,7 +74,11 @@ class OrganismArenaParallelEnv(ParallelEnv):
                 stacklevel=2,
             )
         self.resources = ResourceRules(
-            **{k: v for k, v in resource_cfg.items() if k in ResourceRules.__annotations__}
+            **{
+                k: v
+                for k, v in resource_cfg.items()
+                if k in ResourceRules.__annotations__
+            }
         )
         reward_cfg = get_section(cfg, "reward")
         unknown_rewards = sorted(set(reward_cfg) - set(RewardRules.__annotations__))
@@ -335,7 +292,10 @@ class OrganismArenaParallelEnv(ParallelEnv):
         cooldown_frac = float(me["cooldown"]) / max(self.rules.cooldown_steps, 1)
         available_food = [food for food in self._food if food["respawn_at"] is None]
         if available_food:
-            food = min(available_food, key=lambda item: float(np.linalg.norm(item["pos"] - me["pos"])))
+            food = min(
+                available_food,
+                key=lambda item: float(np.linalg.norm(item["pos"] - me["pos"])),
+            )
             food_rel = (food["pos"] - me["pos"]) / diameter
             food_x, food_y, food_visible = float(food_rel[0]), float(food_rel[1]), 1.0
         else:
@@ -652,7 +612,9 @@ class OrganismArenaParallelEnv(ParallelEnv):
                     continue
                 delta = self.state[right]["pos"] - self.state[left]["pos"]
                 distance = float(np.linalg.norm(delta))
-                minimum = self.collision_radius * (self.state[left]["size"] + self.state[right]["size"])
+                minimum = self.collision_radius * (
+                    self.state[left]["size"] + self.state[right]["size"]
+                )
                 if distance >= minimum:
                     continue
                 self._episode_stats[left]["collision_contacts"] += 1.0
@@ -670,10 +632,22 @@ class OrganismArenaParallelEnv(ParallelEnv):
                     self.state[right]["health"] -= damage_to_right
                     self._episode_stats[right]["damage_dealt"] += damage_to_left
                     self._episode_stats[left]["damage_dealt"] += damage_to_right
-                direction = delta / distance if distance > 1e-8 else np.array([1.0, 0.0], dtype=np.float32)
+                direction = (
+                    delta / distance
+                    if distance > 1e-8
+                    else np.array([1.0, 0.0], dtype=np.float32)
+                )
                 correction = (minimum - distance) / 2.0
-                self.state[left]["pos"] = np.clip(self.state[left]["pos"] - direction * correction, -self.bounds, self.bounds)
-                self.state[right]["pos"] = np.clip(self.state[right]["pos"] + direction * correction, -self.bounds, self.bounds)
+                self.state[left]["pos"] = np.clip(
+                    self.state[left]["pos"] - direction * correction,
+                    -self.bounds,
+                    self.bounds,
+                )
+                self.state[right]["pos"] = np.clip(
+                    self.state[right]["pos"] + direction * correction,
+                    -self.bounds,
+                    self.bounds,
+                )
 
     def _update_food(self, active_agents: list[str], rewards: dict[str, float]) -> None:
         """Respawn consumed food and award its energy to the first nearby agent."""
@@ -683,11 +657,19 @@ class OrganismArenaParallelEnv(ParallelEnv):
                     food["pos"] = self._spawn_food_position()
                     food["respawn_at"] = None
                 continue
-            nearby = [agent for agent in active_agents if self._is_alive(agent) and float(np.linalg.norm(self.state[agent]["pos"] - food["pos"])) <= self.resources.food_radius]
+            nearby = [
+                agent
+                for agent in active_agents
+                if self._is_alive(agent)
+                and float(np.linalg.norm(self.state[agent]["pos"] - food["pos"]))
+                <= self.resources.food_radius
+            ]
             if nearby:
                 eater = min(nearby)
                 before = self.state[eater]["energy"]
-                self.state[eater]["energy"] = min(self.resources.max_energy, before + self.resources.food_energy)
+                self.state[eater]["energy"] = min(
+                    self.resources.max_energy, before + self.resources.food_energy
+                )
                 rewards[eater] += self.state[eater]["energy"] - before
                 self._episode_stats[eater]["food_pickups"] += 1.0
                 food["respawn_at"] = self.step_count + self.resources.food_respawn_steps
