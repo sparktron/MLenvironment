@@ -53,5 +53,5 @@ a mapping`).
 - `validation.py` and `gui_schema.py` still restate some key sets; only the
   live-key set and reward/termination keys are derived from the types. Folding
   the rest in changes validation behaviour and deserves its own change.
-- The root `rl_framework/__init__.py` path shim is unchanged: removing it means
-  an editable install, which conflicts with the lockfile-only install policy.
+- The root `rl_framework/__init__.py` path shim was unchanged here; ADR-004
+  removed it.

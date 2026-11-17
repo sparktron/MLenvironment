@@ -16,3 +16,4 @@ ADR usage starts properly from here **going forward**; history was not mined.
 |---|---|---|
 | [001](001-terrain-mix-not-curriculum.md) | Vary terrain by per-episode sampling, not by curriculum | Accepted |
 | [003](003-env-structure-and-declarative-config.md) | Split the walker env; declare config and live parameters as data | Accepted |
+| [004](004-editable-install-src-layout.md) | Install the src layout editable; drop the root `rl_framework/` shim | Accepted |

@@ -88,3 +88,14 @@ def test_import_policy_allows_clean_tree_and_registry_exception(tmp_path: Path) 
 def test_real_tree_obeys_import_policy() -> None:
     root = Path(__file__).resolve().parents[1] / "src" / "rl_framework"
     assert check_repo_policy._check_import_directions(root) == []
+
+
+def test_root_shim_check_flags_root_package_folder(tmp_path: Path) -> None:
+    (tmp_path / "rl_framework").mkdir()
+    (tmp_path / "rl_framework" / "__init__.py").write_text("", encoding="utf-8")
+    assert check_repo_policy._check_no_root_shim(tmp_path)
+
+
+def test_root_shim_check_allows_src_only_layout(tmp_path: Path) -> None:
+    (tmp_path / "src" / "rl_framework").mkdir(parents=True)
+    assert check_repo_policy._check_no_root_shim(tmp_path) == []

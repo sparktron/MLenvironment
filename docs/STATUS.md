@@ -88,9 +88,13 @@ None identified from repository evidence.
 - Shared-policy arena (`self_play.enabled: false`) is single-process only; a
   guard rejects `num_envs > 1`.
 - `SubprocVecEnv` cannot be smoke-tested from a stdin heredoc.
-- A root-level `rl_framework/` directory contains a single tracked
-  `__init__.py`, distinct from the real package at `src/rl_framework/`. Its
-  purpose is **unverified** — possibly a stale import shim.
+- The root-level `rl_framework/` path shim is gone (ADR-004). Setup is now
+  `pip install -r requirements-lock.txt` then `pip install --no-deps -e .`.
+  Running a script from a bare checkout without installing fails with
+  `ModuleNotFoundError` by design.
+- `src/rl_framework/__init__.py` sets `__all__ = ["envs", "training", "utils"]`,
+  which names modules that no longer exist; `from rl_framework import *` fails.
+  Not fixed in ADR-004.
 
 ## Validation state
 
