@@ -3,7 +3,7 @@
 Lives apart from ``arena_parallel`` (which imports matplotlib via the renderer)
 so that ``validation.py`` and tooling can derive the accepted keys and defaults
 without pulling in the env. The rule dataclasses are the single source for the
-arena's key sets, defaults and live declarations (see ADR-004).
+arena's key sets, defaults and live declarations (see ADR-005).
 """
 
 from __future__ import annotations

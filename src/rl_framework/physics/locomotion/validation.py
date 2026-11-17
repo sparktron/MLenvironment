@@ -1,6 +1,6 @@
 """Task-specific experiment configuration validation.
 
-Key sets come from the config types, not from literals here (ADR-004):
+Key sets come from the config types, not from literals here (ADR-005):
 reward/termination fields from their dataclasses, terrain and push-recovery
 keys from the terrain live-parameter declarations, presets from ``terrain``,
 clearance points and observation versions from ``config``. Only the rules the

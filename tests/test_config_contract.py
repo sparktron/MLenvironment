@@ -1,7 +1,7 @@
 """Characterization of walker/arena config acceptance and rejection.
 
 Each row records the behaviour the validators had before key sets were derived
-from the config dataclasses (ADR-004). A row changing means an accepted or
+from the config dataclasses (ADR-005). A row changing means an accepted or
 rejected config or an error message changed, which must be listed in the PR.
 """
 
@@ -336,7 +336,7 @@ def test_arena_validation_contract(label, section, error, message) -> None:
 
 
 def test_live_param_keys_match_snapshot() -> None:
-    from rl_framework.games.arena.arena_parallel import LIVE_PARAMS as arena_live
+    from rl_framework.games.arena.config import LIVE_PARAMS as arena_live
     from rl_framework.physics.locomotion.config import LIVE_PARAMS as walker_live
 
     expected = json.loads((FIXTURES / "live_params.json").read_text())
@@ -369,3 +369,212 @@ def test_gui_schema_matches_snapshot() -> None:
     snapshot = json.loads((FIXTURES / "gui_schema.json").read_text())
     current_json = json.loads(json.dumps(current, sort_keys=True, default=str))
     assert current_json == snapshot
+
+
+# GUI wizard defaults that differ from the config dataclass defaults. Recorded as
+# (gui value, dataclass value). The wizard values are kept: changing them changes
+# every config the wizard writes. The dataclass values are what the env uses when
+# a config omits the key. Which side is intended is an open owner decision, see
+# ADR-005. A new divergence fails this test until it is added here on purpose.
+KNOWN_GUI_DEFAULT_DIVERGENCES: dict[tuple[str, ...], tuple[Any, Any]] = {
+    ("walker_bullet", "sim", "friction"): (0.9, 0.8),
+    ("walker_bullet", "sim", "mass"): (28.0, 3.0),
+    ("walker_bullet", "reward", "alive_bonus"): (5.0, 0.25),
+    ("walker_bullet", "reward", "forward_velocity_weight"): (1.5, 2.0),
+    ("walker_bullet", "termination", "max_steps"): (800, 1000),
+    ("walker_bullet", "reset_randomization", "yaw_noise"): (0.08, 0.1),
+    ("walker_bullet", "domain_randomization", "friction_range"): (
+        [0.9, 1.1],
+        [1.0, 1.0],
+    ),
+    ("walker_bullet", "domain_randomization", "mass_scale_range"): (
+        [0.95, 1.05],
+        [1.0, 1.0],
+    ),
+    ("organism_arena_parallel", "battle_rules", "damage"): (0.06, 0.05),
+}
+# GUI keys that are legacy names for a dataclass field.
+GUI_KEY_ALIASES: dict[tuple[str, ...], str] = {
+    ("walker_bullet", "sim", "max_force"): "max_torque",
+}
+
+
+def _gui_schema(task: str) -> dict[str, Any]:
+    """The task's GUI schema, with stub training/eval sections.
+
+    Only ``environment`` is inspected here. The arena schema writes into
+    ``training["num_envs"]``, so the stub carries that key.
+    """
+    from rl_framework.core.registry import get_task
+    import rl_framework.games.arena  # noqa: F401
+    import rl_framework.physics.locomotion  # noqa: F401
+
+    def training() -> dict[str, Any]:
+        return {"num_envs": {"value": 1}}
+
+    return get_task(task).gui_schema(training, lambda: {})
+
+
+def _walker_types():
+    from rl_framework.physics.locomotion.config import (
+        ControlConfig,
+        DomainRandomizationConfig,
+        GaitConfig,
+        ResetRandomizationConfig,
+        SimConfig,
+    )
+    from rl_framework.physics.locomotion.rewards import WalkerReward
+    from rl_framework.physics.locomotion.terminations import WalkerTermination
+
+    return {
+        ("sim",): SimConfig,
+        ("sim", "control"): ControlConfig,
+        ("reward",): WalkerReward,
+        ("gait",): GaitConfig,
+        ("termination",): WalkerTermination,
+        ("reset_randomization",): ResetRandomizationConfig,
+        ("domain_randomization",): DomainRandomizationConfig,
+    }
+
+
+def _arena_types():
+    from rl_framework.games.arena.config import BattleRules, ResourceRules, RewardRules
+
+    return {
+        ("battle_rules",): BattleRules,
+        ("resources",): ResourceRules,
+        ("reward",): RewardRules,
+    }
+
+
+def _gui_leaves(env: dict[str, Any]) -> dict[tuple[str, ...], dict[str, Any]]:
+    """Every ``{"value": ...}`` leaf under the environment, keyed by its path."""
+    out: dict[tuple[str, ...], dict[str, Any]] = {}
+
+    def walk(node: dict[str, Any], path: tuple[str, ...]) -> None:
+        for key, child in node.items():
+            if not isinstance(child, dict):
+                continue
+            if "value" in child:
+                out[(*path, key)] = child
+            else:
+                walk(child, (*path, key))
+
+    for section, group in env.items():
+        if isinstance(group, dict) and "value" not in group:
+            walk(group, (section,))
+    return out
+
+
+def _field_for(types: dict, path: tuple[str, ...]):
+    """(dataclass, field name) for a GUI leaf path, or None when unmapped."""
+    for cut in range(len(path) - 1, 0, -1):
+        cls = types.get(path[:cut])
+        if cls is not None:
+            return cls, path[-1]
+    return None
+
+
+def _field_default(cls, name: str) -> Any:
+    from dataclasses import MISSING, fields
+
+    for f in fields(cls):
+        if f.name == name:
+            if f.default is not MISSING:
+                return f.default
+            return f.default_factory()  # type: ignore[misc]
+    raise KeyError(name)
+
+
+@pytest.mark.parametrize("task", ["walker_bullet", "organism_arena_parallel"])
+def test_gui_leaves_name_real_config_fields(task: str) -> None:
+    from rl_framework.gui.app import _eval_schema, _training_schema  # noqa: F401
+    import rl_framework.games.arena  # noqa: F401
+    import rl_framework.physics.locomotion  # noqa: F401
+
+    schema = _gui_schema(task)
+    types = _walker_types() if task == "walker_bullet" else _arena_types()
+    checked = 0
+    for path, leaf in _gui_leaves(schema["environment"]).items():
+        found = _field_for(types, path)
+        if found is None:
+            continue
+        cls, name = found
+        checked += 1
+        alias_target = GUI_KEY_ALIASES.get((task, *path))
+        if alias_target is not None:
+            assert alias_target in {f for f in cls.__dataclass_fields__}, path
+        else:
+            assert name in cls.__dataclass_fields__, (
+                f"{task} GUI key {path} is not a field of {cls.__name__}"
+            )
+    assert checked > 0
+
+
+@pytest.mark.parametrize("task", ["walker_bullet", "organism_arena_parallel"])
+def test_gui_defaults_match_dataclasses_or_are_recorded(task: str) -> None:
+    import rl_framework.games.arena  # noqa: F401
+    import rl_framework.physics.locomotion  # noqa: F401
+
+    schema = _gui_schema(task)
+    types = _walker_types() if task == "walker_bullet" else _arena_types()
+    seen: set[tuple[str, ...]] = set()
+    for path, leaf in _gui_leaves(schema["environment"]).items():
+        found = _field_for(types, path)
+        if found is None:
+            continue
+        cls, name = found
+        name = GUI_KEY_ALIASES.get((task, *path), name)
+        gui_value = leaf["value"]
+        dc_value = _field_default(cls, name)
+        key = (task, *path)
+        if gui_value == dc_value:
+            assert key not in KNOWN_GUI_DEFAULT_DIVERGENCES, (
+                f"{key} no longer diverges; remove it"
+            )
+            continue
+        assert key in KNOWN_GUI_DEFAULT_DIVERGENCES, (
+            f"new GUI default divergence {key}: gui={gui_value!r} dataclass={dc_value!r}"
+        )
+        assert KNOWN_GUI_DEFAULT_DIVERGENCES[key] == (gui_value, dc_value), key
+        seen.add(key)
+    task_known = {k for k in KNOWN_GUI_DEFAULT_DIVERGENCES if k[0] == task}
+    assert task_known == seen
+
+
+def test_derived_key_sets_are_pinned() -> None:
+    from rl_framework.games.arena.config import FOOD_PLACEMENTS, MORPHOLOGY_KEYS
+    from rl_framework.physics.locomotion.config import (
+        OBSERVATION_VERSIONS,
+        PUSH_RECOVERY_KEYS,
+        TERRAIN_SPEC_KEYS,
+        VALID_CLEARANCE_POINTS,
+    )
+    from rl_framework.physics.locomotion.terrain import TERRAIN_PRESETS
+
+    assert TERRAIN_SPEC_KEYS == frozenset(
+        {
+            "preset",
+            "height",
+            "obstacle_height",
+            "mix",
+            "push_recovery",
+            "length",
+            "width",
+            "randomize",
+            "wavelength",
+            "obstacle_spacing",
+            "obstacle_spacing_jitter",
+            "obstacle_height_jitter",
+        }
+    )
+    assert PUSH_RECOVERY_KEYS == frozenset(
+        {"interval_steps", "force", "start_step", "duration_s"}
+    )
+    assert TERRAIN_PRESETS == frozenset(
+        {"flat", "uneven", "obstacles", "push_recovery"}
+    )
+    assert VALID_CLEARANCE_POINTS == frozenset({"com", "sole"})
+    assert OBSERVATION_VERSIONS == frozenset({"v1", "v2"})
+    assert FOOD_PLACEMENTS == frozenset({"uniform", "center"})
+    assert MORPHOLOGY_KEYS == frozenset({"base_size", "health", "episode_growth_scale"})

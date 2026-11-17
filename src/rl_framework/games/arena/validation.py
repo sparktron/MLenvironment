@@ -1,7 +1,7 @@
 """Task-specific experiment configuration validation.
 
 Resource and morphology key sets, and the defaults used for cross-field checks,
-come from the arena rule types (``games/arena/config.py``, ADR-004). The rules
+come from the arena rule types (``games/arena/config.py``, ADR-005). The rules
 that name which keys must be positive or non-negative stay written out here,
 because the types do not carry that information.
 """
