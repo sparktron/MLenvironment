@@ -28,7 +28,7 @@ Training uses [Stable-Baselines3](https://stable-baselines3.readthedocs.io/). A 
 
 ## Requirements
 
-- Python 3.10 or newer. CI and the Docker image use **Python 3.11**, which is the recommended version.
+- Python 3.11 or newer. CI and the Docker image use **Python 3.11**. Python 3.10 is no longer supported: the legacy walker checkpoint test needs 3.11 to deserialise its saved learning-rate schedule.
 - Linux is the tested platform. PyBullet builds from a wheel on common platforms.
 - CPU training works out of the box. The walker and arena policies are small MLPs and train faster on CPU than on GPU. Set `training.device` to `cuda` only if you have a tested GPU setup.
 

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "rl-experiment-framework"
 version = "0.1.0"
 description = "Modular RL experiment framework for locomotion and organism competitions"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "gymnasium==1.2.3",
   "pettingzoo==1.25.0",

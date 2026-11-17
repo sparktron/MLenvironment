@@ -1,6 +1,6 @@
 # Current Status
 
-**Updated:** 2026-11-16 · **Branch:** `master` · **Restructure baseline:** `ae6f09b`
+**Updated:** 2026-11-17 · **Branch:** `master` · **Restructure baseline:** `ae6f09b`
 
 ## Objective
 
@@ -11,9 +11,12 @@ experiment configs through one CLI, with a Flask GUI for experiment management.
 
 ## Current state
 
-- Single CLI entry point with nine subcommands: `train`, `eval`, `arena-eval`,
-  `arena-tournament`, `sweep`, `multi-seed`, `render-replay`, `morph-search`,
+- Single CLI entry point (`python -m rl_framework.cli.main`) with eleven
+  subcommands: `train`, `eval`, `arena-eval`, `arena-tournament`, `sweep`,
+  `multi-seed`, `render-replay`, `morph-search`, `quality-study`, `registry`,
   `gui`.
+- Python 3.11 or newer (`requires-python = ">=3.11"`, raised 2026-11-17). The
+  legacy walker checkpoint's saved schedule only deserialises on 3.11.
 - Walker env on PD position control by default; 240 Hz physics with
   `frame_skip=4` → 60 Hz control; contact-based termination.
 - **Per-episode terrain sampling** via `terrain.mix` (added 2026-08-11); the
@@ -100,7 +103,7 @@ None identified from repository evidence.
 
 | Check | Status |
 |---|---|
-| `pytest -q --cov=src/rl_framework --cov-fail-under=60` | Passed locally on 2026-11-14 after the review fixes: 554 tests, 84% coverage. |
+| `pytest -q --cov=src/rl_framework --cov-fail-under=60` | Passed locally on Python 3.11 on 2026-11-17: 653 tests, 85.6% coverage. |
 | `ruff check src tests scripts` | Passed locally. |
 | `python scripts/check_repo_policy.py` | Passed locally. |
 | `mypy src --ignore-missing-imports` | Clean; **blocking** in CI since 2026-11-14. |
@@ -123,7 +126,9 @@ held": [`VALIDATION.md`](VALIDATION.md).
 
 | Date | Decision | Evidence |
 |---|---|---|
-| 2026-11-17 | Validation key sets derived from the config types; arena rule types moved to `games/arena/config.py`; GUI defaults that differ from the dataclasses recorded, not changed (owner decision) | ADR-004, `tests/test_config_contract.py`, fixed-seed rollout digest identical at `4cbd89a` |
+| 2026-11-17 | Python floor raised to 3.11 to match CI and the Docker image | `pyproject.toml`, README, `tests/test_legacy_checkpoints.py` |
+| 2026-11-17 | Arena config reference corrected to the 13-D observation and strict key validation | `docs/organism_arena_config.md`, `games/arena/validation.py` |
+| 2026-11-17 | Validation key sets derived from the config types; arena rule types moved to `games/arena/config.py`; GUI defaults that differ from the dataclasses recorded, not changed (owner decision) | ADR-005, `tests/test_config_contract.py`, fixed-seed rollout digest identical at `4cbd89a` |
 | 2026-11-14 | Terrain and push rebuilt; v11/v12 conclusions reopened; config typos and `control: null` now fail | `reviews/code_review_2026-11-14.md`, ledger |
 | 2026-08-13 | v12 mixed-terrain hypothesis refuted; recorded rather than discarded | commit `aecf61d`, `docs/walker_learning_history.md` |
 | 2026-08-11 | Terrain variation via per-episode `terrain.mix`, not curriculum | commit, `AGENTS.md` |

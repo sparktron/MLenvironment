@@ -5,7 +5,7 @@ the single source of truth; `CLAUDE.md` imports it.
 
 ## Project at a glance
 
-PPO training framework (Stable-Baselines3) on PyBullet physics envs, with a Flask GUI for experiment management. Python ≥ 3.10. Two env families: bipedal walker (`walker_bullet`, single-agent Gymnasium) and 2-agent organism arena (`organism_arena_parallel`, PettingZoo). Configs live in `src/rl_framework/configs/experiments/*.yaml`.
+PPO training framework (Stable-Baselines3) on PyBullet physics envs, with a Flask GUI for experiment management. Python ≥ 3.11. Two env families: bipedal walker (`walker_bullet`, single-agent Gymnasium) and 2-agent organism arena (`organism_arena_parallel`, PettingZoo). Configs live in `src/rl_framework/configs/experiments/*.yaml`.
 
 ## Environment setup
 
