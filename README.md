@@ -47,10 +47,10 @@ source .venv/bin/activate
 
 pip install --upgrade pip
 pip install -r requirements-lock.txt
-pip install -e .
+pip install --no-deps -e .
 ```
 
-`pip install -e .` installs the `rl_framework` package itself. It does not change any pinned versions. These are the same steps CI runs.
+`pip install --no-deps -e .` installs the `rl_framework` package itself in editable mode. `--no-deps` keeps the lockfile the only source of versions. These are the same steps CI runs.
 
 Check the install:
 
