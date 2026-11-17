@@ -12,10 +12,14 @@ from typing import Any
 
 from rl_framework.core.config.config import _ensure_int
 from rl_framework.physics.locomotion.config import (
+    _LEGACY_SIM_KEYS,
+    CONTROL_MODES,
     OBSERVATION_VERSIONS,
     PUSH_RECOVERY_KEYS,
     TERRAIN_SPEC_KEYS,
     VALID_CLEARANCE_POINTS,
+    GaitConfig,
+    SimConfig,
 )
 from rl_framework.physics.locomotion.rewards import VELOCITY_MODES, WalkerReward
 from rl_framework.physics.locomotion.terminations import WalkerTermination
@@ -79,6 +83,9 @@ def _validate_terrain_spec(spec: dict[str, Any], name: str) -> None:
 def validate_config(cfg: dict[str, Any]) -> None:
     env_cfg = cfg.get("environment", {})
     sim = env_cfg.get("sim") or {}
+    _reject_unknown(
+        sim, set(SimConfig.__annotations__) | _LEGACY_SIM_KEYS, "environment.sim"
+    )
     action_scale = sim.get("action_scale", 1.0)
     if not _is_number(action_scale) or not 0 < action_scale <= 1:
         raise ValueError(
@@ -92,6 +99,13 @@ def validate_config(cfg: dict[str, Any]) -> None:
             "environment.sim.control must be a mapping (mode, position_gain, "
             f"velocity_gain), got {sim['control']!r}"
         )
+    if "control" in sim and isinstance(sim["control"], dict):
+        mode = sim["control"].get("mode", "pd")
+        if mode not in CONTROL_MODES:
+            raise ValueError(
+                "environment.sim.control.mode must be one of "
+                f"{sorted(CONTROL_MODES)}, got {mode!r}"
+            )
     if "limb_collision" in sim and not isinstance(sim["limb_collision"], bool):
         raise TypeError("environment.sim.limb_collision must be bool")
     observation = env_cfg.get("observation") or {}
@@ -136,6 +150,7 @@ def validate_config(cfg: dict[str, Any]) -> None:
     )
 
     gait = env_cfg.get("gait") or {}
+    _reject_unknown(gait, set(GaitConfig.__annotations__), "environment.gait")
     if "touchdown_debounce_steps" in gait:
         _ensure_int(
             gait["touchdown_debounce_steps"],

@@ -31,6 +31,10 @@ from rl_framework.physics.locomotion.terminations import WalkerTermination
 VALID_CLEARANCE_POINTS = frozenset({"com", "sole"})
 # Accepted by validation; the env only branches on "v2", so this is a check, not a parser.
 OBSERVATION_VERSIONS = frozenset({"v1", "v2"})
+# dynamics.py branches on "pd"; anything else used to silently act as torque.
+CONTROL_MODES = frozenset({"pd", "torque"})
+# `max_force` is a legacy spelling of `max_torque`, still accepted.
+_LEGACY_SIM_KEYS = frozenset({"max_force"})
 
 
 @dataclass
@@ -65,7 +69,18 @@ class SimConfig:
                 "environment.sim.control must be a mapping with mode, "
                 f"position_gain and velocity_gain; got {raw['control']!r}"
             )
+        _reject_unknown_keys(
+            {k: v for k, v in raw.items() if k not in _LEGACY_SIM_KEYS},
+            cls,
+            "environment.sim",
+        )
         ctrl = get_section(raw, "control")
+        mode = str(ctrl.get("mode", "pd"))
+        if mode not in CONTROL_MODES:
+            raise ValueError(
+                "environment.sim.control.mode must be one of "
+                f"{sorted(CONTROL_MODES)}, got {mode!r}"
+            )
         return cls(
             gravity=raw.get("gravity", -9.81),
             timestep=float(raw.get("timestep", 1.0 / 240.0)),
@@ -78,7 +93,7 @@ class SimConfig:
             mass=raw.get("mass", 3.0),
             friction=raw.get("friction", 0.8),
             control=ControlConfig(
-                mode=str(ctrl.get("mode", "pd")),
+                mode=mode,
                 position_gain=float(ctrl.get("position_gain", 0.1)),
                 velocity_gain=float(ctrl.get("velocity_gain", 1.0)),
             ),
@@ -98,6 +113,9 @@ class ObservationConfig:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> ObservationConfig:
+        version = str(raw.get("version", "v1"))
+        if version not in OBSERVATION_VERSIONS:
+            raise ValueError("environment.observation.version must be 'v1' or 'v2'")
         out = cls(
             version=str(raw.get("version", "v1")),
             coordinate_free=bool(raw.get("coordinate_free", False)),
@@ -137,6 +155,7 @@ class GaitConfig:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> GaitConfig:
+        _reject_unknown_keys(raw, cls, "environment.gait")
         out = cls(
             cycle_period_s=float(raw.get("cycle_period_s", 1.0)),
             stance_duty=float(raw.get("stance_duty", 0.6)),

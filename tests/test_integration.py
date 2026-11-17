@@ -27,7 +27,6 @@ def _walker_cfg(
                 "mass": 3.0,
                 "friction": 0.8,
                 "max_force": 30.0,
-                "arena_half_extent": 5.0,
             },
             "reward": {
                 "alive_bonus": 1.0,
@@ -149,10 +148,7 @@ def test_walker_best_model_writes_matching_vecnorm_sidecar(tmp_path: Path) -> No
     train(cfg)
 
     checkpoints = (
-        Path(tmp_path)
-        / cfg["experiment_name"]
-        / f"seed_{cfg['seed']}"
-        / "checkpoints"
+        Path(tmp_path) / cfg["experiment_name"] / f"seed_{cfg['seed']}" / "checkpoints"
     )
     assert (checkpoints / "best_model.zip").exists()
     assert (checkpoints / "best_model_vecnormalize.pkl").exists()
@@ -382,7 +378,9 @@ def test_walker_eval_writes_metrics_csv(tmp_path: Path) -> None:
     """Parallel evaluate() appends metrics and returns an aggregate result."""
     from rl_framework.core.training.eval_runner import evaluate
     from rl_framework.core.training.sb3_runner import train
-    from rl_framework.physics.locomotion.analysis.walker_diagnostics import evaluate_walker_checkpoint
+    from rl_framework.physics.locomotion.analysis.walker_diagnostics import (
+        evaluate_walker_checkpoint,
+    )
 
     cfg = _walker_cfg(tmp_path)
     cfg["evaluation"] = {"episodes": 2, "workers": 2}

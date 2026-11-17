@@ -35,6 +35,12 @@ def validate_config(cfg: dict[str, Any]) -> None:
             "to use the native parallel vector-env path."
         )
     battle = env_cfg.get("battle_rules", {})
+    unknown_rules = sorted(set(battle) - {f.name for f in fields(BattleRules)})
+    if unknown_rules:
+        raise ValueError(
+            f"Unknown environment.battle_rules keys {unknown_rules}; "
+            f"valid keys are {sorted(f.name for f in fields(BattleRules))}"
+        )
     for key in ("damage", "attack_range"):
         if key in battle:
             val = battle[key]

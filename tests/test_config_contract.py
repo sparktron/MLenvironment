@@ -47,8 +47,37 @@ WALKER_CASES: list[tuple[str, dict[str, Any], type | None, str | None]] = [
         TypeError,
         "environment.sim.limb_collision must be bool",
     ),
-    ("unknown sim key accepted", {"sim": {"not_a_key": 1}}, None, None),
-    ("control mode not checked", {"sim": {"control": {"mode": "bogus"}}}, None, None),
+    (
+        "unknown sim key rejected",
+        {"sim": {"not_a_key": 1}},
+        ValueError,
+        "Unknown environment.sim keys ['not_a_key']; valid keys are ",
+    ),
+    ("legacy max_force accepted", {"sim": {"max_force": 35.0}}, None, None),
+    (
+        "control mode bogus rejected",
+        {"sim": {"control": {"mode": "bogus"}}},
+        ValueError,
+        "environment.sim.control.mode must be one of ['pd', 'torque'], got 'bogus'",
+    ),
+    (
+        "control mode torque accepted",
+        {"sim": {"control": {"mode": "torque"}}},
+        None,
+        None,
+    ),
+    (
+        "unknown gait key rejected",
+        {"gait": {"not_a_key": 1}},
+        ValueError,
+        "Unknown environment.gait keys ['not_a_key']; valid keys are ",
+    ),
+    (
+        "observation version rejected at construction",
+        {"observation": {"version": "v3"}},
+        ValueError,
+        "environment.observation.version must be 'v1' or 'v2'",
+    ),
     (
         "observation version",
         {"observation": {"version": "v3"}},
@@ -248,7 +277,12 @@ ARENA_CASES: list[tuple[str, dict[str, Any], type | None, str | None]] = [
         ValueError,
         "environment.battle_rules.collision_damage must be a non-negative number, got -1",
     ),
-    ("battle_rules unknown key accepted", {"battle_rules": {"bogus": 1}}, None, None),
+    (
+        "battle_rules unknown key rejected",
+        {"battle_rules": {"bogus": 1}},
+        ValueError,
+        "Unknown environment.battle_rules keys ['bogus']; valid keys are ",
+    ),
     (
         "morphology unknown key",
         {"morphology": {"speed": 1}},

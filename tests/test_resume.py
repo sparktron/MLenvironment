@@ -26,7 +26,6 @@ def _base_cfg(tmp_path: Path, timesteps: int = 128) -> dict:
                 "mass": 3.0,
                 "friction": 0.8,
                 "max_force": 30.0,
-                "arena_half_extent": 5.0,
             },
             "reward": {
                 "alive_bonus": 1.0,
