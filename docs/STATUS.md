@@ -119,6 +119,7 @@ held": [`VALIDATION.md`](VALIDATION.md).
 
 | Date | Decision | Evidence |
 |---|---|---|
+| 2026-11-17 | Validation key sets derived from the config types; arena rule types moved to `games/arena/config.py`; GUI defaults that differ from the dataclasses recorded, not changed (owner decision) | ADR-004, `tests/test_config_contract.py`, fixed-seed rollout digest identical at `4cbd89a` |
 | 2026-11-14 | Terrain and push rebuilt; v11/v12 conclusions reopened; config typos and `control: null` now fail | `reviews/code_review_2026-11-14.md`, ledger |
 | 2026-08-13 | v12 mixed-terrain hypothesis refuted; recorded rather than discarded | commit `aecf61d`, `docs/walker_learning_history.md` |
 | 2026-08-11 | Terrain variation via per-episode `terrain.mix`, not curriculum | commit, `AGENTS.md` |

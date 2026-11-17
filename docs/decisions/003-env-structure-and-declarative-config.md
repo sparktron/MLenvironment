@@ -50,8 +50,9 @@ a mapping`).
 
 ## Not done / left to the owner
 
-- `validation.py` and `gui_schema.py` still restate some key sets; only the
-  live-key set and reward/termination keys are derived from the types. Folding
-  the rest in changes validation behaviour and deserves its own change.
+- Validation key sets and GUI defaults were still restated by hand. ADR-004
+  derives the key sets from the types and pins the GUI defaults with a test.
+  The GUI defaults that differ from the dataclasses are recorded there, not
+  resolved.
 - The root `rl_framework/__init__.py` path shim is unchanged: removing it means
   an editable install, which conflicts with the lockfile-only install policy.
