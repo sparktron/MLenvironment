@@ -29,6 +29,8 @@ from rl_framework.physics.locomotion.rewards import WalkerReward
 from rl_framework.physics.locomotion.terminations import WalkerTermination
 
 VALID_CLEARANCE_POINTS = frozenset({"com", "sole"})
+# Accepted by validation; the env only branches on "v2", so this is a check, not a parser.
+OBSERVATION_VERSIONS = frozenset({"v1", "v2"})
 
 
 @dataclass
@@ -231,6 +233,20 @@ TERRAIN_LIVE_PARAMS: tuple[LiveParam, ...] = (
     LiveParam("terrain.push_recovery", cast_mapping, AT_RESET),
     # `mix` is validated as a whole by the terrain parser, not cast here.
     LiveParam("terrain.mix", lambda value: value, AT_RESET),
+)
+
+# Keys a terrain spec may carry, read off the declarations above. Every terrain
+# key is reset-applied, so the declared set and the accepted spec set are the same
+# by construction; `validation.py` uses these instead of restating them.
+_TERRAIN_PREFIX = "terrain."
+_PUSH_PREFIX = "terrain.push_recovery."
+TERRAIN_SPEC_KEYS = frozenset(
+    p.key[len(_TERRAIN_PREFIX) :].split(".", 1)[0] for p in TERRAIN_LIVE_PARAMS
+)
+PUSH_RECOVERY_KEYS = frozenset(
+    p.key[len(_PUSH_PREFIX) :]
+    for p in TERRAIN_LIVE_PARAMS
+    if p.key.startswith(_PUSH_PREFIX)
 )
 
 

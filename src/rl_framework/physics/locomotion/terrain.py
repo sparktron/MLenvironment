@@ -26,6 +26,8 @@ TERRAIN_DX = 0.05
 TERRAIN_DY = 0.25
 # Pooled terrain bodies not used this episode wait here, under the plane.
 TERRAIN_PARK_POSITION = (0.0, 0.0, -50.0)
+# Preset names a terrain spec (static or a ``mix`` entry) may use.
+TERRAIN_PRESETS = frozenset({"flat", "uneven", "obstacles", "push_recovery"})
 
 
 def terrain_rng(seed: int | None) -> np.random.Generator:
