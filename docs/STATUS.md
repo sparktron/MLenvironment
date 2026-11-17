@@ -95,9 +95,6 @@ None identified from repository evidence.
   `pip install -r requirements-lock.txt` then `pip install --no-deps -e .`.
   Running a script from a bare checkout without installing fails with
   `ModuleNotFoundError` by design.
-- `src/rl_framework/__init__.py` sets `__all__ = ["envs", "training", "utils"]`,
-  which names modules that no longer exist; `from rl_framework import *` fails.
-  Not fixed in ADR-004.
 
 ## Validation state
 
@@ -126,6 +123,7 @@ held": [`VALIDATION.md`](VALIDATION.md).
 
 | Date | Decision | Evidence |
 |---|---|---|
+| 2026-11-17 | Removed stale `__all__` from `src/rl_framework/__init__.py` (it named nonexistent modules) | `src/rl_framework/__init__.py` |
 | 2026-11-17 | Python floor raised to 3.11 to match CI and the Docker image | `pyproject.toml`, README, `tests/test_legacy_checkpoints.py` |
 | 2026-11-17 | Arena config reference corrected to the 13-D observation and strict key validation | `docs/organism_arena_config.md`, `games/arena/validation.py` |
 | 2026-11-17 | Validation key sets derived from the config types; arena rule types moved to `games/arena/config.py`; GUI defaults that differ from the dataclasses recorded, not changed (owner decision) | ADR-005, `tests/test_config_contract.py`, fixed-seed rollout digest identical at `4cbd89a` |
