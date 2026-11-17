@@ -37,9 +37,21 @@ or silently accepted. Nothing caught the drift.
 
 ## Behaviour changes
 
-**None intended.** Every accepted and rejected config in the characterisation
-table behaves as before the change, with the same messages. The GUI schema
-snapshot is unchanged. An old-vs-new rollout comparison on the walker and arena
+**Narrow, intended rejections.** Configs that loaded before and were silently
+misread now fail at construction and in validation:
+
+- `sim.control.mode` other than `pd` or `torque`. Previously it acted as torque.
+- Unknown walker `sim` keys. The legacy alias `max_force` is still accepted.
+- Unknown walker `gait` keys.
+- Unknown `battle_rules` keys. Previously a warning.
+- An unknown `observation.version` at construction. Validation already rejected it.
+
+No shipped experiment config is affected; this was checked against every YAML in
+`configs/experiments/`. Three test fixtures carried stray arena keys under the
+walker `sim` section, where they were silently ignored. They were corrected.
+
+Everything else in the characterisation table behaves as before, with the same
+messages. The GUI schema snapshot is unchanged. An old-vs-new rollout comparison on the walker and arena
 envs (fixed seeds, 300 steps, observations, rewards, terminations and truncations
 hashed per step) is identical, at commit `4cbd89a` against this change.
 
@@ -72,16 +84,22 @@ which matches the wizard. The env falls back to 3.0 kg when the key is absent.
 `walker_bullet.sim.max_force` is a legacy alias for `max_torque`. The wizard
 still writes it. The test maps it through `GUI_KEY_ALIASES`.
 
-## Flagged, not applied
+## Not changed: fallback values (owner decision)
 
-These would reject configs that load today, so they are not decided here:
+The default divergences above are not resolved here. Seven shipped walker
+configs omit `sim` entirely: `walker_curriculum_{flat,obstacles,uneven}`,
+`walker_ppo_baseline`, `walker_sac_baseline`, `walker_td3_baseline`, and
+`walker_v2_smoke_cpu`. They run on the env fallback, 3.0 kg and friction 0.8.
 
-1. `sim.control.mode` accepts any string. An unknown value such as `"bogus"`
-   loads, and `dynamics.py` treats anything other than `"pd"` as torque control.
-2. Unknown `sim.*` and `gait.*` keys are not rejected by validation.
-3. Unknown `battle_rules` keys are not rejected. The env only warns.
-4. `ObservationConfig.from_dict` does not reject an unknown `version` at
-   construction. Validation does.
+Changing that fallback to the wizard's 28 kg would silently change the physics
+of those experiments and of any result measured on them. If the owner wants
+28 kg, the safe order is:
+
+1. Write the current values (3.0 kg, friction 0.8) explicitly into those
+   configs. This is a no-op.
+2. Change the dataclass fallback.
+3. Record the change in `docs/walker_learning_history.md` and rerun the
+   affected studies.
 
 ## Follow-up
 
