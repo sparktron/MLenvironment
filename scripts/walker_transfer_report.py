@@ -14,14 +14,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from copy import deepcopy
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-from rl_framework.core.config.config import load_config, to_container  # noqa: E402
-from rl_framework.physics.locomotion.analysis.walker_diagnostics import (  # noqa: E402
+from rl_framework.core.config.config import DEFAULT_CONFIG_DIR, load_config, to_container
+from rl_framework.physics.locomotion.analysis.walker_diagnostics import (
     collect_walker_swing_event_telemetry,
     evaluate_walker_transfer_suite,
 )
@@ -30,7 +27,7 @@ from rl_framework.physics.locomotion.analysis.walker_diagnostics import (  # noq
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config-name", required=True)
-    ap.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
+    ap.add_argument("--config-dir", default=str(DEFAULT_CONFIG_DIR))
     ap.add_argument("--seeds", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--clearance-point", choices=["com", "sole"], default=None)
@@ -50,9 +47,9 @@ def main() -> None:
         cfg["seed"] = seed
         cfg["environment"]["seed"] = seed
         if args.clearance_point:
-            cfg["environment"].setdefault("gait", {})[
-                "clearance_point"
-            ] = args.clearance_point
+            cfg["environment"].setdefault("gait", {})["clearance_point"] = (
+                args.clearance_point
+            )
         model = (
             Path(cfg.get("output", {}).get("base_dir", "outputs"))
             / cfg["experiment_name"]
@@ -64,9 +61,7 @@ def main() -> None:
             raise FileNotFoundError(model)
         entry: dict = {
             "model": str(model),
-            "suite": evaluate_walker_transfer_suite(
-                cfg, model, episodes=args.episodes
-            ),
+            "suite": evaluate_walker_transfer_suite(cfg, model, episodes=args.episodes),
         }
         if args.swing_telemetry:
             entry["swing_events"] = collect_walker_swing_event_telemetry(

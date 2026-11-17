@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from rl_framework.core.config.config import DEFAULT_CONFIG_DIR
+
 
 MATRIX_VERSION = "2026-05-28-small-first-v2"
 
@@ -308,7 +310,7 @@ def main() -> None:
     parser.add_argument(
         "--config-name", required=True, help="Experiment config name (without .yaml)."
     )
-    parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
+    parser.add_argument("--config-dir", default=str(DEFAULT_CONFIG_DIR))
     parser.add_argument(
         "--seeds",
         default="0,1,2,3",

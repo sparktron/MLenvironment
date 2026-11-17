@@ -20,6 +20,7 @@ from rl_framework.core.studies import registered_studies
 from rl_framework.core.training.sb3_runner import train
 from rl_framework.core.utils.checkpoint import model_zip_path
 from rl_framework.core.config.config import (
+    DEFAULT_CONFIG_DIR,
     load_config,
     to_container,
     validate_experiment_config,
@@ -433,7 +434,7 @@ def run_quality_study(
     study: str,
     *,
     seeds: list[int],
-    config_dir: str | Path = "src/rl_framework/configs/experiments",
+    config_dir: str | Path = DEFAULT_CONFIG_DIR,
     output_dir: str | Path = "outputs/quality_studies",
     step_budget: int | None = None,
     wall_clock_seconds: float = 900.0,

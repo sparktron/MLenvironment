@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import cast
 
+from rl_framework.core.config.config import DEFAULT_CONFIG_DIR
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="RL experiment framework CLI")
@@ -30,7 +32,7 @@ def _parse_args() -> argparse.Namespace:
         default="",
         help="YAML file name without extension (not used by gui, registry, or quality-study)",
     )
-    parser.add_argument("--config-dir", default="src/rl_framework/configs/experiments")
+    parser.add_argument("--config-dir", default=str(DEFAULT_CONFIG_DIR))
     parser.add_argument("--model-path", default="")
     parser.add_argument(
         "--policy",

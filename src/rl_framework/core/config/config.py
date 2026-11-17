@@ -9,6 +9,10 @@ from omegaconf import DictConfig, OmegaConf
 
 from rl_framework.core.registry import get_task, registered_tasks
 
+# Shipped with the package (see [tool.setuptools.package-data]); resolved from this
+# file so it works from an editable install, a wheel, or any working directory.
+DEFAULT_CONFIG_DIR = Path(__file__).resolve().parents[2] / "configs" / "experiments"
+
 
 def load_config(config_name: str, config_dir: str | Path) -> DictConfig:
     path = Path(config_dir) / f"{config_name}.yaml"
