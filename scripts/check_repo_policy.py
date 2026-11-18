@@ -136,17 +136,30 @@ def _check_import_directions(package: Path) -> list[str]:
     return violations
 
 
-def _check_no_root_shim(repo_root: Path) -> list[str]:
+def _check_no_root_shim(
+    repo_root: Path, tracked_files: list[str] | None = None
+) -> list[str]:
     """The package lives only at src/rl_framework; a root-level copy shadows it (ADR-004)."""
-    if (repo_root / "rl_framework").exists():
-        return [
-            "rl_framework/ at the repo root must not exist; the package is src/rl_framework (ADR-004)"
-        ]
-    return []
+    if not (repo_root / "rl_framework").exists():
+        return []
+    if tracked_files is None:
+        tracked_files = _tracked_files()
+    message = (
+        "rl_framework/ at the repo root must not exist; "
+        "the package is src/rl_framework (ADR-004)"
+    )
+    if not any(path.startswith("rl_framework/") for path in tracked_files):
+        # Typically __pycache__ left behind after switching from a branch that
+        # still tracked the old shim: git removes tracked files, not ignored ones.
+        message += (
+            "; it holds no tracked files, so it is a leftover from a branch "
+            "switch. Remove it with: git clean -fdX -- rl_framework"
+        )
+    return [message]
 
 
 def main() -> int:
-    shim = _check_no_root_shim(Path("."))
+    shim = _check_no_root_shim(Path("."), _tracked_files())
     if shim:
         for violation in shim:
             print(violation)

@@ -99,3 +99,23 @@ def test_root_shim_check_flags_root_package_folder(tmp_path: Path) -> None:
 def test_root_shim_check_allows_src_only_layout(tmp_path: Path) -> None:
     (tmp_path / "src" / "rl_framework").mkdir(parents=True)
     assert check_repo_policy._check_no_root_shim(tmp_path) == []
+
+
+def test_root_shim_absent_passes(tmp_path):
+    assert check_repo_policy._check_no_root_shim(tmp_path, []) == []
+
+
+def test_root_shim_leftover_suggests_clean(tmp_path):
+    (tmp_path / "rl_framework" / "__pycache__").mkdir(parents=True)
+    violations = check_repo_policy._check_no_root_shim(tmp_path, [])
+    assert len(violations) == 1
+    assert "git clean -fdX -- rl_framework" in violations[0]
+
+
+def test_root_shim_tracked_files_is_plain_error(tmp_path):
+    (tmp_path / "rl_framework").mkdir()
+    violations = check_repo_policy._check_no_root_shim(
+        tmp_path, ["rl_framework/__init__.py"]
+    )
+    assert len(violations) == 1
+    assert "git clean" not in violations[0]
