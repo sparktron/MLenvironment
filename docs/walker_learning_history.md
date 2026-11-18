@@ -2837,7 +2837,7 @@ dose: s21 −371 (−485, −256), s24 −1149 (−1282, −993), s25 −285 (�
 - **The observational result was confounded.** The lift-cost entry found
   higher swings co-vary with +1.4 to +2.6 reward per 10 mm. Forcing lift does
   the opposite: return falls by hundreds per episode, almost entirely through
-  falls (episode length drops from ~780 to 470–670 steps at the test doses).
+  falls (mean episode length drops from ~780 steps to 636, 170 and 648 at the s21, s24 and s25 test doses).
   Within an episode, the policy lifts higher in good states. Lift does not make
   the states good.
 - **The cost arrives before the lift does.** s24 goes from 2 to 14 falls at
