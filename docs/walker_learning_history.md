@@ -2577,3 +2577,61 @@ flight penalty held fixed; refute if obstacle 2–3 cm fall rates do not drop in
 ≥3/5 seeds or flat falls rise >10 points. First measure the flight share of the
 extra swing steps. Single-terrain only; v9 flat checkpoints, 5 seeds, ~40 min
 per seed to train.
+
+## 2026-11-18 — v13 Mean-Of-Legs Clearance (pre-registration)
+
+**Written before any v13 code, config or run exists.** Results go in a later
+entry; hypotheses, intervention and refutation criteria are fixed here.
+
+**Motivation:** the entry above. The v9 clearance reward is
+`min(left, right)`, which discards 4–6 mm per cycle and pays the stronger leg
+nothing for lifting higher; the binding leg's lift is roughly break-even with
+airtime cost.
+
+**Step 0 — measure before training (telemetry, no training).** On the five v9
+final checkpoints, measure the share of each swing's extra steps that are
+actual flight (both feet airborne), regressed on clearance. *Gate:* if the
+flight share of the extra swing steps is **< 0.3**, the break-even premise
+fails (lift is cheap, so something other than airtime limits it); v13 is then
+**not run** and the entry is revised, not the criteria bent.
+
+**Single intervention (if Step 0 passes).** A new zero-default reward option
+`bilateral_clearance_mode: min | mean` (default `min`, so every existing
+config and checkpoint is unchanged). `walker_reward_v13_mean_clearance` is a
+copy of `walker_reward_v9_flight_cost` with `mode: mean` and nothing else:
+weight 8.0, target 0.05, flight penalty 1.0, all gates unchanged. From
+scratch, 10M steps, seeds 21–25 (seed-matched to v9), `num_envs: 24`,
+`device: cpu`, `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`. ~40 min/seed, ~3.4 h
+training plus the 100-episode transfer suite and
+`scripts/walker_clearance_binding.py`. The mean also raises the paid total at a
+given lift, so this is a *reward-economics* change with a confound that cannot
+be removed without a second arm; interpret it as "pay both legs" not "remove
+the min in isolation".
+
+**Hypotheses and refutation criteria** (per seed vs the same v9 seed;
+"improves" = fall-rate Wilson 95% interval lies entirely below v9's; claims
+need all 5 seeds reported, any failing seed blocks the claim):
+
+- **H-lift.** Mean per-swing clearance (binding script, flat stochastic) rises
+  ≥3 mm in ≥4/5 seeds. *Refuted if* <3/5 seeds rise ≥3 mm. Between =
+  inconclusive. (3 mm is below the 4–6 mm min penalty, so a pure removal of the
+  min effect would clear it.)
+- **H-obstacle.** Lift transfers to low obstacles: 2 cm **or** 3 cm fall rate
+  improves in ≥3/5 seeds. *Refuted if* ≤1/5 seeds improve on both. 10 cm is
+  reported but not scored (100% falls for all 15 prior policies).
+- **H-cost (no regression).** Flat fall rate within 10 points of v9 in ≥4/5
+  seeds, and the number of seeds passing gate v4 (13/13 on flat) is not lower
+  than v9's on the same seeds (read from v9's evaluation before the run).
+  *Refuted if* either fails; a lift paid for with flat stability is a loss.
+- **H-uneven/push (secondary, reported not gating).** Uneven and push-recovery
+  fall rates vs v9.
+
+**Decision rule.** Adopt v13 only if H-lift holds, at least one of H-obstacle
+holds, and H-cost is not refuted. If H-lift holds but H-obstacle is refuted,
+the reading is that ~25–30 mm is not enough: record it, and obstacles need the
+exteroception route after all. If H-lift is refuted, the reward economics
+(not the min) cap the lift; do not raise the weight as a follow-up without a
+new measured mechanism.
+
+**Out of scope:** weight changes, flight-penalty changes, curricula, held-out
+seeds. Any of these confounds the single intervention.
