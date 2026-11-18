@@ -2767,3 +2767,36 @@ the fall rate. If forced lift costs no falls and earns reward, the cap is
 optimisation (b). If it costs falls, the reward is mispricing stability (a). If
 the offset cannot raise clearance, the limit is (c). Pre-register before any
 training intervention that follows from it.
+
+## 2026-11-18 — Forced Swing Lift (pre-registration of reading rules)
+
+**Written before the full run.** The only data seen so far is a 3-episode
+smoke test on seed 21: doses 0 / 0.4 / 0.8 gave 22.1 / 26.6 / 27.7 mm
+clearance, return differences of 0 / −41 / −1236, and 0 / 0 / 3 falls.
+
+**Intervention** (telemetry, no training; `scripts/walker_forced_lift.py`).
+On the v9 final checkpoints (seeds 21–25), for the first 8 control steps after
+each raw lift-off of a foot, add `dose × (hip −0.6, knee +1.0)` to that leg's
+normalized actions. That is hip and knee flexion; at this ratio the foot rises
+with little fore-aft shift, checked kinematically. The policy stays in the
+loop. Doses 0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8 (1 unit = 0.6 rad of PD target).
+40 stochastic flat episodes per dose, with the same episode seeds at every dose
+(paired with dose 0).
+
+**Reading rules.** Per seed, the *test dose* is the lowest dose that raises
+mean swing clearance by ≥ 3 mm over dose 0 (the H-lift threshold from the v13
+pre-registration).
+- **(c) Lift cannot be forced:** no dose reaches +3 mm in ≥ 3/5 seeds.
+- **(a) Lift is genuinely costly:** at the test dose, the paired return
+  difference's 95% interval lies entirely below 0, *or* the fall-rate Wilson
+  interval lies entirely above dose 0's, in ≥ 3/5 seeds.
+- **(b) Lift is affordable (optimisation limit):** at the test dose, the return
+  interval reaches 0 or above and the fall interval is not above dose 0's, in
+  ≥ 3/5 seeds.
+- Otherwise: mixed, recorded as inconclusive.
+
+**Caveat fixed in advance.** An open-loop flexion pulse is a crude way to lift.
+A cost under (a) shows that *this* forced lift is costly to a policy that did
+not plan for it, not that a policy trained to lift would pay the same. A
+result under (b), by contrast, is strong evidence, because even a naive lift
+would then be affordable.
