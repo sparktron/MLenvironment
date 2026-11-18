@@ -99,7 +99,8 @@ must record both successful changes and failed hypotheses there.
   already clears obstacles it cannot see when they are within its swing height.
   The binding constraint is swing height — reward/actuation, not observation —
   and far cheaper to test than a checkpoint-incompatible obs change.
-- (2026-11-18, ANSWERED — see ledger) The 5 cm target is out of reach: the reward is min(left,right) (weaker leg binds, 4–6 mm discarded) and the binding leg's marginal gain is ~break-even with its airtime cost. COM-vs-sole is not the cause (1.8 mm). Candidate: mean/per-leg term, pre-registered first.
+- (2026-11-18, v13 Step 0) **Break-even premise refuted; v13 not run.** Only 0.3–7% of the extra swing steps that come with higher lift are flight, so +10 mm costs ≤0.18 reward against ~2.5 gained. The min() finding stands, but something other than airtime caps the binding leg at ~18–25 mm. NEXT (telemetry, no training): regress every reward component, summed over each swing window, on clearance to find what pays for lift; pre-register any clearance intervention only after that.
+- (2026-11-18, ANSWERED — see ledger; break-even half refuted by Step 0 above) The 5 cm target is out of reach: the reward is min(left,right) (weaker leg binds, 4–6 mm discarded) and the binding leg's marginal gain is ~break-even with its airtime cost. COM-vs-sole is not the cause (1.8 mm). Candidate: mean/per-leg term, pre-registered first.
 - (2026-08-13, answered above) **NEXT, and it is telemetry before training: why is
   `bilateral_clearance_target: 0.05` not reached?** The reward has asked for
   5 cm of clearance at weight 8.0 since v9; the policy delivers 21–26 mm, under

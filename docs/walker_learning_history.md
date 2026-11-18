@@ -2580,6 +2580,9 @@ per seed to train.
 
 ## 2026-11-18 — v13 Mean-Of-Legs Clearance (pre-registration)
 
+**Status (2026-11-18): not run — Step 0 gate failed** (flight share
+0.003–0.072 < 0.3; see the Step 0 entry below).
+
 **Written before any v13 code, config or run exists.** Results go in a later
 entry; hypotheses, intervention and refutation criteria are fixed here.
 
@@ -2635,3 +2638,54 @@ new measured mechanism.
 
 **Out of scope:** weight changes, flight-penalty changes, curricula, held-out
 seeds. Any of these confounds the single intervention.
+
+## 2026-11-18 — v13 Step 0: Flight Share Of Extra Swing Steps (gate fails; v13 not run)
+
+**Gate (from the pre-registration above):** if the flight share of the extra
+swing steps is < 0.3, the break-even premise fails and v13 is not run. No
+training was run. Script: `scripts/walker_clearance_binding.py` (extended to
+count flight steps, both feet off by raw contact, inside each swing's window
+from raw lift-off to confirmed touchdown); same protocol as the binding
+telemetry: 20 stochastic flat episodes per v9 seed 21–25, 5,013 swings.
+Output `outputs/_reports/v9_flight_share.json`. Flight share = slope of flight
+steps on clearance ÷ slope of swing steps on clearance; 95% interval is a
+1,000-sample bootstrap over episodes. The rollouts are seeded and reproduce the
+binding entry's per-seed numbers exactly (min penalty, steps per 10 mm), so this
+is the same set of swings. Window alignment was checked on seed 21: the
+swinging foot is in contact on the step before every window, off on its first
+step, and down at touchdown; raw-contact flight agrees with the reward's
+`flight` component on 100% of steps.
+
+| seed | flight share (95% CI) | extra swing steps / 10 mm | extra flight steps / 10 mm | flight share of all swing steps |
+|---|---|---|---|---|
+| 21 | 0.062 (−0.017, 0.123) | 1.63 | 0.102 | 0.206 |
+| 22 | 0.021 (−0.018, 0.062) | 2.63 | 0.055 | 0.204 |
+| 23 | 0.072 (0.032, 0.118) | 2.43 | 0.174 | 0.216 |
+| 24 | 0.064 (0.023, 0.106) | 2.79 | 0.178 | 0.227 |
+| 25 | 0.003 (−0.072, 0.064) | 2.10 | 0.006 | 0.188 |
+
+**Verdict: gate fails in 5/5 seeds.** Flight share is 0.003–0.072, and no
+seed's upper bound reaches 0.13, against a 0.3 threshold. About a fifth of all
+swing steps are flight, but the *extra* steps that come with a higher lift are
+almost all single support: the stance foot stays down. At
+`flight_penalty_weight: 1.0`, +10 mm costs at most 0.18 reward in flight
+penalty, against the back-of-envelope ~2.5 it earns on the binding leg. That is
+an order of magnitude short of break-even.
+
+**What this refutes.** The second half of the binding entry's conclusion,
+"the binding leg's marginal gain is about equal to its airtime cost", is
+**refuted**. That cost was the assumption flagged there as unmeasured, and it is
+small. The first half stands: the reward is `min(left, right)`, it discards
+4–6 mm per cycle, and the stronger leg is paid nothing. But since lift is cheap
+on the binding leg as well and the binding leg still stops at ~18–25 mm,
+something other than flight cost holds it there. Per the pre-registration,
+**v13 is not run** and the criteria are not adjusted. "Pay both legs" rested on
+the break-even premise and has no measured mechanism left.
+
+**Not measured; candidates for what limits lift:** the longer single support
+that lift costs (stability/fall risk, which the reward cannot see directly), and
+the other per-step terms charged over that window (velocity tracking, torque,
+action rate, slip, cadence/touchdown gates). The direct test is the same
+per-swing regression applied to every reward component summed over the swing
+window: whichever components fall with clearance pay for the lift. Do this
+before pre-registering any new clearance intervention.
