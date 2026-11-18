@@ -2689,3 +2689,81 @@ action rate, slip, cadence/touchdown gates). The direct test is the same
 per-swing regression applied to every reward component summed over the swing
 window: whichever components fall with clearance pay for the lift. Do this
 before pre-registering any new clearance intervention.
+
+## 2026-11-18 — What Pays For Swing Lift? (per-component telemetry; nothing does)
+
+**Question** (left open by the Step 0 entry above): flight does not make lift
+expensive, so which reward term does? No training was run. Script:
+`scripts/walker_lift_cost.py`; same rollouts as the two entries above (20
+stochastic flat episodes per v9 seed 21–25, 5,013 swings, seeded and
+reproducible). Output `outputs/_reports/v9_lift_cost.json`.
+
+**Method.** For each swing and each reward component, the *excess* is the sum
+over a window minus (window length × that episode's mean per-step value), i.e.
+what the swing earned or cost relative to spending the same time at the
+episode's average. Two windows: the swing itself (raw lift-off to confirmed
+touchdown) and swing + 30 steps (0.5 s; adds the landing and the
+bilateral-clearance payoff, which only updates at touchdown). The excess is
+regressed on clearance **within episodes** (both demeaned per episode), per
+10 mm, with a 1,000-sample bootstrap 95% interval over episodes. Also the
+change in probability of a fall within 60 steps of touchdown.
+
+**Results, per 10 mm of lift (seeds 21–25; * = interval excludes 0):**
+
+| component | swing window | swing + 0.5 s |
+|---|---|---|
+| **TOTAL** | +0.21\*, +0.66\*, +0.47\*, +0.57\*, +0.83\* | **+1.36\*, +2.59\*, +2.23\*, +1.86\*, +2.46\*** |
+| bilateral_clearance | +0.02, +0.09\*, +0.09\*, +0.10\*, +0.21\* | +0.90\*, +1.52\*, +1.27\*, +1.13\*, +1.55\* |
+| flight | +0.21\*, +0.45\*, +0.30\*, +0.39\*, +0.34\* | +0.22\*, +0.52\*, +0.39\*, +0.37\*, +0.43\* |
+| phase_contact | +0.02, +0.07\*, −0.01, +0.01, +0.12\* | +0.11\*, +0.20\*, +0.22\*, +0.09\*, +0.23\* |
+| gait_symmetry | +0.04\* … +0.13\* (5/5) | +0.11\* … +0.26\* (5/5) |
+| touchdown_rate | ~0 | +0.08\* … +0.11\* (5/5) |
+| velocity | +0.01\* … +0.11\* (5/5) | +0.01\* … +0.11\* (5/5) |
+| stance_slip | −0.04\* … −0.06\* (5/5) | −0.01 … −0.04 (0/5 significant) |
+| orientation | −0.13\* (s23 only) | none significant |
+| phase_double_support | −0.01 … +0.06 | −0.01 … −0.06 (3/5 significant) |
+| action, action_rate | ±0.01–0.04 | ±0.01–0.04 |
+
+Falls after a touchdown: 0, 2, 14, 0, 3 (19 in total). The fall-probability
+slope is 0.000 to +0.001 per 10 mm (s23: −0.006, interval spans 0). There is no
+sign that higher swings precede falls, but with 19 falls the test has little
+power.
+
+**Findings.**
+
+- **No reward term charges for lift.** Every component that is significant in
+  ≥4/5 seeds over the full window is *positive*. The only consistent cost is
+  stance slip during the swing (−0.04 to −0.06), and it washes out by 0.5 s
+  after touchdown. A higher-lift swing earns +1.4 to +2.6 more total reward
+  per 10 mm in 5/5 seeds.
+- **Flight is a gain, not a cost, once timing is accounted for.** Against the
+  episode's mean rate, higher-lift swings have *less* flight per step, so the
+  flight penalty's excess is positive (+0.22 to +0.52). That fits Step 0: the
+  extra time a higher swing takes is single support.
+- **The measured clearance payoff is +0.9 to +1.55 per 10 mm** within 0.5 s of
+  touchdown. That is the same order as the binding entry's ~2.5 estimate,
+  which assumed a longer holding window.
+
+**Reading.** As far as the reward can see, lift is profitable at the margin, in
+every seed, and the policy still stops at ~18–25 mm. The cap is therefore
+**not reward economics**. Neither the min (pays the stronger leg nothing) nor
+the weight is binding in the way the previous two entries assumed. This
+refutes the last remaining premise for "pay more for clearance" (v13, or a
+higher weight). Neither has a measured mechanism left.
+
+**Caveat (why this is not the final word).** This is observational. Within an
+episode, swings may lift higher precisely in good states (balanced, on pace),
+and then the positive slopes measure state quality, not what lift causes. The
+real price of lift could be one the policy pays only in states where it does
+*not* lift: falling, which the reward sees only as termination. The candidates
+left are (a) that hidden state-dependent stability cost, (b) optimisation:
+PPO settled in a local optimum and reward gradients this weak do not move it,
+and (c) actuation/kinematics in swing.
+
+**Next (telemetry, no training): an intervention, not a correlation.** On the
+v9 checkpoints, add a fixed hip/knee-flexion action offset during swing (a few
+sizes, both legs), then measure the clearance delivered, the reward excess and
+the fall rate. If forced lift costs no falls and earns reward, the cap is
+optimisation (b). If it costs falls, the reward is mispricing stability (a). If
+the offset cannot raise clearance, the limit is (c). Pre-register before any
+training intervention that follows from it.

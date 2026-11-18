@@ -73,9 +73,11 @@ all 15 policies; the COM clearance metric is not the cause of the 21–26 mm
 clearance (gap 1.8 mm). Swing-height telemetry (2026-11-18): the clearance
 reward's `min(left, right)` discards 4–6 mm, but the v13 "pay both legs" run
 was **not run** because its Step 0 gate failed: lift costs almost no flight
-(share 0.003–0.072 < 0.3), so airtime is not what caps it. Next: find which
-reward components pay for lift (per-swing component regression), then decide
-whether push recovery (49–75% falls) is the next target.
+(share 0.003–0.072 < 0.3), so airtime is not what caps it. A per-component
+regression then found that no reward term charges for lift at all (+1.4 to +2.6
+reward per 10 mm, 5/5 seeds; observational). Next: a forced-lift action-offset
+intervention to tell a stability cost from an optimisation or actuation limit,
+then decide whether push recovery (49–75% falls) is the next target.
 
 Research decisions the 2026-11-14 review raised and left to the owner: whether
 lateral push recovery is in scope (the robot has no hip roll), a multi-seed
