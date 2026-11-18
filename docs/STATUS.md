@@ -1,6 +1,6 @@
 # Current Status
 
-**Updated:** 2026-11-17 · **Branch:** `master` · **Restructure baseline:** `ae6f09b`
+**Updated:** 2026-11-18 · **Branch:** `master` · **Restructure baseline:** `ae6f09b`
 
 ## Objective
 
@@ -55,8 +55,8 @@ Mixed-terrain generalisation study. Two negative results were recorded, then
 
 | Version | Date | Result |
 |---|---|---|
-| v11 uneven-terrain continuation from the v9 flat result | 2026-08-10 | Specialisation, not generalisation — **reopened, pending re-evaluation** |
-| v12 mixed-terrain | 2026-08-13 | Hypothesis refuted — **reopened, pending re-evaluation** |
+| v11 uneven-terrain continuation from the v9 flat result | 2026-11-18 re-run | Uneven falls ~60%→4–15% (5/5 seeds); transfers to 2 cm obstacles (4/5) but not 3/10 cm or push; no significant flat regression. "Specialisation" refuted. |
+| v12 mixed-terrain | 2026-11-18 re-run | Still rejected (1/5 seeds meet criteria): flat regresses in 4/5 seeds and uneven is worse than v11. |
 
 Baseline: three-seed v9 — 2/3 seeds pass gate v3, all three learned to run
 (2026-08-05).
@@ -67,11 +67,11 @@ Priority 3 (learning quality and features) in `docs/open_items_todo.md` — the
 first two priorities are closed, so this is the live section. Specific items
 were **not** enumerated here; read the roadmap rather than trusting a summary.
 
-First, re-run the transfer suite (now 100 episodes per terrain, with fall-rate
-intervals) and a `gait.clearance_point: sole` comparison on the v9/v11/v12
-checkpoints, or retrain them if they are gone. Only then decide whether the
-v11/v12 conclusions stand. The question of what produces cross-terrain
-generalisation is open again until that re-run exists.
+The 2026-11-16 re-run was scored on 2026-11-18 (ledger entry of that date): v11
+beats v12; mixed terrain stays rejected; 10 cm obstacles are 100% falls for
+all 15 policies; the COM clearance metric is not the cause of the 21–26 mm
+clearance (gap 1.8 mm). Next: swing-height telemetry, then decide whether push
+recovery (49–75% falls) is the next target.
 
 Research decisions the 2026-11-14 review raised and left to the owner: whether
 lateral push recovery is in scope (the robot has no hip roll), a multi-seed

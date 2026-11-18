@@ -2473,3 +2473,62 @@ entirely below v9's for the same seed):
   *Refuted if* v9 still falls on ≥95% of push episodes in ≥4/5 seeds.
 
 Claims need all 5 seeds; any seed that fails is reported and blocks the claim.
+
+## 2026-11-18 — Generalisation Re-run On The Fixed Terrain (results)
+
+Scores the 2026-11-16 pre-registration above against the reports it produced
+(`outputs/_reports/{v9_transfer_com,v9_transfer_sole,v11_transfer,v12_transfer}.json`;
+5 seeds 21–25, 100 stochastic episodes per terrain, Wilson 95% intervals).
+Criteria were applied exactly as written; "improves" = the seed's interval lies
+entirely below v9's. These numbers are on the rebuilt terrain and are **not
+comparable** with the 2026-08 tables. No training was run for this entry; it is
+analysis of existing reports.
+
+**Fall rate by seed (21–25), stochastic:**
+
+| terrain | v9 | v11 | v12 |
+|---|---|---|---|
+| flat | 1, 3, 13, 12, 2 | 2, 9, 21, 5, 10 | 26, 21, 21, 18, 3 |
+| uneven (2.5 cm) | 63, 58, 67, 54, 59 | 4, 6, 13, 8, 15 | 28, 45, 43, 48, 19 |
+| obstacles 2 cm | 99, 97, 100, 100, 100 | 80, 77, 91, 88, 95 | 99, 89, 97, 99, 97 |
+| obstacles 3 cm | 100 ×5 | 99, 99, 100, 100, 99 | 100, 99, 100, 100, 100 |
+| obstacles 10 cm | 100 ×5 | 100 ×5 | 100 ×5 |
+| push recovery | 49, 65, 65, 74, 75 | 57, 70, 69, 71, 63 | 65, 55, 72, 48, 36 |
+
+**Verdicts:**
+
+- **H-sole: refuted.** Mean sole-minus-COM clearance gap on v9 is **1.8 mm**
+  (per seed 3.4, 3.9, −0.1, 0.1, 2.0; criterion <5 mm). The COM metric does
+  *not* explain the 5 cm target / 21–26 mm delivered puzzle; the policy really
+  lifts about 2.5 cm. The "NEXT" telemetry item (why the clearance term is not
+  reached) therefore stays open and is not a measurement artifact.
+- **H-v11 (specialisation): refuted.** Uneven improved in 5/5 seeds (v9 ~60%
+  falls → 4–15%), and flat did not significantly regress (intervals overlap v9
+  in every seed — the old "3%→22%" forgetting claim does not reproduce).
+  But 2 cm obstacles improved in **4/5** seeds (seed 25, 95 vs 100, overlaps),
+  crossing the ≥3/5 refutation line, so v11 is not pure specialisation: it
+  transfers to *low* obstacles. 3 cm, 10 cm and push did not improve (push is
+  numerically worse in 4/5 seeds). Reading: a gait learned for 2.5 cm
+  undulation also clears ~2 cm steps and nothing higher.
+- **H-v12 (mixed terrain refuted): stands, narrowly.** Seeds meeting all three
+  conditions (flat within 10 pts, uneven improves, push improves): **only seed
+  25** (1/5; seed 23 fails push, seed 24 fails uneven, seeds 21–22 fail flat
+  by 25 and 18 points). Criterion for "stands" is ≤1/5. Flat regressed in 4/5
+  seeds (+18 to +25 pts in three). Mixed training is also **worse than plain
+  v11 on uneven** (19–48% vs 4–15% falls) while giving up flat. The seed-25
+  result alone would read as success — the five-seed read is the finding.
+- **Push recovery: the old 100% was the bug.** v9 push falls are 49–75%
+  (criterion ≥95% in ≥4/5 seeds: refuted); per-push recovery is 98.6–100%.
+  Push recovery is now an open, measurable gap, not a wall.
+- **10 cm obstacles: 100% falls in all 15 policies** (118/117/116 steps) —
+  unchanged, the constant it was before the rebuild.
+
+**Decision.** Mixed terrain (v12) stays rejected; v11-style single-terrain
+continuation is the better lever and its limits are now measured (≈2 cm).
+Do not continue v12. Next: swing-height telemetry/reward (clearance is real
+~25 mm, obstacles cliff is at 2–3 cm), and decide whether push recovery
+(49–75% falls) is the next target.
+
+**Not done:** held-out seeds, the `net_arch` capacity comparison, and visual
+review of v11/v12. Statistics are per-seed interval comparisons, not a pooled
+test.
