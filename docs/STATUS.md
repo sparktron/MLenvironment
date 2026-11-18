@@ -75,9 +75,11 @@ reward's `min(left, right)` discards 4–6 mm, but the v13 "pay both legs" run
 was **not run** because its Step 0 gate failed: lift costs almost no flight
 (share 0.003–0.072 < 0.3), so airtime is not what caps it. A per-component
 regression then found that no reward term charges for lift at all (+1.4 to +2.6
-reward per 10 mm, 5/5 seeds; observational). Next: a forced-lift action-offset
-intervention to tell a stability cost from an optimisation or actuation limit,
-then decide whether push recovery (49–75% falls) is the next target.
+reward per 10 mm, 5/5 seeds; observational). A forced-lift intervention then
+showed the opposite causally: swing flexion offsets gain only +2–5 mm while
+falls climb to 80–95% (lift is costly, 3/5), so the ~25 mm cap is the
+policy's balance, not the reward. The clearance-reward line is closed. Open
+decision: whether push recovery (49–75% falls) is the next target.
 
 Research decisions the 2026-11-14 review raised and left to the owner: whether
 lateral push recovery is in scope (the robot has no hip roll), a multi-seed

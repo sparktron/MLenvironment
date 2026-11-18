@@ -2800,3 +2800,76 @@ A cost under (a) shows that *this* forced lift is costly to a policy that did
 not plan for it, not that a policy trained to lift would pay the same. A
 result under (b), by contrast, is strong evidence, because even a naive lift
 would then be affordable.
+
+## 2026-11-18 — Forced Swing Lift: Result ((a) holds, 3/5; lift barely moves)
+
+Scored against the reading rules in the pre-registration above, exactly as
+written. Output `outputs/_reports/forced_lift/seed_{21..25}.json`; 40 paired
+stochastic flat episodes per dose, ~1,000–2,000 swings per cell. No training.
+
+**Clearance gain over dose 0 (mm) and falls / 40:**
+
+| dose | s21 | s22 | s23 | s24 | s25 |
+|---|---|---|---|---|---|
+| 0 (base mm) | 22.0, 2 | 27.6, 2 | 29.7, 6 | 25.1, 2 | 23.9, 2 |
+| 0.2 | +1.9, 2 | +1.7, 6 | +1.7, 7 | +0.8, **14** | +1.9, 3 |
+| 0.3 | +2.4, 4 | +1.8, 5 | +2.3, 10 | +1.6, **19** | +2.2, 2 |
+| 0.4 | +2.7, **16** | +2.6, 9 | +2.6, 13 | +1.5, **19** | **+3.5**, 10 |
+| 0.5 | +2.5, **17** | +1.9, 11 | +2.1, **23** | +1.6, **25** | +4.2, **13** |
+| 0.6 | **+3.7**, **19** | +1.2, **17** | +2.4, **22** | +0.7, **23** | +4.5, **20** |
+| 0.8 | +3.8, **32** | +0.0, **35** | +2.7, **35** | **+4.2**, **38** | +4.6, **36** |
+
+Bold falls: Wilson interval entirely above dose 0's. Bold clearance: the seed's
+test dose (lowest dose with ≥ +3 mm). Paired return difference at the test
+dose: s21 −371 (−485, −256), s24 −1149 (−1282, −993), s25 −285 (−468, −115).
+
+**Verdict by the rules:**
+
+- **(a) Lift is costly: holds, exactly 3/5** (s21, s24, s25: the return
+  interval is entirely below 0 at the test dose; s21 and s24 also have the fall
+  interval entirely above dose 0's).
+- **(c) Lift cannot be forced: not met, 2/5** (s22 and s23 never reach +3 mm;
+  maxima +2.6 and +2.7).
+- **(b) Lift is affordable: 0/5.** No seed lifts +3 mm without losing return.
+
+**What it means.**
+
+- **The observational result was confounded.** The lift-cost entry found
+  higher swings co-vary with +1.4 to +2.6 reward per 10 mm. Forcing lift does
+  the opposite: return falls by hundreds per episode, almost entirely through
+  falls (episode length drops from ~780 to 470–670 steps at the test doses).
+  Within an episode, the policy lifts higher in good states. Lift does not make
+  the states good.
+- **The cost arrives before the lift does.** s24 goes from 2 to 14 falls at
+  dose 0.2 for +0.8 mm, and in every seed the fall rate climbs faster than
+  clearance. The cap behaves like a stability limit of these policies: they
+  cannot absorb a perturbation to the swing leg, whether or not it produces
+  lift.
+- **Lift is hard to force at all.** A dose of 0.4 (0.24 rad knee + 0.14 rad hip
+  PD target, ~9 mm kinematically if tracked) delivers only +1.5 to +3.5 mm.
+  Clearance saturates at +2–5 mm while falls go to 80–95%. Close to (c), and
+  not ruled out as a contributor: 2/5 seeds cannot reach +3 mm.
+- **Cumulative reading of the three 2026-11-18 telemetry entries:** the ~25 mm
+  cap is not reward economics (Step 0: flight is cheap; lift-cost: no term
+  charges for it) and not something a fixed policy can be pushed past. It is
+  coupled to the policy's balance. A reward change that pays for clearance (v13,
+  a higher weight) has no measured mechanism. More lift would have to be
+  *learned together with* the balance that supports it.
+
+**Not separated (the pre-registered caveat applies):**
+
+- The pulse is open loop, and v9 never saw it. (a) shows that *this* lift is
+  costly to *these* policies, not that a policy trained to lift would pay the
+  same.
+- Why a 0.24 rad knee command yields so little lift: PD tracking lag within the
+  8-step pulse, or the policy counter-steering. Logging commanded vs actual
+  joint angles during the pulse would split them.
+- 40 episodes per cell: the fall intervals are wide (±15 points).
+
+**Decision.** Close the clearance-reward line: do not pre-register v13 or a
+clearance-weight change. Obstacle performance above ~2 cm needs either a
+training intervention that builds lift and balance together (e.g. a
+terrain/obstacle curriculum, which is out of scope for a reward tweak and needs
+its own pre-registration), or the exteroception route. The STATUS question of
+whether push recovery (49–75% falls) is the next target is now the open
+decision. It may be related: both are balance under perturbation.
