@@ -2532,3 +2532,48 @@ Do not continue v12. Next: swing-height telemetry/reward (clearance is real
 **Not done:** held-out seeds, the `net_arch` capacity comparison, and visual
 review of v11/v12. Statistics are per-seed interval comparisons, not a pooled
 test.
+
+## 2026-11-18 — Why The 5 cm Clearance Target Is Not Reached (telemetry only)
+
+**Question** (open since 2026-08-13): `bilateral_clearance_target: 0.05` at
+weight 8.0 has been in the reward since v9; the policy delivers ~25 mm. No
+training was run. Script: `scripts/walker_clearance_binding.py`; 20 stochastic
+flat episodes per v9 seed 21–25 (~4,950 swing events); output
+`outputs/_reports/v9_clearance_binding.json`. H-sole is already refuted (sole vs
+COM gap 1.8 mm), so the shortfall is real lift.
+
+**Findings** (per seed, 21–25):
+
+- **The target is out of reach, not nearly met.** Only 0–1.5% of individual
+  swings reach 50 mm; per-swing medians are 19–35 mm.
+- **The reward is `min(left, right)`, so the weaker leg binds.** Mean paired
+  swing clearance 22.9–31.2 mm vs paired minimum 17.6–25.2 mm: the min discards
+  **4.0–6.0 mm** every cycle (matches the reward-implied 17.6–24.5 mm). Per-side
+  medians differ by up to 7 mm (s21 25.7 right / 18.9 left; s23 34.8 / 28.4).
+  The stronger leg of a pair earns **zero** marginal reward from lifting
+  higher, and the weaker leg's payoff is all the term can pay.
+- **Lift costs swing time.** Clearance and swing duration correlate
+  (r = 0.35–0.67); each extra 10 mm costs **1.6–2.8 extra swing steps**.
+- **Back-of-envelope price (assumptions, not measured):** the clearance reward
+  is held ~31 steps (one leg's cycle), so +10 mm on the binding leg pays about
+  8 × 0.010 × 31 ≈ **2.5 reward**; if every extra swing step were flight it
+  costs 1.6–2.8 at `flight_penalty_weight: 1.0`. Binding leg: roughly
+  break-even, which is where the policy sits. Non-binding leg: pays nothing,
+  costs the same. Fraction of extra swing time that is actually flight was
+  **not measured**; if it is well under 1, lift is net-profitable and something
+  else (stability/slip) is the limit.
+
+**Conclusion.** Two compounding reasons, both reward-structure rather than
+actuation: the `min` removes the incentive on the stronger leg, and the binding
+leg's marginal gain is about equal to its airtime cost. Raising the weight
+alone would mainly lift the weaker leg and would still be capped near the
+break-even; the 5 cm target is not a reachable fixed point under this
+structure. Consistent with 2026-08-02: reward scalars redistribute rather than
+break the coupling.
+
+**Not tested / candidate (do not run without pre-registration):** replace the
+min with the mean (or a per-leg term) so both legs are paid for lift, with the
+flight penalty held fixed; refute if obstacle 2–3 cm fall rates do not drop in
+≥3/5 seeds or flat falls rise >10 points. First measure the flight share of the
+extra swing steps. Single-terrain only; v9 flat checkpoints, 5 seeds, ~40 min
+per seed to train.

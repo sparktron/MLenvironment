@@ -1,6 +1,6 @@
 # Development Roadmap
 
-Last updated: 2026-08-13
+Last updated: 2026-11-18
 
 This is the active roadmap. Historical review findings have been folded into
 the completed summary below so completed work is not presented as pending.
@@ -99,7 +99,8 @@ must record both successful changes and failed hypotheses there.
   already clears obstacles it cannot see when they are within its swing height.
   The binding constraint is swing height — reward/actuation, not observation —
   and far cheaper to test than a checkpoint-incompatible obs change.
-- (2026-08-13) **NEXT, and it is telemetry before training: why is
+- (2026-11-18, ANSWERED — see ledger) The 5 cm target is out of reach: the reward is min(left,right) (weaker leg binds, 4–6 mm discarded) and the binding leg's marginal gain is ~break-even with its airtime cost. COM-vs-sole is not the cause (1.8 mm). Candidate: mean/per-leg term, pre-registered first.
+- (2026-08-13, answered above) **NEXT, and it is telemetry before training: why is
   `bilateral_clearance_target: 0.05` not reached?** The reward has asked for
   5 cm of clearance at weight 8.0 since v9; the policy delivers 21–26 mm, under
   half. Determine whether the term saturates, is outcompeted by the flight and
