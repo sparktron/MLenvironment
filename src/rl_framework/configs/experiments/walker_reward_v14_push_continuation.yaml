@@ -1,0 +1,104 @@
+# Push-recovery continuation from the v9 flat result. Seed-matched, seeds 21-25.
+# Pre-registered in docs/walker_learning_history.md (2026-11-20, v14).
+#
+# A byte-for-byte copy of walker_reward_v11_uneven_terrain except the terrain
+# block and the experiment name. v11 (uneven continuation) cut uneven falls from
+# ~60% to 4-15% in 5/5 seeds; this tests whether the same lever works for
+# lateral pushes, where v9 falls in 49-75% of episodes against 1-13% on flat.
+#
+# As in v11: target_velocity is pinned at v9's final 1.0 and the velocity ramp is
+# removed, so the only difference from v9's end state is the perturbation.
+# Resume is seed-matched and must be passed explicitly:
+#   --resume outputs/walker_reward_v9_flight_cost/seed_{seed}/checkpoints/final_model.zip
+# Budget: 5M continuation steps, as v11.
+experiment_name: walker_reward_v14_push_continuation
+seed: 21
+
+environment:
+  type: walker_bullet
+  seed: 21
+  observation:
+    version: v2
+    coordinate_free: true
+    include_gait_phase: true
+  gait:
+    cycle_period_s: 0.55
+    stance_duty: 0.6
+  sim:
+    gravity: -9.81
+    mass: 28.0
+    friction: 0.9
+    max_force: 35.0
+    timestep: 0.004166667
+    frame_skip: 4
+    settle_steps: 30
+    action_scale: 0.5
+    control:
+      mode: pd
+      position_gain: 0.1
+      velocity_gain: 1.0
+  terrain:
+    # THE SINGLE INTERVENTION: flat -> lateral pushes, the exact spec the
+    # transfer suite measures (180 N for 0.1 s at the torso COM, random +/-y,
+    # every 120 steps from step 120). Held-out push conditions in the
+    # pre-registration test whether the policy learns balance or the schedule.
+    preset: push_recovery
+    push_recovery:
+      interval_steps: 120
+      start_step: 60
+      force: 180.0
+      duration_s: 0.1
+  reward:
+    alive_bonus: 0.10
+    forward_velocity_weight: 1.0
+    # Pinned at v9's final ramped value; see the note above.
+    target_velocity: 1.0
+    velocity_mode: clipped_linear
+    orientation_penalty_weight: 1.0
+    torque_penalty_weight: 0.02
+    fall_penalty: 2.0
+    action_rate_penalty_weight: 0.10
+    swing_clearance_weight: 0.0
+    bilateral_clearance_weight: 8.0
+    bilateral_clearance_target: 0.05
+    touchdown_rate_penalty_weight: 1.0
+    max_cycle_frequency_hz: 2.5
+    flight_penalty_weight: 1.0
+    gait_symmetry_penalty_weight: 0.5
+    double_support_reward_weight: 0.0
+    phase_contact_weight: 1.0
+    phase_double_support_reward_weight: 0.5
+    stance_slip_penalty_weight: 0.35
+    stance_slip_penalty_clip: 1.5
+  termination:
+    min_height: 0.18
+    max_height: 1.5
+    max_steps: 800
+  reset_randomization:
+    position_xy_noise: 0.02
+    yaw_noise: 0.08
+  domain_randomization:
+    mass_scale_range: [0.95, 1.05]
+    friction_range: [0.9, 1.1]
+
+training:
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 5000000
+  num_envs: 24
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 10
+  learning_rate: 0.0003
+  gamma: 0.995
+  log_std_init: -1.0
+  ent_coef: 0.001
+  checkpoint_every: 1000000
+  normalize_observations: true
+  device: cpu
+
+evaluation:
+  episodes: 20
+
+output:
+  base_dir: outputs

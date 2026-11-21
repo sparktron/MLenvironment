@@ -1,6 +1,6 @@
 # Current Status
 
-**Updated:** 2026-11-18 · **Branch:** `master` · **Restructure baseline:** `ae6f09b`
+**Updated:** 2026-11-20 · **Branch:** `master` · **Restructure baseline:** `ae6f09b`
 
 ## Objective
 
@@ -78,11 +78,16 @@ regression then found that no reward term charges for lift at all (+1.4 to +2.6
 reward per 10 mm, 5/5 seeds; observational). A forced-lift intervention then
 showed the opposite causally: swing flexion offsets gain only +2–5 mm while
 falls climb to 80–95% (lift is costly, 3/5), so the ~25 mm cap is the
-policy's balance, not the reward. The clearance-reward line is closed. Open
-decision: whether push recovery (49–75% falls) is the next target.
+policy's balance, not the reward. The clearance-reward line is closed. On
+2026-11-20 the owner chose push recovery as the next target. **v14
+(push-recovery continuation from v9) is pre-registered** in the ledger: Step 0
+fall-timing telemetry on v9, then 5M steps under the transfer-suite push spec,
+scored on 180 N push falls, two held-out push conditions, flat retention, and
+forced-lift tolerance. Not run yet.
 
 Research decisions the 2026-11-14 review raised and left to the owner: whether
-lateral push recovery is in scope (the robot has no hip roll), a multi-seed
+lateral push recovery is in scope (the robot has no hip roll; v14 assumes yes
+because the owner chose the target the lateral suite measures), a multi-seed
 capacity comparison now that `training.net_arch` exists, a frozen gate with
 held-out seeds, and a phase-indexed swing-height reference.
 
