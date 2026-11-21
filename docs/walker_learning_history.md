@@ -2873,3 +2873,186 @@ terrain/obstacle curriculum, which is out of scope for a reward tweak and needs
 its own pre-registration), or the exteroception route. The STATUS question of
 whether push recovery (49–75% falls) is the next target is now the open
 decision. It may be related: both are balance under perturbation.
+
+## 2026-11-20 — Single-push recovery screening (protocol, before full run)
+
+**Question:** which push directions, strengths and foot-contact phases cause
+v9 to fall, relative to the same episode without a push? No training.
+**Hypothesis:** at 180 N, lateral pushes cause at least 10 percentage points
+more paired excess falls than sagittal pushes in at least 3/5 policy seeds.
+Failure to meet that rule refutes the hypothesis in this screening protocol.
+Phase dependence is exploratory: report the full matrix, without selecting a
+phase after looking at outcomes and calling it a confirmatory test.
+
+**Exact configuration:** `scripts/walker_push_diagnostic.py --seed S
+--episodes 20 --forces 60,120,180 --directions forward,backward,left,right
+--phases right_support,left_support,double_support,flight --duration 0.1
+--warmup 120 --search-end 240 --horizon 180 --out
+outputs/_reports/push_diagnostic/seed_S`, S = 21,22,23,24,25.
+The five existing v9 final checkpoints are evaluated on their original flat
+configuration. Production `PushController.apply_tick` applies a world-axis
+force at the moving torso COM on each of 24 physics ticks. Positive x is
+forward, negative x backward, positive y left, negative y right; these are
+world axes, with yaw recorded. Impulses are 6, 12 and 18 N s.
+
+**Pairing and eligibility:** the unpushed reference supplies the first step
+in [120,240) with each of four raw foot-contact states. Each eligible phase
+gets all 12 direction/force conditions, followed for 180 steps (3 s). Missing
+phases and falls before phase eligibility are recorded, not replaced. Every
+trial starts in a fresh world, with environment and policy RNG seed
+`100000 + 1000*S + episode_index` (indices 0–19). Before the push, its trace
+must match the reference within 1e-9 or the run aborts. A smoke test exposed
+that reusing a reset world does not satisfy this check; fresh worlds do.
+No outcome rates from the smoke test have informed the hypothesis or grid.
+
+**Outcomes:** fall within 3 s (primary), paired excess falls and return versus
+the reference over that same window, time to fall, torso roll/pitch and angular
+velocities, lateral/forward speeds, minimum height, flight fraction, contact
+transitions, and trajectory samples at 0, .1, .25, .5, 1, 2 and 3 s. A fall
+ends observation; absent late samples are censored, not zeros. Time-to-fall
+medians are conditional on falling. Each force/direction/phase cell gets Wilson
+intervals and paired episode-bootstrap intervals. Across-phase comparisons
+average within episode first (phases are correlated), then compare seeds.
+With 20 episodes this is screening, not a training acceptance test.
+
+**Evidence:** each output directory has metadata (actual config, checkpoint
+SHA256, code commit and dirty status, Python/library versions), raw episode
+records, eligibility and summary JSON, and gzipped full trajectories. Essential
+raw episode records including sampled trajectories and metadata will also be
+retained under `docs/experiments/`; full-resolution trajectories in gitignored
+`outputs/` are supplementary and rebuildable. Run the five seeds in parallel
+on CPU with `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`; bootstrap RNG seed 0.
+The script/protocol commit precedes the full run, and the run metadata records
+its exact SHA. The protocol was added on parent `aacbc11`.
+
+**Decision rule:** prioritize training on sagittal pushes only if there is a
+reproducible deficit there (positive excess falls in at least 3/5 seeds at a
+fixed strength). If the measurable gap is confined to lateral pushes, first
+resolve whether that target is in scope for this robot's sagittal joints.
+If isolated pushes rarely fail, diagnose accumulated/repeated perturbations
+next; do not treat successful single-push survival as explaining the existing
+49–75% repeated-push episode fall rate. Any training gets its own pre-registration
+and flat-ground retention criterion.
+
+**Interpretation boundary:** the 2026-11-18 flexion experiment established a
+cost for those action pulses on existing policies. It did not establish that
+balance alone caps natural clearance, nor identify state confounding as the
+unique cause of the observational lift/reward association. Those explanations
+remain hypotheses.
+
+## 2026-11-20 — v14 Push-Recovery Continuation (pre-registration)
+
+**Why this target.** On 2026-11-20 the owner chose push recovery as the next
+target, settling the open STATUS decision left by the forced-lift result. The
+gap being measured is **lateral**: the transfer suite pushes only along ±y (180 N
+for 0.1 s at the torso COM, up to six pushes at steps 121, 241, …, 721 of 800).
+The robot has no hip or ankle roll, so its only responses to a lateral push are
+indirect: step timing, yaw, and passive foot width. This entry treats lateral
+push recovery as in scope because the owner chose the target that metric
+measures. If the owner rules lateral pushes out, v14 is withdrawn, not modified.
+It complements the 2026-11-20 single-push screening protocol, which asks *which*
+isolated pushes fail by direction, force and phase. This entry asks whether
+*training under the production push schedule* fixes the repeated-push fall
+rate. If the screening finds a sagittal deficit, sagittal push training is a
+separate arm with its own pre-registration; it does not change v14.
+
+**Existing evidence (already-recorded reports; no new data):**
+
+- v9 falls in 49, 65, 65, 74 and 75% of push episodes, against 1, 3, 13, 12 and
+  2% on flat (seeds 21–25, 100 stochastic episodes each).
+- v11 (uneven continuation) did not help push: 57–71%. On its own terrain it
+  cut falls from ~60% to 4–15% in 5/5 seeds. Training on the perturbation
+  itself is the one lever that has worked here.
+- Per-push survival for 30 steps is 98.6–100%, yet half to three quarters of
+  episodes fall. So falls arrive more than 0.5 s after a push, or accumulate
+  across pushes, and the 30-step metric cannot see them.
+- Forced lift (2026-11-18): these policies also fail to absorb a perturbation to
+  the swing leg.
+
+**Smoke test (disclosed).** The v14 config builds and steps. Three stochastic
+episodes of the v9 seed-21 policy in the v14 env: pushes landed at steps 121,
+241, …, 721 as scheduled; two episodes survived all six, and one fell at step
+219, 98 steps after its only push. No other v14-setup outcome data has been
+seen.
+
+**Step 0 (telemetry on v9, no training).** Run and recorded before v14 is
+evaluated. It neither gates v14 nor changes its config; it fixes the mechanism
+reading. Its script is committed before the run. 100 stochastic episodes per v9
+seed, using the transfer-suite push spec and episode seeds. For each fall,
+record: step, lag since the most recent push, that push's direction, the sign
+of torso roll at the fall, and yaw change since reset. Only falls in complete
+push cycles (steps 121–720) enter the lag test. Falls before the first push and
+after step 720 are reported separately. Pooled over seeds, with 95%
+episode-bootstrap intervals; per-seed values reported:
+
+- **Acute:** the share of falls at lag ≤ 60 steps (1 s) has its interval
+  entirely above 0.5 (what a constant hazard over the 120-step cycle gives)
+  **and** the share falling toward the last push has its interval entirely
+  above 0.5. Pushes knock the robot over within a second.
+- **Acute, undirected:** timing as above, but the direction interval is not
+  above 0.5.
+- **Delayed/cumulative:** the lag-share interval is not above 0.5. Pushes leave a
+  state (heading, lateral drift, a disrupted gait) that fails later.
+
+**Single intervention.** `walker_reward_v14_push_continuation` (committed with
+this entry) is `walker_reward_v11_uneven_terrain` with the terrain block
+replaced by the transfer-suite push spec. The diff is the terrain block and the
+experiment name; every reward, sim, termination and training value is
+unchanged. Continue each v9 seed's `final_model.zip` for 5M steps, seeds 21–25,
+seed-matched, with `num_envs: 24`, `device: cpu` and `OMP_NUM_THREADS=1
+MKL_NUM_THREADS=1`, via `multi-seed --resume
+outputs/walker_reward_v9_flight_cost/seed_{seed}/checkpoints/final_model.zip`.
+Budget as v11: ~1.7 h training, ~3 h with evaluation.
+
+**Evaluation.** 100 stochastic episodes per condition with Wilson 95%
+intervals; v9 and v14 on the same episode seeds:
+
+- The transfer suite: flat, uneven, obstacles 2/3/10 cm, push 180 N.
+- Two held-out push conditions, never trained on. **P-strong:** 240 N on the
+  same schedule. **P-timing:** 180 N every 90 steps from step 90 (first push at
+  91). The option or script for these is committed before evaluation.
+- Forced lift: `scripts/walker_forced_lift.py --episodes 100 --doses 0,0.4` on
+  v9 and v14. The 40-episode 2026-11-18 numbers are not reused.
+
+**Hypotheses** (per seed vs the same v9 seed; "improves" means v14's fall-rate
+Wilson interval lies entirely below v9's; all five seeds reported, and a
+failing seed blocks a claim):
+
+- **H-push (primary).** Push (180 N) falls improve in ≥4/5 seeds. *Refuted if*
+  ≤1/5. Otherwise inconclusive.
+- **H-general.** Holds if P-strong and P-timing both improve in ≥3/5 seeds.
+  *Refuted if* either improves in ≤1/5. Otherwise inconclusive. This separates
+  learning balance from learning the push schedule.
+- **H-cost (flat retention).** Flat falls stay within 10 points of v9 in ≥4/5
+  seeds, and flat forward displacement is no more than 10% below v9's in ≥4/5
+  seeds. *Refuted if* either fails.
+- **H-balance (secondary, scored).** Forced-lift falls at dose 0.4 improve in
+  ≥3/5 seeds. *Refuted if* ≤1/5. This tests whether push training also buys
+  tolerance of a swing-leg perturbation, the balance that capped lift on
+  2026-11-18. Clearance at dose 0 is reported.
+- **Reported, not scored:** uneven, obstacles 2/3 cm, per-push survival at 30,
+  60 and 120 steps, episode return.
+
+**Decision rule.**
+
+- **Adopt v14 as the new base** if H-push holds and H-cost is not refuted.
+- **H-push holds but H-general is refuted:** the policy fitted the schedule. Do
+  not adopt it as a balance result. A randomised push schedule is next (own
+  pre-registration).
+- **H-push and H-balance both hold:** perturbation training builds the balance
+  that lift needs. An obstacle curriculum on top of v14 becomes the next
+  candidate (own pre-registration).
+- **H-push refuted:** 5M steps of push training does not fix this embodiment.
+  Record it with the Step 0 mechanism. The candidate after that is a lateral DOF
+  (hip roll), an embodiment change that breaks checkpoints, not a reward tweak.
+
+**Not controlled:**
+
+- Evaluation episode seeds come from the transfer suite and are not checked for
+  overlap with training episode seeds (as for v11).
+- Push timing is fixed in training; H-general exists to detect fitting it.
+- The 5M-step budget is copied from v11, not tuned.
+
+**Out of scope:** reward changes, force ramps or curricula, randomised
+schedules, sagittal pushes in training, hip roll, longer budgets. Each would
+confound the single intervention.
