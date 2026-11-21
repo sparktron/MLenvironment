@@ -76,14 +76,26 @@ was **not run** because its Step 0 gate failed: lift costs almost no flight
 (share 0.003–0.072 < 0.3), so airtime is not what caps it. A per-component
 regression then found that no reward term charges for lift at all (+1.4 to +2.6
 reward per 10 mm, 5/5 seeds; observational). A forced-lift intervention then
-showed the opposite causally: swing flexion offsets gain only +2–5 mm while
-falls climb to 80–95% (lift is costly, 3/5), so the ~25 mm cap is the
-policy's balance, not the reward. The clearance-reward line is closed. On
+showed that swing flexion offsets gain only +2–5 mm while falls climb to
+80–95% (costly in 3/5 seeds). This establishes the cost of those pulses on
+existing policies; balance as the unique cause of the natural clearance cap
+remains unconfirmed. The clearance-reward line is closed. On
 2026-11-20 the owner chose push recovery as the next target. **v14
 (push-recovery continuation from v9) is pre-registered** in the ledger: Step 0
 fall-timing telemetry on v9, then 5M steps under the transfer-suite push spec,
 scored on 180 N push falls, two held-out push conditions, flat retention, and
-forced-lift tolerance. Not run yet.
+forced-lift tolerance. Training and that repeated-push Step 0 are not run yet.
+
+**Single-push screening completed (2026-11-20):** 4,800 paired trials on five
+v9 seeds, with exact pre-push replay verified. At 180 N, lateral excess falls
+are +3.8–19.4 points versus matched unpushed windows; the lateral-minus-sagittal
+gap reaches 10 points in 3/5 seeds (registered hypothesis holds). Forward
+pushes also show a smaller deficit in 3/5 seeds. No 180 N fall occurs within
+0.5 s; conditional medians are roughly 1–1.3 s. Double-support triggers are
+at least as vulnerable as flight in this exploratory sample. Evidence is
+retained in `docs/experiments/push_diagnostic_2026-11-20/`. Next: the separately
+registered v14 Step 0, 100 episodes per seed under repeated lateral pushes,
+to measure fall timing/direction across production push cycles.
 
 Research decisions the 2026-11-14 review raised and left to the owner: whether
 lateral push recovery is in scope (the robot has no hip roll; v14 assumes yes
@@ -113,11 +125,11 @@ None identified from repository evidence.
 
 | Check | Status |
 |---|---|
-| `pytest -q --cov=src/rl_framework --cov-fail-under=60` | Passed locally on Python 3.11 on 2026-11-17: 653 tests, 85.6% coverage. |
+| `pytest -q --cov=src/rl_framework --cov-fail-under=60` | Passed locally on Python 3.11 on 2026-11-20: 656 tests, 85.64% coverage; multiprocessing required sandbox escalation. |
 | `ruff check src tests scripts` | Passed locally. |
 | `python scripts/check_repo_policy.py` | Passed locally. |
 | `mypy src --ignore-missing-imports` | Clean; **blocking** in CI since 2026-11-14. |
-| Learning results | Multi-seed evidence recorded in `docs/walker_learning_history.md` through v12. |
+| Learning results | Multi-seed evidence recorded through the 2026-11-20 single-push screening; v14 training pending. |
 
 Full evidence breakdown, including why "tests pass" is not "the hypothesis
 held": [`VALIDATION.md`](VALIDATION.md).

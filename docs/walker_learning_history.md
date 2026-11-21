@@ -3056,3 +3056,117 @@ failing seed blocks a claim):
 **Out of scope:** reward changes, force ramps or curricula, randomised
 schedules, sagittal pushes in training, hip roll, longer budgets. Each would
 confound the single intervention.
+
+## 2026-11-20 — Single-push screening: lateral deficit confirmed; failures lag the pulse
+
+**Protocol:** the single-push screening pre-registration above, diagnostic
+code `939486a`, unchanged during the run. Five policy seeds, 20 reference
+episodes each, 48 pushed replays per reference: **4,800 push trials plus 100
+unpushed reference rollouts**. All four phases were eligible in every reference.
+Every replay matched the reference exactly before the push (maximum error 0),
+and every push lasted 24 physics ticks. No incomplete or excluded trials.
+Metadata reports an untracked v14 configuration being prepared concurrently;
+the diagnostic loaded only the committed v9 config and frozen checkpoint and
+normalization files, whose hashes are saved.
+
+**Durable evidence:** `docs/experiments/push_diagnostic_2026-11-20/` contains
+all 4,800 raw outcome records, sampled trajectories, eligibility and run
+metadata in `seed_{21..25}.json.gz`, plus `summary.json` and schema/reproduction
+instructions. Full-resolution supplementary traces remain at
+`outputs/_reports/push_diagnostic/seed_S/traces.jsonl.gz`. Analysis command:
+`python scripts/walker_push_summary.py`. Intervals resample 20 reference
+episodes per seed, after averaging correlated phase/direction replays within
+an episode. These are screening intervals, without multiplicity correction.
+
+### Observed
+
+**Excess falls over the matched baseline, percentage points**, averaged over
+both directions in each family and all four contact phases. Each family/force
+uses 160 replays per policy seed, clustered into 20 reference episodes:
+
+| force, family | s21 | s22 | s23 | s24 | s25 |
+|---|---:|---:|---:|---:|---:|
+| 60 N lateral | +0.63 | −3.13 | 0 | −6.25 | 0 |
+| 60 N sagittal | +1.25 | −2.50 | +2.50 | −6.25 | 0 |
+| 120 N lateral | +3.75 | +1.25 | +3.13 | −3.13 | +1.25 |
+| 120 N sagittal | +2.50 | −1.88 | +5.00 | −6.88 | +1.88 |
+| **180 N lateral** | **+12.50** | **+17.50** | **+15.63** | **+3.75** | **+19.38** |
+| **180 N sagittal** | **+6.25** | **0** | **+5.63** | **−2.50** | **+3.75** |
+
+At 180 N, raw pushed fall rates are 12.5, 22.5, 15.6, 11.3, 19.4% lateral,
+and 6.3, 5.0, 5.6, 5.0, 3.8% sagittal. Baseline fall rates over the same
+phase-specific windows are 0, 5, 0, 7.5, 0%. Negative excesses at weaker forces
+reflect differences on a few matched episodes, not evidence that weak pushes
+improve balance.
+
+**Primary hypothesis:** lateral minus sagittal excess falls at 180 N:
+
+| seed | difference (points) | episode-bootstrap 95% interval |
+|---|---:|---:|
+| 21 | +6.25 | +1.88 to +10.63 |
+| 22 | +17.50 | +10.00 to +25.00 |
+| 23 | +10.00 | +3.13 to +17.50 |
+| 24 | +6.25 | −0.63 to +12.50 |
+| 25 | +15.63 | +8.13 to +22.50 |
+
+**Holds by the registered point-estimate rule, exactly 3/5 seeds** (22, 23,
+25 reach ≥10 points). This rule did not require the lower confidence bound
+to exceed 10 points. The difference is positive in all five seeds, with
+intervals excluding zero in four. The sagittal screening criterion also passes:
+positive excess falls at a fixed force in 3/5 seeds (21, 23, 25 at 180 N;
+their intervals also exclude zero). Within sagittal directions, **forward**
+push excesses are +10, +2.5, +10, −1.25, +7.5 points; **backward** pushes
+are +2.5, −2.5, +1.25, −3.75, 0. The deficit is not exclusively lateral.
+
+**Timing:** among the 800 lateral 180 N trials there are 130 falls; the 800
+sagittal trials have 41. **None of these 171 falls occurs within 0.5 s.**
+Lateral per-seed median time to fall is 1.24, 0.99, 1.23, 1.28, 1.05 s;
+sagittal medians are 1.13, 1.20, 0.93, 1.28, 1.13 s. These medians condition
+on falling and include falls that also occurred in the reference. Only 44/130
+lateral falls and 12/41 sagittal falls arrive within 1 s. This isolated-push
+sample supports measuring beyond the old 30-step per-push survival window.
+It does not score the separate v14 repeated-push Step 0 lag test.
+
+**Motion/contact response (exploratory, matched at fixed time):** at the end
+of a 180 N lateral pulse (0.1 s), mean absolute lateral speed is 0.210 m/s
+higher and absolute roll rate 0.326 rad/s higher than the reference. At 0.5 s,
+all 800 trials in each family are still observed: lateral pushes raise mean
+absolute roll by 0.052 rad, absolute pitch by 0.023 rad, and the probability
+of both feet being off the ground by 5.13 points. Corresponding sagittal
+changes are +0.004 rad roll, +0.012 rad pitch and +2.75 points flight.
+These are descriptive pooled trial averages, not independent-observation tests.
+Raw records also retain full-window extrema and contact-transition counts;
+those depend on survival time and should not be compared as if exposure were
+constant.
+
+**Phase:** at 180 N, double-support triggers have lateral excess falls of
+17.5, 17.5, 20, 10, 27.5 points, versus flight triggers' 10, 10, 10, 0, 22.5.
+Double support is at least as bad as flight in all five seeds in this sample.
+There is no support here for selecting flight as the uniquely vulnerable
+phase. The first-occurrence selection also changes trigger time and state;
+these phase contrasts are exploratory, not causal phase effects.
+
+### Interpretation and next decision
+
+**Inference:** the initial lateral velocity/roll disturbance is followed by
+changes to tilt and contacts before falls roughly a second later. This is
+consistent with disrupted balance developing over several steps rather than
+an immediate knockdown. The experiment does not distinguish controller
+limitations from embodiment limits, and does not establish whether repeated
+pushes accumulate damage/drift across cycles.
+
+**Decision:** lateral recovery is a measurable target, and the forward-push
+arm merits separate confirmation. Keep the independently pre-registered v14
+production-schedule arm unchanged; any sagittal training is a separate
+experiment. The next diagnostic is **v14 Step 0: fall timing and direction
+under the repeated production push schedule, 100 episodes per seed**, as fixed
+in its own entry. Its findings should distinguish acute falls from delayed or
+accumulated failure before interpreting v14 training. No training was run in
+this screening study.
+
+**Limits:** only 20 independent reference episodes per policy seed, a three-
+second window, cold physics worlds, world-axis directions, and raw contact
+states rather than a continuous gait phase. A zero-fall 20-episode cell still
+has a Wilson upper 95% bound of about 16%; an all-zero empirical bootstrap
+interval does not remove this uncertainty. These numbers are not directly
+comparable to the 800-step, repeated-push transfer-suite episode fall rates.
